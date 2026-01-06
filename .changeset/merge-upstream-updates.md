@@ -3,6 +3,7 @@
 ---
 
 Merge upstream PRs including:
+
 - Passkey authentication support (#270)
 - Refresh token callback for claim updates (#319)
 - Add `iat` claim to access tokens (#258)

@@ -16,7 +16,7 @@ import { Provider } from "../src/provider/provider.js"
 const subjects = createSubjects({
   user: object({
     userID: string(),
-    permissions: optional(array(string()))
+    permissions: optional(array(string())),
   }),
 })
 
@@ -470,11 +470,14 @@ describe("refresh token", () => {
       { pkce: true },
     )
     let response = await issuerWithRefresh.request(url)
-    response = await issuerWithRefresh.request(response.headers.get("location")!, {
-      headers: {
-        cookie: response.headers.get("set-cookie")!,
+    response = await issuerWithRefresh.request(
+      response.headers.get("location")!,
+      {
+        headers: {
+          cookie: response.headers.get("set-cookie")!,
+        },
       },
-    })
+    )
     const location = new URL(response.headers.get("location")!)
     const code = location.searchParams.get("code")
     const exchanged = await client.exchange(
@@ -486,7 +489,10 @@ describe("refresh token", () => {
     const initialTokens = exchanged.tokens
 
     // Verify initial token doesn't have permissions (just has userID)
-    const initialVerified = await client.verify(refreshedSubjects, initialTokens.access)
+    const initialVerified = await client.verify(
+      refreshedSubjects,
+      initialTokens.access,
+    )
     if (initialVerified.err) throw initialVerified.err
     expect(initialVerified.subject.type).toBe("user")
     expect(initialVerified.subject.properties.userID).toBe("123")
@@ -495,16 +501,19 @@ describe("refresh token", () => {
 
     // Refresh the token
     setSystemTime(Date.now() + 1000 * 60 + 1000)
-    response = await issuerWithRefresh.request("https://auth.example.com/token", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
+    response = await issuerWithRefresh.request(
+      "https://auth.example.com/token",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: initialTokens.refresh,
+        }).toString(),
       },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: initialTokens.refresh,
-      }).toString(),
-    })
+    )
     expect(response.status).toBe(200)
     const refreshed = await response.json()
     expect(refreshCallCount).toBe(1)
