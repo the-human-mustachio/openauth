@@ -1,5 +1,11 @@
 # @openauthjs/openauth
 
+## 0.5.1
+
+### Patch Changes
+
+- a7a0fe9: Test automated tagging workflow.
+
 ## 0.5.0
 
 ### Minor Changes
