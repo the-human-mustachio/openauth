@@ -1,5 +1,22 @@
 # @openauthjs/openauth
 
+## 0.5.0
+
+### Minor Changes
+
+- d16751e: Merge upstream PRs including:
+  - Passkey authentication support (#270)
+  - Refresh token callback for claim updates (#319)
+  - Add `iat` claim to access tokens (#258)
+  - Security fixes for redirect URI validation (#305) and JWT audience validation
+  - Various bug fixes and type improvements
+
+### Patch Changes
+
+- 872a4cf: update google icon to comply with branding guidelines
+- 4214416: allow auth style autodetection
+- e89f282: add linkedin adapter
+
 ## 0.4.3
 
 ### Patch Changes
