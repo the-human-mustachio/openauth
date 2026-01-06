@@ -91,7 +91,10 @@ export interface CodeUIOptions {
    * }
    * ```
    */
-  sendCode: (claims: Record<string, string>, code: string) => Promise<void | CodeProviderError>
+  sendCode: (
+    claims: Record<string, string>,
+    code: string,
+  ) => Promise<void | CodeProviderError>
   /**
    * Custom copy for the UI.
    */
