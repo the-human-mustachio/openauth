@@ -9,8 +9,8 @@
     "start": "next start"
   },
   "dependencies": {
-    "@openauthjs/openauth": "^0.3.2",
-    "hono": "^4.6.16",
+    "@_mustachio/openauth": "^0.3.2",
+    "hono": "^4.11.3",
     "next": "15.1.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

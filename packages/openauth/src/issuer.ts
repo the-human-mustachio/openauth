@@ -810,6 +810,18 @@ export function issuer<
     },
   )
 
+  const metadataHandler = async (c: Context) => {
+    const iss = issuer(c)
+    return c.json({
+      issuer: iss,
+      authorization_endpoint: `${iss}/authorize`,
+      token_endpoint: `${iss}/token`,
+      jwks_uri: `${iss}/.well-known/jwks.json`,
+      response_types_supported: ["code", "token"],
+      id_token_signing_alg_values_supported: ["ES256"],
+      subject_types_supported: ["public"],
+    })
+  }
   app.get(
     "/.well-known/oauth-authorization-server",
     cors({
@@ -818,16 +830,17 @@ export function issuer<
       allowMethods: ["GET"],
       credentials: false,
     }),
-    async (c) => {
-      const iss = issuer(c)
-      return c.json({
-        issuer: iss,
-        authorization_endpoint: `${iss}/authorize`,
-        token_endpoint: `${iss}/token`,
-        jwks_uri: `${iss}/.well-known/jwks.json`,
-        response_types_supported: ["code", "token"],
-      })
-    },
+    metadataHandler,
+  )
+  app.get(
+    "/.well-known/openid-configuration",
+    cors({
+      origin: "*",
+      allowHeaders: ["*"],
+      allowMethods: ["GET"],
+      credentials: false,
+    }),
+    metadataHandler,
   )
 
   app.post(
