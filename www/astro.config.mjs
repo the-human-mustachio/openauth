@@ -96,6 +96,7 @@ export default defineConfig({
         {
           label: "Providers",
           items: [
+            { label: "M2M", slug: "docs/provider/m2m" },
             { label: "Code", slug: "docs/provider/code" },
             { label: "OIDC", slug: "docs/provider/oidc" },
             { label: "OAuth", slug: "docs/provider/oauth2" },

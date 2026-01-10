@@ -286,7 +286,7 @@ export interface IssuerInput<
    * }
    * ```
    */
-  providers: Providers
+  providers: Providers | ((ctx: Context) => Promise<Providers>)
   /**
    * The theme you want to use for the UI.
    *
@@ -775,17 +775,46 @@ export function issuer<
     }
   }>().use(logger())
 
-  for (const [name, value] of Object.entries(input.providers)) {
-    const route = new Hono<any>()
-    route.use(async (c, next) => {
-      c.set("provider", name)
-      await next()
+  const getProviders = async (c: Context): Promise<Providers> => {
+    if (typeof input.providers === "function") {
+      return input.providers(c)
+    }
+    return input.providers
+  }
+
+  if (typeof input.providers === "object") {
+    for (const [name, value] of Object.entries(input.providers)) {
+      const route = new Hono<any>()
+      route.use(async (c, next) => {
+        c.set("provider", name)
+        await next()
+      })
+      value.init(route, {
+        name,
+        ...auth,
+      })
+      app.route(`/${name}`, route)
+    }
+  } else {
+    app.all("/:provider_name/*", async (c, next) => {
+      const name = c.req.param("provider_name")
+      const providers = await getProviders(c)
+      const value = providers[name]
+      if (!value) return next()
+
+      const route = new Hono<any>()
+      route.use(async (c, next) => {
+        c.set("provider", name)
+        await next()
+      })
+      value.init(route, {
+        name,
+        ...auth,
+      })
+      const sub = new Hono()
+      sub.route(`/${name}`, route)
+      return sub.fetch(c.req.raw)
     })
-    value.init(route, {
-      name,
-      ...auth,
-    })
-    app.route(`/${name}`, route)
   }
 
   app.get(
@@ -1055,7 +1084,8 @@ export function issuer<
         const provider = form.get("provider")
         if (!provider)
           return c.json({ error: "missing `provider` form value" }, 400)
-        const match = input.providers[provider.toString()]
+        const providers = await getProviders(c)
+        const match = providers[provider.toString()]
         if (!match)
           return c.json({ error: "invalid `provider` query parameter" }, 400)
         if (!match.client)
@@ -1160,13 +1190,15 @@ export function issuer<
     await auth.set(c, "authorization", 60 * 60 * 24, authorization)
     c.set("authorization", authorization)
     if (provider) return c.redirect(`/${provider}/authorize`)
-    const providers = Object.keys(input.providers)
-    if (providers.length === 1) return c.redirect(`/${providers[0]}/authorize`)
+    const resolvedProviders = await getProviders(c)
+    const providerNames = Object.keys(resolvedProviders)
+    if (providerNames.length === 1)
+      return c.redirect(`/${providerNames[0]}/authorize`)
     return auth.forward(
       c,
       await select()(
         Object.fromEntries(
-          Object.entries(input.providers).map(([key, value]) => [
+          Object.entries(resolvedProviders).map(([key, value]) => [
             key,
             value.type,
           ]),

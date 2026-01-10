@@ -46,6 +46,30 @@ const app = issuer({
 })
 ```
 
+#### Dynamic providers
+
+You can also provide a function that returns the providers dynamically. This is useful for 
+multi-tenant applications where you want to load provider configurations from a database 
+based on the request (e.g., subdomain).
+
+```ts title="issuer.ts"
+import { GithubProvider } from "@openauthjs/openauth/provider/github"
+
+const app = issuer({
+  providers: async (ctx) => {
+    const host = ctx.req.header("host")
+    const workspace = await db.workspaces.findUnique({ where: { domain: host } })
+    
+    return {
+      github: GithubProvider({
+        clientID: workspace.githubClientID,
+        clientSecret: workspace.githubClientSecret
+      })
+    }
+  },
+})
+```
+
 #### Handle success
 
 The `success` callback receives the payload when a user completes a provider's auth flow.
@@ -153,7 +177,7 @@ Create an OpenAuth server, a Hono app.
 ## IssuerInput
 <Segment>
 <Section type="parameters">
-- <p>[<code class="key">providers</code>](#issuerinput.providers) <code class="primitive">Record</code><code class="symbol">&lt;</code><code class="primitive">string</code>, <code class="type">Provider</code><code class="symbol">&gt;</code></p>
+- <p>[<code class="key">providers</code>](#issuerinput.providers) <code class="primitive">Record&lt;string, Provider&gt; | ((ctx: Context) => Promise&lt;Record&lt;string, Provider&gt;&gt;)</code></p>
 - <p>[<code class="key">storage?</code>](#issuerinput.storage) <code class="type">StorageAdapter</code></p>
 - <p>[<code class="key">subjects</code>](#issuerinput.subjects) [<code class="type">SubjectSchema</code>](/docs/subject#subjectschema)</p>
 - <p>[<code class="key">theme?</code>](#issuerinput.theme) [<code class="type">Theme</code>](#theme)</p>
@@ -171,10 +195,13 @@ Create an OpenAuth server, a Hono app.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** <code class="primitive">Record</code><code class="symbol">&lt;</code><code class="primitive">string</code>, <code class="type">Provider</code><code class="symbol">&gt;</code>
+**Type** <code class="primitive">Record&lt;string, Provider&gt; | ((ctx: Context) => Promise&lt;Record&lt;string, Provider&gt;&gt;)</code>
 </InlineSection>
 </Section>
-The providers that you want your OpenAuth server to support.
+The providers that you want your OpenAuth server to support. 
+
+Can be a static object:
+
 ```ts title="issuer.ts"
 import { GithubProvider } from "@openauthjs/openauth/provider/github"
 
@@ -185,22 +212,15 @@ issuer({
 })
 ```
 
+Or an async function that returns the providers based on the request context:
 
-The key is just a string that you can use to identify the provider. It's passed back to
-the 
-`success`
- callback.
-
-You can also specify multiple providers.
-
-
-```ts
-{
-  providers: {
-    github: GithubProvider(),
-    google: GoogleProvider()
+```ts title="issuer.ts"
+issuer({
+  providers: async (ctx) => {
+    // Resolve providers dynamically
+    return { ... }
   }
-}
+})
 ```
 </Segment>
 <NestedTitle id="issuerinput.storage" Tag="h4" parent="IssuerInput.">storage?</NestedTitle>
