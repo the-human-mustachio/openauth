@@ -121,7 +121,9 @@ describe("dynamic providers", () => {
     // If it happens during the initial authorize, it might result in UnknownStateError
     // because the auth state isn't established yet.
     expect(response.status).toBe(400)
-    expect(await response.text()).toContain("The browser was in an unknown state")
+    expect(await response.text()).toContain(
+      "The browser was in an unknown state",
+    )
   })
 
   test("returns 404 for unknown provider even with dynamic factory", async () => {
