@@ -14,6 +14,7 @@ Add multi-tenant route support with `/tenant/:tenantId/authorize` pattern.
 This enables multi-tenant OAuth flows in environments where subdomains or headers can't be used to identify tenants (e.g., AWS Lambda URLs).
 
 Example usage:
+
 ```ts
 const app = issuer({
   providers: async (ctx) => {
