@@ -48,8 +48,8 @@ const app = issuer({
 
 #### Dynamic providers
 
-You can also provide a function that returns the providers dynamically. This is useful for 
-multi-tenant applications where you want to load provider configurations from a database 
+You can also provide a function that returns the providers dynamically. This is useful for
+multi-tenant applications where you want to load provider configurations from a database
 based on the request (e.g., subdomain).
 
 ```ts title="issuer.ts"
@@ -59,7 +59,7 @@ const app = issuer({
   providers: async (ctx) => {
     const host = ctx.req.header("host")
     const workspace = await db.workspaces.findUnique({ where: { domain: host } })
-    
+
     return {
       github: GithubProvider({
         clientID: workspace.githubClientID,
@@ -69,6 +69,53 @@ const app = issuer({
   },
 })
 ```
+
+#### Multi-tenant routes
+
+For environments where you can't use subdomains or headers to identify tenants (e.g., AWS Lambda URLs),
+OpenAuth provides explicit tenant routes that encode the tenant ID in the URL path.
+
+Use `/tenant/:tenantId/authorize` instead of `/authorize`:
+
+```ts title="issuer.ts"
+const app = issuer({
+  providers: async (ctx) => {
+    // Get tenant ID from the URL path (set automatically for tenant routes)
+    const tenantId = ctx.get("tenantId") as string
+    const config = await db.tenants.findUnique({ where: { id: tenantId } })
+
+    return {
+      cognito: CognitoProvider({
+        clientID: config.cognitoClientId,
+        clientSecret: config.cognitoClientSecret,
+      })
+    }
+  },
+  success: async (ctx, value, req) => {
+    // tenantId is available in the success callback
+    if (value.tenantId) {
+      console.log("Tenant:", value.tenantId)
+    }
+    return ctx.subject("user", {
+      userID: value.email,
+      tenantId: value.tenantId, // Store in subject for refresh access
+    })
+  },
+})
+```
+
+The tenant routes are:
+- `/tenant/:tenantId/authorize` - Entry point for tenant-specific auth
+- `/tenant/:tenantId/:provider/authorize` - Provider authorization
+- `/tenant/:tenantId/:provider/callback` - Provider callback
+
+This ensures the tenant context survives OAuth redirects, even when the callback URL can't vary per tenant.
+
+:::caution[Tenant ID Format]
+Tenant IDs must be alphanumeric with underscores and hyphens only, max 64 characters.
+Valid: `acme`, `tenant-123`, `TENANT_456`
+Invalid: `../admin`, `tenant/evil`, `<script>`
+:::
 
 #### Handle success
 

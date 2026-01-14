@@ -91,6 +91,24 @@
  * })
  * ```
  *
+ * #### Multi-tenant routes
+ *
+ * For environments where subdomains or headers can't identify tenants (e.g., Lambda URLs),
+ * use explicit tenant routes: `/tenant/:tenantId/authorize` instead of `/authorize`.
+ *
+ * ```ts title="issuer.ts"
+ * const app = issuer({
+ *   providers: async (ctx) => {
+ *     const tenantId = ctx.get("tenantId") as string
+ *     const config = await db.tenants.findUnique({ where: { id: tenantId } })
+ *     return { github: GithubProvider({ clientID: config.githubClientId, ... }) }
+ *   },
+ *   success: async (ctx, value) => {
+ *     return ctx.subject("user", { userID: value.email, tenantId: value.tenantId })
+ *   }
+ * })
+ * ```
+ *
  * #### Deploy
  *
  * Since `issuer` is a Hono app, you can deploy it anywhere Hono supports.
@@ -182,6 +200,7 @@ export interface AuthorizationState {
     challenge: string
     method: "S256"
   }
+  tenantId?: string
 }
 
 /**
@@ -208,6 +227,13 @@ import { DynamoStorage } from "./storage/dynamo.js"
 import { MemoryStorage } from "./storage/memory.js"
 import { cors } from "hono/cors"
 import { logger } from "hono/logger"
+
+// Tenant ID validation: alphanumeric, underscore, hyphen, 1-64 chars
+const TENANT_ID_REGEX = /^[a-zA-Z0-9_-]{1,64}$/
+
+function isValidTenantId(tenantId: string): boolean {
+  return TENANT_ID_REGEX.test(tenantId)
+}
 
 /** @internal */
 export const aws = awsHandle
@@ -282,6 +308,25 @@ export interface IssuerInput<
    *   providers: {
    *     github: GithubProvider(),
    *     google: GoogleProvider()
+   *   }
+   * }
+   * ```
+   *
+   * For multi-tenant applications, you can provide a function that returns providers dynamically.
+   * When using tenant routes (`/tenant/:tenantId/authorize`), the tenant ID is available via
+   * `ctx.get("tenantId")`:
+   *
+   * ```ts
+   * {
+   *   providers: async (ctx) => {
+   *     const tenantId = ctx.get("tenantId") as string
+   *     const config = await db.tenants.findUnique({ where: { id: tenantId } })
+   *     return {
+   *       github: GithubProvider({
+   *         clientID: config.githubClientId,
+   *         clientSecret: config.githubClientSecret,
+   *       })
+   *     }
    *   }
    * }
    * ```
@@ -385,6 +430,9 @@ export interface IssuerInput<
    *
    * This is called after the user has been redirected back to your app after the OAuth flow.
    *
+   * The `value` parameter includes `provider` (the provider name) and any provider-specific
+   * data. When using tenant routes (`/tenant/:tenantId/authorize`), it also includes `tenantId`.
+   *
    * @example
    * ```ts
    * {
@@ -399,7 +447,9 @@ export interface IssuerInput<
    *       userID = ... // lookup user or create them
    *     }
    *     return ctx.subject("user", {
-   *       userID
+   *       userID,
+   *       // For multi-tenant, store tenantId in subject for refresh access
+   *       tenantId: value.tenantId,
    *     })
    *   },
    *   // ...
@@ -491,6 +541,7 @@ export function issuer<
     [key in keyof Providers]: Prettify<
       {
         provider: key
+        tenantId?: string
       } & (Providers[key] extends Provider<infer T> ? T : {})
     >
   }[keyof Providers],
@@ -556,10 +607,20 @@ export function issuer<
 
   const auth: Omit<ProviderOptions<any>, "name"> = {
     async success(ctx: Context, properties: any, successOpts) {
+      const authorization = await getAuthorization(ctx)
+      const tenantIdFromPath = ctx.get("tenantId") as string | undefined
+
+      // Security: Verify tenantId matches what was stored at authorize time
+      if (authorization.tenantId !== tenantIdFromPath) {
+        const url = new URL(authorization.redirect_uri)
+        url.searchParams.set("error", "invalid_request")
+        url.searchParams.set("error_description", "Tenant ID mismatch")
+        return ctx.redirect(url.toString())
+      }
+
       return await input.success(
         {
           async subject(type, properties, subjectOpts) {
-            const authorization = await getAuthorization(ctx)
             const subject = subjectOpts?.subject
               ? subjectOpts.subject
               : await resolveSubject(type, properties)
@@ -619,6 +680,7 @@ export function issuer<
         },
         {
           provider: ctx.get("provider"),
+          tenantId: authorization.tenantId,
           ...properties,
         },
         ctx.req.raw,
@@ -1188,6 +1250,87 @@ export function issuer<
     )
   })
 
+  app.get("/tenant/:tenantId/authorize", async (c) => {
+    const tenantId = c.req.param("tenantId")
+
+    // Validate tenantId to prevent path traversal/injection attacks
+    if (!isValidTenantId(tenantId)) {
+      return c.json({ error: "invalid_tenant_id" }, 400)
+    }
+
+    c.set("tenantId", tenantId)
+    const provider = c.req.query("provider")
+    const response_type = c.req.query("response_type")
+    const redirect_uri = c.req.query("redirect_uri")
+    const state = c.req.query("state")
+    const client_id = c.req.query("client_id")
+    const audience = c.req.query("audience")
+    const code_challenge = c.req.query("code_challenge")
+    const code_challenge_method = c.req.query("code_challenge_method")
+    const authorization: AuthorizationState = {
+      response_type,
+      redirect_uri,
+      state,
+      client_id,
+      audience,
+      pkce:
+        code_challenge && code_challenge_method
+          ? {
+              challenge: code_challenge,
+              method: code_challenge_method,
+            }
+          : undefined,
+      tenantId,
+    } as AuthorizationState
+
+    if (!redirect_uri) {
+      return c.text("Missing redirect_uri", { status: 400 })
+    }
+
+    if (!response_type) {
+      throw new MissingParameterError("response_type")
+    }
+
+    if (!client_id) {
+      throw new MissingParameterError("client_id")
+    }
+
+    if (input.start) {
+      await input.start(c.req.raw)
+    }
+
+    if (
+      !(await allow()(
+        {
+          clientID: client_id,
+          redirectURI: redirect_uri,
+          audience,
+        },
+        c.req.raw,
+      ))
+    )
+      throw new UnauthorizedClientError(client_id, redirect_uri)
+    await auth.set(c, "authorization", 60 * 60 * 24, authorization)
+    c.set("authorization", authorization)
+    if (provider) return c.redirect(`/tenant/${tenantId}/${provider}/authorize`)
+    const resolvedProviders = await getProviders(c)
+    const providerNames = Object.keys(resolvedProviders)
+    if (providerNames.length === 1)
+      return c.redirect(`/tenant/${tenantId}/${providerNames[0]}/authorize`)
+    return auth.forward(
+      c,
+      await select()(
+        Object.fromEntries(
+          Object.entries(resolvedProviders).map(([key, value]) => [
+            key,
+            value.type,
+          ]),
+        ),
+        c.req.raw,
+      ),
+    )
+  })
+
   app.get("/userinfo", async (c) => {
     const header = c.req.header("Authorization")
 
@@ -1246,6 +1389,37 @@ export function issuer<
   })
 
   if (typeof input.providers === "function") {
+    // Tenant-specific provider routes (must be before generic /:provider_name/*)
+    app.all("/tenant/:tenantId/:provider_name/*", async (c, next) => {
+      const tenantId = c.req.param("tenantId")
+
+      // Validate tenantId to prevent path traversal/injection attacks
+      if (!isValidTenantId(tenantId)) {
+        return c.json({ error: "invalid_tenant_id" }, 400)
+      }
+
+      c.set("tenantId", tenantId)
+      const name = c.req.param("provider_name")
+      const providers = await getProviders(c)
+      const value = providers[name]
+      if (!value) return next()
+
+      const route = new Hono<any>()
+      route.use(async (c, next) => {
+        c.set("provider", name)
+        c.set("tenantId", tenantId)
+        await next()
+      })
+      value.init(route, {
+        name,
+        ...auth,
+      })
+      const sub = new Hono()
+      sub.route(`/tenant/${tenantId}/${name}`, route)
+      return sub.fetch(c.req.raw)
+    })
+
+    // Generic provider routes (for non-tenant flows)
     app.all("/:provider_name/*", async (c, next) => {
       const name = c.req.param("provider_name")
       const providers = await getProviders(c)
