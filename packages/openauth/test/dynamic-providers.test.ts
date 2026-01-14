@@ -117,13 +117,11 @@ describe("dynamic providers", () => {
     const response = await auth.request(
       "https://auth.example.com/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
     )
-    // issuer.ts maps internal errors to the error() handler.
-    // If it happens during the initial authorize, it might result in UnknownStateError
-    // because the auth state isn't established yet.
-    expect(response.status).toBe(400)
-    expect(await response.text()).toContain(
-      "The browser was in an unknown state",
-    )
+    // When an error happens during /authorize, it should redirect back with an OAuth error
+    expect(response.status).toBe(302)
+    const location = response.headers.get("location")!
+    expect(location).toContain("error=server_error")
+    expect(location).toContain("Database+connection+failed")
   })
 
   test("returns 404 for unknown provider even with dynamic factory", async () => {

@@ -795,26 +795,6 @@ export function issuer<
       })
       app.route(`/${name}`, route)
     }
-  } else {
-    app.all("/:provider_name/*", async (c, next) => {
-      const name = c.req.param("provider_name")
-      const providers = await getProviders(c)
-      const value = providers[name]
-      if (!value) return next()
-
-      const route = new Hono<any>()
-      route.use(async (c, next) => {
-        c.set("provider", name)
-        await next()
-      })
-      value.init(route, {
-        name,
-        ...auth,
-      })
-      const sub = new Hono()
-      sub.route(`/${name}`, route)
-      return sub.fetch(c.req.raw)
-    })
   }
 
   app.get(
@@ -1264,6 +1244,28 @@ export function issuer<
       error_description: "Invalid token",
     })
   })
+
+  if (typeof input.providers === "function") {
+    app.all("/:provider_name/*", async (c, next) => {
+      const name = c.req.param("provider_name")
+      const providers = await getProviders(c)
+      const value = providers[name]
+      if (!value) return next()
+
+      const route = new Hono<any>()
+      route.use(async (c, next) => {
+        c.set("provider", name)
+        await next()
+      })
+      value.init(route, {
+        name,
+        ...auth,
+      })
+      const sub = new Hono()
+      sub.route(`/${name}`, route)
+      return sub.fetch(c.req.raw)
+    })
+  }
 
   app.onError(async (err, c) => {
     console.error(err)
