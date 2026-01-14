@@ -834,6 +834,7 @@ export function issuer<
   const app = new Hono<{
     Variables: {
       authorization: AuthorizationState
+      tenantId: string
     }
   }>().use(logger())
 

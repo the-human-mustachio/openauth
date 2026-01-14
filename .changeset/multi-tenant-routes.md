@@ -1,5 +1,5 @@
 ---
-"@openauthjs/openauth": minor
+"@_mustachio/openauth": minor
 ---
 
 Add multi-tenant route support with `/tenant/:tenantId/authorize` pattern.
