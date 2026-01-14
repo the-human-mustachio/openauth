@@ -5,7 +5,6 @@
 ### Minor Changes
 
 - a10a721: Add multi-tenant route support with `/tenant/:tenantId/authorize` pattern.
-
   - Add `/tenant/:tenantId/authorize` route for tenant-specific auth flows
   - Add `/tenant/:tenantId/:provider/*` routes for tenant-specific provider handling
   - Pass `tenantId` to the `success` callback when using tenant routes
