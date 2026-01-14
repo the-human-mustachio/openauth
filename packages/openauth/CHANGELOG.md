@@ -1,5 +1,11 @@
 # @openauthjs/openauth
 
+## 0.6.1
+
+### Patch Changes
+
+- 8973e85: Fix dynamic provider routing by moving catch-all route after all static routes.
+
 ## 0.6.0
 
 ### Minor Changes
