@@ -113,7 +113,7 @@
  *
  * For complex multi-tenant scenarios, OpenAuth provides three additional configuration options:
  *
- * - **`basePath`** - Dynamic URL prefix when the issuer is mounted at a variable path
+ * - **`basePath`** - Dynamic URL prefix for both incoming routing and outgoing URLs when the issuer is mounted at a variable path
  * - **`cookies.path`** - Set to `"/"` so cookies work across all paths
  * - **`context`** - Extract custom data from requests, available in providers and callbacks
  *
@@ -604,11 +604,24 @@ export interface IssuerInput<
    * Base path for all routes. Can be a static string or a function that
    * receives the request and returns the path.
    *
+   * When set, OpenAuth will:
+   * 1. **Strip the basePath from incoming requests** for internal routing
+   * 2. **Prepend the basePath to outgoing URLs** (redirects, metadata endpoints)
+   *
+   * This enables clean integration when mounting the issuer at dynamic paths:
+   *
    * @example
    * ```ts
-   * basePath: "/auth/acme"
-   * // or
-   * basePath: (req) => `/auth/${req.headers.get("x-org-slug")}`
+   * const auth = issuer({
+   *   basePath: (req) => `/auth/${req.headers.get("x-org-slug")}`,
+   *   // ...
+   * })
+   *
+   * // Mount at dynamic path - no manual URL rewriting needed
+   * app.all("/auth/:orgSlug/*", (c) => {
+   *   c.req.raw.headers.set("x-org-slug", c.req.param("orgSlug"))
+   *   return auth.fetch(c.req.raw)
+   * })
    * ```
    */
   basePath?: string | ((req: Request) => string)

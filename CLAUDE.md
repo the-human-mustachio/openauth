@@ -65,7 +65,7 @@ bun test dynamic-providers # Run dynamic providers tests
 
 The issuer supports multi-tenant configurations:
 
-- `basePath` - Dynamic URL prefix for mounted issuers
+- `basePath` - Dynamic URL prefix for both incoming routing and outgoing URLs when mounted at variable paths
 - `cookies.path` - Cookie path configuration
 - `context` - Extract custom request context available in providers and callbacks
 - `tenantId` - Available via `/tenant/:tenantId/` routes
