@@ -235,7 +235,9 @@ describe("passkey provider UI", () => {
     )
     expect(authorizeResponse.status).toBe(302)
     // Should redirect to custom provider name
-    expect(authorizeResponse.headers.get("location")).toBe("/webauthn/authorize")
+    expect(authorizeResponse.headers.get("location")).toBe(
+      "/webauthn/authorize",
+    )
 
     const cookies = authorizeResponse.headers.get("set-cookie") || ""
 
