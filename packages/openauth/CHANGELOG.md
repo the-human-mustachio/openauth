@@ -1,10 +1,17 @@
 # @openauthjs/openauth
 
+## 0.8.1
+
+### Patch Changes
+
+- 97e2bd7: Fix context not being available in dynamic provider route handlers. When using dynamic providers (function), the `requestContext` is now properly propagated to the child Hono instances.
+
 ## 0.8.0
 
 ### Minor Changes
 
 - 1a39c40: Add multi-tenant support features:
+
   - **`basePath`** - Dynamic base path for routes. Can be a static string or a function that returns the path based on the request. Useful when mounting the issuer at dynamic paths.
   - **`cookies.path`** - Configure cookie path. Set to `"/"` for root-level cookies that work across all paths in multi-tenant setups.
   - **`context`** - Extract custom context from requests. The context is available in providers via `ctx.get("requestContext")` and in the success callback via `value.context`.
@@ -34,6 +41,7 @@
 ### Minor Changes
 
 - a10a721: Add multi-tenant route support with `/tenant/:tenantId/authorize` pattern.
+
   - Add `/tenant/:tenantId/authorize` route for tenant-specific auth flows
   - Add `/tenant/:tenantId/:provider/*` routes for tenant-specific provider handling
   - Pass `tenantId` to the `success` callback when using tenant routes
