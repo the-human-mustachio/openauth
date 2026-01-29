@@ -1,5 +1,32 @@
 # @openauthjs/openauth
 
+## 0.9.0
+
+### Minor Changes
+
+- 9a7885b: Add automatic basePath stripping for incoming requests
+
+  When `basePath` is configured, OpenAuth now automatically strips the base path from incoming request URLs before internal routing. This enables cleaner integration when mounting the issuer at dynamic paths:
+
+  ```typescript
+  // Before: Manual path stripping required
+  app.all("/auth/:orgSlug/:appSlug/*", (c) => {
+    const basePath = `/auth/${c.req.param("orgSlug")}/${c.req.param("appSlug")}`
+    const url = new URL(c.req.url)
+    url.pathname = url.pathname.replace(basePath, "") || "/"
+    return appAuthIssuer.fetch(cloneRequestWithUrl(c.req.raw, url.toString()))
+  })
+
+  // After: Clean integration - no manual path stripping needed
+  app.all("/auth/:orgSlug/:appSlug/*", (c) => {
+    c.req.raw.headers.set("x-org-slug", c.req.param("orgSlug"))
+    c.req.raw.headers.set("x-app-slug", c.req.param("appSlug"))
+    return appAuthIssuer.fetch(c.req.raw)
+  })
+  ```
+
+  The `basePath` option now works symmetrically for both incoming and outgoing URLs.
+
 ## 0.8.1
 
 ### Patch Changes
@@ -11,6 +38,7 @@
 ### Minor Changes
 
 - 1a39c40: Add multi-tenant support features:
+
   - **`basePath`** - Dynamic base path for routes. Can be a static string or a function that returns the path based on the request. Useful when mounting the issuer at dynamic paths.
   - **`cookies.path`** - Configure cookie path. Set to `"/"` for root-level cookies that work across all paths in multi-tenant setups.
   - **`context`** - Extract custom context from requests. The context is available in providers via `ctx.get("requestContext")` and in the success callback via `value.context`.
@@ -40,6 +68,7 @@
 ### Minor Changes
 
 - a10a721: Add multi-tenant route support with `/tenant/:tenantId/authorize` pattern.
+
   - Add `/tenant/:tenantId/authorize` route for tenant-specific auth flows
   - Add `/tenant/:tenantId/:provider/*` routes for tenant-specific provider handling
   - Pass `tenantId` to the `success` callback when using tenant routes
