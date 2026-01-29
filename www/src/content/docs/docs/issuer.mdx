@@ -46,77 +46,6 @@ const app = issuer({
 })
 ```
 
-#### Dynamic providers
-
-You can also provide a function that returns the providers dynamically. This is useful for
-multi-tenant applications where you want to load provider configurations from a database
-based on the request (e.g., subdomain).
-
-```ts title="issuer.ts"
-import { GithubProvider } from "@openauthjs/openauth/provider/github"
-
-const app = issuer({
-  providers: async (ctx) => {
-    const host = ctx.req.header("host")
-    const workspace = await db.workspaces.findUnique({ where: { domain: host } })
-
-    return {
-      github: GithubProvider({
-        clientID: workspace.githubClientID,
-        clientSecret: workspace.githubClientSecret
-      })
-    }
-  },
-})
-```
-
-#### Multi-tenant routes
-
-For environments where you can't use subdomains or headers to identify tenants (e.g., AWS Lambda URLs),
-OpenAuth provides explicit tenant routes that encode the tenant ID in the URL path.
-
-Use `/tenant/:tenantId/authorize` instead of `/authorize`:
-
-```ts title="issuer.ts"
-const app = issuer({
-  providers: async (ctx) => {
-    // Get tenant ID from the URL path (set automatically for tenant routes)
-    const tenantId = ctx.get("tenantId") as string
-    const config = await db.tenants.findUnique({ where: { id: tenantId } })
-
-    return {
-      cognito: CognitoProvider({
-        clientID: config.cognitoClientId,
-        clientSecret: config.cognitoClientSecret,
-      })
-    }
-  },
-  success: async (ctx, value, req) => {
-    // tenantId is available in the success callback
-    if (value.tenantId) {
-      console.log("Tenant:", value.tenantId)
-    }
-    return ctx.subject("user", {
-      userID: value.email,
-      tenantId: value.tenantId, // Store in subject for refresh access
-    })
-  },
-})
-```
-
-The tenant routes are:
-- `/tenant/:tenantId/authorize` - Entry point for tenant-specific auth
-- `/tenant/:tenantId/:provider/authorize` - Provider authorization
-- `/tenant/:tenantId/:provider/callback` - Provider callback
-
-This ensures the tenant context survives OAuth redirects, even when the callback URL can't vary per tenant.
-
-:::caution[Tenant ID Format]
-Tenant IDs must be alphanumeric with underscores and hyphens only, max 64 characters.
-Valid: `acme`, `tenant-123`, `TENANT_456`
-Invalid: `../admin`, `tenant/evil`, `<script>`
-:::
-
 #### Handle success
 
 The `success` callback receives the payload when a user completes a provider's auth flow.
@@ -172,6 +101,69 @@ const app = issuer({
 })
 ```
 
+#### Multi-tenant routes
+
+For environments where subdomains or headers can't identify tenants (e.g., Lambda URLs),
+use explicit tenant routes: `/tenant/:tenantId/authorize` instead of `/authorize`.
+
+```ts title="issuer.ts"
+const app = issuer({
+  providers: async (ctx) => {
+    const tenantId = ctx.get("tenantId") as string
+    const config = await db.tenants.findUnique({ where: { id: tenantId } })
+    return { github: GithubProvider({ clientID: config.githubClientId, ... }) }
+  },
+  success: async (ctx, value) => {
+    return ctx.subject("user", { userID: value.email, tenantId: value.tenantId })
+  }
+})
+```
+
+#### Advanced multi-tenant configuration
+
+For complex multi-tenant scenarios, OpenAuth provides three additional configuration options:
+
+- **`basePath`** - Dynamic URL prefix when the issuer is mounted at a variable path
+- **`cookies.path`** - Set to `"/"` so cookies work across all paths
+- **`context`** - Extract custom data from requests, available in providers and callbacks
+
+```ts title="issuer.ts"
+const app = issuer({
+  storage,
+  subjects,
+  // Dynamic base path based on request headers
+  basePath: (req) => `/auth/${req.headers.get("x-org-slug")}`,
+  // Root-level cookies that work across all paths
+  cookies: { path: "/" },
+  // Extract org/app context from each request
+  context: (req) => ({
+    orgSlug: req.headers.get("x-org-slug")!,
+    appSlug: req.headers.get("x-app-slug")!,
+  }),
+  providers: async (ctx) => {
+    const { orgSlug, appSlug } = ctx.get("requestContext") as { orgSlug: string; appSlug: string }
+    const config = await db.getAppConfig(orgSlug, appSlug)
+    return {
+      github: GithubProvider({
+        clientID: config.githubClientId,
+        clientSecret: config.githubClientSecret,
+      })
+    }
+  },
+  success: async (ctx, value) => {
+    const { orgSlug, appSlug } = value.context
+    return ctx.subject("user", {
+      userID: value.email,
+      orgSlug,
+      appSlug,
+    })
+  },
+})
+
+// Mount the issuer at a dynamic route
+honoApp.route("/auth/:orgSlug/:appSlug", app)
+```
+
 #### Deploy
 
 Since `issuer` is a Hono app, you can deploy it anywhere Hono supports.
@@ -214,41 +206,125 @@ issuer(input)
 </Section>
 <Section type="parameters">
 #### Parameters
-- <p><code class="key">input</code> [<code class="type">IssuerInput</code>](#issuerinput)</p>
+- <p><code class="key">input</code> <code class="type">IssuerInput</code></p>
 </Section>
 <InlineSection>
 **Returns** <code class="type">Hono</code>
 </InlineSection>
 Create an OpenAuth server, a Hono app.
 </Segment>
+## AllowCallbackInput
+<Segment>
+<Section type="parameters">
+- <p>[<code class="key">audience?</code>](#allowcallbackinput.audience) <code class="primitive">string</code></p>
+- <p>[<code class="key">clientID</code>](#allowcallbackinput.clientid) <code class="primitive">string</code></p>
+- <p>[<code class="key">redirectURI</code>](#allowcallbackinput.redirecturi) <code class="primitive">string</code></p>
+</Section>
+</Segment>
+<NestedTitle id="allowcallbackinput.audience" Tag="h4" parent="AllowCallbackInput.">audience?</NestedTitle>
+<Segment>
+<Section type="parameters">
+<InlineSection>
+**Type** <code class="primitive">string</code>
+</InlineSection>
+</Section>
+</Segment>
+<NestedTitle id="allowcallbackinput.clientid" Tag="h4" parent="AllowCallbackInput.">clientID</NestedTitle>
+<Segment>
+<Section type="parameters">
+<InlineSection>
+**Type** <code class="primitive">string</code>
+</InlineSection>
+</Section>
+</Segment>
+<NestedTitle id="allowcallbackinput.redirecturi" Tag="h4" parent="AllowCallbackInput.">redirectURI</NestedTitle>
+<Segment>
+<Section type="parameters">
+<InlineSection>
+**Type** <code class="primitive">string</code>
+</InlineSection>
+</Section>
+</Segment>
 ## IssuerInput
 <Segment>
 <Section type="parameters">
-- <p>[<code class="key">providers</code>](#issuerinput.providers) <code class="primitive">Record&lt;string, Provider&gt; | ((ctx: Context) => Promise&lt;Record&lt;string, Provider&gt;&gt;)</code></p>
+- <p>[<code class="key">basePath?</code>](#issuerinput.basepath) <code class="primitive">string</code><code class="symbol"> | </code><code class="primitive">(req: <code class="type">Request</code>) => <code class="primitive">string</code></code></p>
+- <p>[<code class="key">context?</code>](#issuerinput.context) <code class="primitive">(req: <code class="type">Request</code>) => <code class="type">RequestContext</code></code></p>
+- <p>[<code class="key">cookies?</code>](#issuerinput.cookies) <code class="primitive">Object</code></p>
+  - <p>[<code class="key">path?</code>](#cookies.path) <code class="primitive">string</code></p>
+- <p>[<code class="key">providers</code>](#issuerinput.providers) <code class="type">Providers</code><code class="symbol"> | </code><code class="primitive">(ctx: <code class="type">Context</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Providers</code><code class="symbol">&gt;</code></code></p>
 - <p>[<code class="key">storage?</code>](#issuerinput.storage) <code class="type">StorageAdapter</code></p>
-- <p>[<code class="key">subjects</code>](#issuerinput.subjects) [<code class="type">SubjectSchema</code>](/docs/subject#subjectschema)</p>
-- <p>[<code class="key">theme?</code>](#issuerinput.theme) [<code class="type">Theme</code>](#theme)</p>
+- <p>[<code class="key">subjects</code>](#issuerinput.subjects) <code class="type">Subjects</code></p>
+- <p>[<code class="key">theme?</code>](#issuerinput.theme) <code class="type">Theme</code></p>
 - <p>[<code class="key">ttl?</code>](#issuerinput.ttl) <code class="primitive">Object</code></p>
   - <p>[<code class="key">access?</code>](#ttl.access) <code class="primitive">number</code></p>
   - <p>[<code class="key">refresh?</code>](#ttl.refresh) <code class="primitive">number</code></p>
   - <p>[<code class="key">retention?</code>](#ttl.retention) <code class="primitive">number</code></p>
   - <p>[<code class="key">reuse?</code>](#ttl.reuse) <code class="primitive">number</code></p>
-- <p>[<code class="key">allow?</code>](#issuerinput.allow) <code class="primitive">(input: <code class="symbol">&lcub; </code><code class="key">audience</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">clientID</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">redirectURI</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol"> &rcub;</code>, req: <code class="type">Request</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="primitive">boolean</code><code class="symbol">&gt;</code></code></p>
+- <p>[<code class="key">allow?</code>](#issuerinput.allow) <code class="primitive">(input: <code class="type">AllowCallbackInput</code>, req: <code class="type">Request</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="primitive">boolean</code><code class="symbol">&gt;</code></code></p>
+- <p>[<code class="key">refresh?</code>](#issuerinput.refresh) <code class="primitive">(response: <code class="type">OnSuccessResponder</code>, input: <code class="symbol">&lcub; </code><code class="key">clientID</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">properties</code><code class="symbol">&colon; </code><code class="primitive">any</code><code class="symbol">, </code><code class="key">subject</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">type</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol"> &rcub;</code>, req: <code class="type">Request</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code></p>
 - <p>[<code class="key">select?</code>](#issuerinput.select) <code class="primitive">(providers: <code class="primitive">Record</code><code class="symbol">&lt;</code><code class="primitive">string</code>, <code class="primitive">string</code><code class="symbol">&gt;</code>, req: <code class="type">Request</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code></p>
-- <p>[<code class="key">success</code>](#issuerinput.success) <code class="primitive">(response: [<code class="type">OnSuccessResponder</code>](#onsuccessresponder), input: <code class="type">Result</code>, req: <code class="type">Request</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code></p>
+- <p>[<code class="key">success</code>](#issuerinput.success) <code class="primitive">(response: <code class="type">OnSuccessResponder</code>, input: <code class="type">Result</code>, req: <code class="type">Request</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code></p>
 </Section>
+</Segment>
+<NestedTitle id="issuerinput.basepath" Tag="h4" parent="IssuerInput.">basePath?</NestedTitle>
+<Segment>
+<Section type="parameters">
+<InlineSection>
+**Type** <code class="primitive">string</code><code class="symbol"> | </code><code class="primitive">(req: <code class="type">Request</code>) => <code class="primitive">string</code></code>
+</InlineSection>
+</Section>
+Base path for all routes. Can be a static string or a function that
+receives the request and returns the path.
+```ts
+basePath: "/auth/acme"
+// or
+basePath: (req) => `/auth/${req.headers.get("x-org-slug")}`
+```
+</Segment>
+<NestedTitle id="issuerinput.context" Tag="h4" parent="IssuerInput.">context?</NestedTitle>
+<Segment>
+<Section type="parameters">
+<InlineSection>
+**Type** <code class="primitive">(req: <code class="type">Request</code>) => <code class="type">RequestContext</code></code>
+</InlineSection>
+</Section>
+Extract custom context from the request. This context is available
+in providers via `ctx.get("requestContext")` and in callbacks via `input.context`.
+```ts
+context: (req) => ({
+  orgSlug: req.header("x-org-slug")!,
+  appSlug: req.header("x-app-slug")!,
+}),
+```
+</Segment>
+<NestedTitle id="issuerinput.cookies" Tag="h4" parent="IssuerInput.">cookies?</NestedTitle>
+<Segment>
+<Section type="parameters">
+<InlineSection>
+**Type** <code class="primitive">Object</code>
+</InlineSection>
+</Section>
+Cookie configuration options.
+</Segment>
+<NestedTitle id="cookies.path" Tag="h5" parent="IssuerInput.cookies.">path?</NestedTitle>
+<Segment>
+<Section type="parameters">
+<InlineSection>
+**Type** <code class="primitive">string</code>
+</InlineSection>
+</Section>
+Path for cookies. Defaults to the current path.
+Set to "/" for root-level cookies that work across all paths.
 </Segment>
 <NestedTitle id="issuerinput.providers" Tag="h4" parent="IssuerInput.">providers</NestedTitle>
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** <code class="primitive">Record&lt;string, Provider&gt; | ((ctx: Context) => Promise&lt;Record&lt;string, Provider&gt;&gt;)</code>
+**Type** <code class="type">Providers</code><code class="symbol"> | </code><code class="primitive">(ctx: <code class="type">Context</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Providers</code><code class="symbol">&gt;</code></code>
 </InlineSection>
 </Section>
-The providers that you want your OpenAuth server to support. 
-
-Can be a static object:
-
+The providers that you want your OpenAuth server to support.
 ```ts title="issuer.ts"
 import { GithubProvider } from "@openauthjs/openauth/provider/github"
 
@@ -259,15 +335,47 @@ issuer({
 })
 ```
 
-Or an async function that returns the providers based on the request context:
 
-```ts title="issuer.ts"
-issuer({
-  providers: async (ctx) => {
-    // Resolve providers dynamically
-    return { ... }
+The key is just a string that you can use to identify the provider. It's passed back to
+the 
+`success`
+ callback.
+
+You can also specify multiple providers.
+
+
+```ts
+{
+  providers: {
+    github: GithubProvider(),
+    google: GoogleProvider()
   }
-})
+}
+```
+
+
+For multi-tenant applications, you can provide a function that returns providers dynamically.
+When using tenant routes (
+`/tenant/:tenantId/authorize`
+), the tenant ID is available via
+
+`ctx.get("tenantId")`
+:
+
+
+```ts
+{
+  providers: async (ctx) => {
+    const tenantId = ctx.get("tenantId") as string
+    const config = await db.tenants.findUnique({ where: { id: tenantId } })
+    return {
+      github: GithubProvider({
+        clientID: config.githubClientId,
+        clientSecret: config.githubClientSecret,
+      })
+    }
+  }
+}
 ```
 </Segment>
 <NestedTitle id="issuerinput.storage" Tag="h4" parent="IssuerInput.">storage?</NestedTitle>
@@ -291,7 +399,7 @@ issuer({
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** [<code class="type">SubjectSchema</code>](/docs/subject#subjectschema)
+**Type** <code class="type">Subjects</code>
 </InlineSection>
 </Section>
 The shape of the subjects that you want to return.
@@ -313,7 +421,7 @@ issuer({
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** [<code class="type">Theme</code>](#theme)
+**Type** <code class="type">Theme</code>
 </InlineSection>
 </Section>
 The theme you want to use for the UI.
@@ -420,7 +528,7 @@ concurrency issues.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** <code class="primitive">(input: <code class="symbol">&lcub; </code><code class="key">audience</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">clientID</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">redirectURI</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol"> &rcub;</code>, req: <code class="type">Request</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="primitive">boolean</code><code class="symbol">&gt;</code></code>
+**Type** <code class="primitive">(input: <code class="type">AllowCallbackInput</code>, req: <code class="type">Request</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="primitive">boolean</code><code class="symbol">&gt;</code></code>
 </InlineSection>
 </Section>
 Override the logic for whether a client request is allowed to call the issuer.
@@ -429,12 +537,51 @@ By default, it uses the following:
 
 - Allow if the `redirectURI` is localhost.
 - Compare `redirectURI` to the request's hostname or the `x-forwarded-host` header. If they
-  are from the same sub-domain level, then allow.
+  share the same apex domain, then allow.
+
+:::caution[Security Notice]
+The default implementation allows ANY `redirect_uri` on the same apex domain with no per-client isolation.
+Consider implementing a custom `allow` function with strict per-client validation if your deployment has:
+- Untrusted content on subdomains (user-generated content, third-party scripts)
+- Potential XSS attack vectors
+- Multiple client applications requiring isolation
+:::
+Recommended for production (per-client allowlist):
+
 ```ts
 {
   allow: async (input, req) => {
-    // Allow all clients
-    return true
+    const allowedRedirects = {
+      'web-client': ['https://app.example.com/callback'],
+      'mobile-client': ['https://admin.example.com/oauth'],
+    }
+    return allowedRedirects[input.clientID]?.includes(input.redirectURI) ?? false
+  }
+}
+```
+</Segment>
+<NestedTitle id="issuerinput.refresh" Tag="h4" parent="IssuerInput.">refresh?</NestedTitle>
+<Segment>
+<Section type="parameters">
+<InlineSection>
+**Type** <code class="primitive">(response: <code class="type">OnSuccessResponder</code>, input: <code class="symbol">&lcub; </code><code class="key">clientID</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">properties</code><code class="symbol">&colon; </code><code class="primitive">any</code><code class="symbol">, </code><code class="key">subject</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">type</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol"> &rcub;</code>, req: <code class="type">Request</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code>
+</InlineSection>
+</Section>
+Optional callback that's called when a refresh token is used to get new access tokens.
+
+This allows you to update dynamic user attributes (permissions, roles, etc.) during
+token refresh without requiring the user to re-authenticate.
+
+If not provided, the original properties from the initial authentication will be reused.
+```ts
+{
+  refresh: async (ctx, value) => {
+    // Fetch updated permissions from database
+    const permissions = await db.getPermissions(value.properties.userId)
+    return ctx.subject("user", {
+      ...value.properties,
+      permissions // Updated value
+    })
   }
 }
 ```
@@ -471,12 +618,15 @@ issuer({
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** <code class="primitive">(response: [<code class="type">OnSuccessResponder</code>](#onsuccessresponder), input: <code class="type">Result</code>, req: <code class="type">Request</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code>
+**Type** <code class="primitive">(response: <code class="type">OnSuccessResponder</code>, input: <code class="type">Result</code>, req: <code class="type">Request</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code>
 </InlineSection>
 </Section>
 The success callback that's called when the user completes the flow.
 
 This is called after the user has been redirected back to your app after the OAuth flow.
+
+The `value` parameter includes `provider` (the provider name) and any provider-specific
+data. When using tenant routes (`/tenant/:tenantId/authorize`), it also includes `tenantId`.
 ```ts
 {
   success: async (ctx, value) => {
@@ -490,7 +640,9 @@ This is called after the user has been redirected back to your app after the OAu
       userID = ... // lookup user or create them
     }
     return ctx.subject("user", {
-      userID
+      userID,
+      // For multi-tenant, store tenantId in subject for refresh access
+      tenantId: value.tenantId,
     })
   },
   // ...
@@ -500,7 +652,7 @@ This is called after the user has been redirected back to your app after the OAu
 ## OnSuccessResponder
 <Segment>
 <Section type="parameters">
-- <p>[<code class="key">subject</code>](#onsuccessresponder.subject) <code class="primitive">(type: <code class="primitive">string</code>, properties: <code class="primitive">any</code>, opts?: <code class="symbol">&lcub; </code><code class="key">subject</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">ttl</code><code class="symbol">&colon; </code><code class="symbol">&lcub; </code><code class="key">access</code><code class="symbol">&colon; </code><code class="primitive">number</code><code class="symbol">, </code><code class="key">refresh</code><code class="symbol">&colon; </code><code class="primitive">number</code><code class="symbol"> &rcub;</code><code class="symbol"> &rcub;</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code></p>
+- <p>[<code class="key">subject</code>](#onsuccessresponder.subject) <code class="primitive">(type: <code class="type">Type</code>, properties: <code class="primitive">any</code>, opts?: <code class="symbol">&lcub; </code><code class="key">subject</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">ttl</code><code class="symbol">&colon; </code><code class="symbol">&lcub; </code><code class="key">access</code><code class="symbol">&colon; </code><code class="primitive">number</code><code class="symbol">, </code><code class="key">refresh</code><code class="symbol">&colon; </code><code class="primitive">number</code><code class="symbol"> &rcub;</code><code class="symbol"> &rcub;</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code></p>
 </Section>
 Sets the subject payload in the JWT token and returns the response.
 
@@ -514,7 +666,7 @@ ctx.subject("user", {
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** <code class="primitive">(type: <code class="primitive">string</code>, properties: <code class="primitive">any</code>, opts?: <code class="symbol">&lcub; </code><code class="key">subject</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">ttl</code><code class="symbol">&colon; </code><code class="symbol">&lcub; </code><code class="key">access</code><code class="symbol">&colon; </code><code class="primitive">number</code><code class="symbol">, </code><code class="key">refresh</code><code class="symbol">&colon; </code><code class="primitive">number</code><code class="symbol"> &rcub;</code><code class="symbol"> &rcub;</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code>
+**Type** <code class="primitive">(type: <code class="type">Type</code>, properties: <code class="primitive">any</code>, opts?: <code class="symbol">&lcub; </code><code class="key">subject</code><code class="symbol">&colon; </code><code class="primitive">string</code><code class="symbol">, </code><code class="key">ttl</code><code class="symbol">&colon; </code><code class="symbol">&lcub; </code><code class="key">access</code><code class="symbol">&colon; </code><code class="primitive">number</code><code class="symbol">, </code><code class="key">refresh</code><code class="symbol">&colon; </code><code class="primitive">number</code><code class="symbol"> &rcub;</code><code class="symbol"> &rcub;</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code>
 </InlineSection>
 </Section>
 The `type` is the type of the subject, that was defined in the `subjects` field.

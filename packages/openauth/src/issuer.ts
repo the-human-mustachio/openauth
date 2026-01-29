@@ -109,6 +109,51 @@
  * })
  * ```
  *
+ * #### Advanced multi-tenant configuration
+ *
+ * For complex multi-tenant scenarios, OpenAuth provides three additional configuration options:
+ *
+ * - **`basePath`** - Dynamic URL prefix when the issuer is mounted at a variable path
+ * - **`cookies.path`** - Set to `"/"` so cookies work across all paths
+ * - **`context`** - Extract custom data from requests, available in providers and callbacks
+ *
+ * ```ts title="issuer.ts"
+ * const app = issuer({
+ *   storage,
+ *   subjects,
+ *   // Dynamic base path based on request headers
+ *   basePath: (req) => `/auth/${req.headers.get("x-org-slug")}`,
+ *   // Root-level cookies that work across all paths
+ *   cookies: { path: "/" },
+ *   // Extract org/app context from each request
+ *   context: (req) => ({
+ *     orgSlug: req.headers.get("x-org-slug")!,
+ *     appSlug: req.headers.get("x-app-slug")!,
+ *   }),
+ *   providers: async (ctx) => {
+ *     const { orgSlug, appSlug } = ctx.get("requestContext") as { orgSlug: string; appSlug: string }
+ *     const config = await db.getAppConfig(orgSlug, appSlug)
+ *     return {
+ *       github: GithubProvider({
+ *         clientID: config.githubClientId,
+ *         clientSecret: config.githubClientSecret,
+ *       })
+ *     }
+ *   },
+ *   success: async (ctx, value) => {
+ *     const { orgSlug, appSlug } = value.context
+ *     return ctx.subject("user", {
+ *       userID: value.email,
+ *       orgSlug,
+ *       appSlug,
+ *     })
+ *   },
+ * })
+ *
+ * // Mount the issuer at a dynamic route
+ * honoApp.route("/auth/:orgSlug/:appSlug", app)
+ * ```
+ *
  * #### Deploy
  *
  * Since `issuer` is a Hono app, you can deploy it anywhere Hono supports.
@@ -241,10 +286,13 @@ export const aws = awsHandle
 export interface IssuerInput<
   Providers extends Record<string, Provider<any>>,
   Subjects extends SubjectSchema,
+  RequestContext = undefined,
   Result = {
     [key in keyof Providers]: Prettify<
       {
         provider: key
+        tenantId?: string
+        context: RequestContext
       } & (Providers[key] extends Provider<infer T> ? T : {})
     >
   }[keyof Providers],
@@ -529,6 +577,41 @@ export interface IssuerInput<
    * ```
    */
   allow?(input: AllowCallbackInput, req: Request): Promise<boolean>
+  /**
+   * Cookie configuration options.
+   */
+  cookies?: {
+    /**
+     * Path for cookies. Defaults to the current path.
+     * Set to "/" for root-level cookies that work across all paths.
+     */
+    path?: string
+  }
+  /**
+   * Extract custom context from the request. This context is available
+   * in providers via `ctx.get("requestContext")` and in callbacks via `input.context`.
+   *
+   * @example
+   * ```ts
+   * context: (req) => ({
+   *   orgSlug: req.header("x-org-slug")!,
+   *   appSlug: req.header("x-app-slug")!,
+   * }),
+   * ```
+   */
+  context?: (req: Request) => RequestContext
+  /**
+   * Base path for all routes. Can be a static string or a function that
+   * receives the request and returns the path.
+   *
+   * @example
+   * ```ts
+   * basePath: "/auth/acme"
+   * // or
+   * basePath: (req) => `/auth/${req.headers.get("x-org-slug")}`
+   * ```
+   */
+  basePath?: string | ((req: Request) => string)
 }
 
 /**
@@ -537,15 +620,17 @@ export interface IssuerInput<
 export function issuer<
   Providers extends Record<string, Provider<any>>,
   Subjects extends SubjectSchema,
+  RequestContext = undefined,
   Result = {
     [key in keyof Providers]: Prettify<
       {
         provider: key
         tenantId?: string
+        context: RequestContext
       } & (Providers[key] extends Provider<infer T> ? T : {})
     >
   }[keyof Providers],
->(input: IssuerInput<Providers, Subjects, Result>) {
+>(input: IssuerInput<Providers, Subjects, RequestContext, Result>) {
   const error =
     input.error ??
     function (err) {
@@ -604,6 +689,12 @@ export function issuer<
   const allEncryption = lazy(() => encryptionKeys(storage))
   const signingKey = lazy(() => allSigning().then((all) => all[0]))
   const encryptionKey = lazy(() => allEncryption().then((all) => all[0]))
+
+  const getBasePath = (req: Request) => {
+    if (!input.basePath) return ""
+    if (typeof input.basePath === "string") return input.basePath
+    return input.basePath(req)
+  }
 
   const auth: Omit<ProviderOptions<any>, "name"> = {
     async success(ctx: Context, properties: any, successOpts) {
@@ -681,6 +772,7 @@ export function issuer<
         {
           provider: ctx.get("provider"),
           tenantId: authorization.tenantId,
+          context: ctx.get("requestContext"),
           ...properties,
         },
         ctx.req.raw,
@@ -697,6 +789,7 @@ export function issuer<
       setCookie(ctx, key, await encrypt(value), {
         maxAge,
         httpOnly: true,
+        path: input.cookies?.path,
         ...(ctx.req.url.startsWith("https://")
           ? { secure: true, sameSite: "None" }
           : {}),
@@ -710,7 +803,7 @@ export function issuer<
       })
     },
     async unset(ctx: Context, key: string) {
-      deleteCookie(ctx, key)
+      deleteCookie(ctx, key, { path: input.cookies?.path })
     },
     async invalidate(subject: string) {
       // Resolve the scan in case modifications interfere with iteration
@@ -828,15 +921,25 @@ export function issuer<
   }
 
   function issuer(ctx: Context) {
-    return new URL(getRelativeUrl(ctx, "/")).origin
+    const base = getBasePath(ctx.req.raw)
+    return new URL(getRelativeUrl(ctx, base || "/")).origin + base
   }
 
   const app = new Hono<{
     Variables: {
       authorization: AuthorizationState
       tenantId: string
+      requestContext: RequestContext
     }
   }>().use(logger())
+
+  // Extract custom context from request if configured
+  app.use(async (c, next) => {
+    if (input.context) {
+      c.set("requestContext", input.context(c.req.raw))
+    }
+    await next()
+  })
 
   const getProviders = async (c: Context): Promise<Providers> => {
     if (typeof input.providers === "function") {
@@ -1169,6 +1272,7 @@ export function issuer<
           },
           {
             provider: provider.toString(),
+            context: c.get("requestContext"),
             ...response,
           },
           c.req.raw,
@@ -1232,11 +1336,11 @@ export function issuer<
       throw new UnauthorizedClientError(client_id, redirect_uri)
     await auth.set(c, "authorization", 60 * 60 * 24, authorization)
     c.set("authorization", authorization)
-    if (provider) return c.redirect(`/${provider}/authorize`)
+    if (provider) return c.redirect(`${getBasePath(c.req.raw)}/${provider}/authorize`)
     const resolvedProviders = await getProviders(c)
     const providerNames = Object.keys(resolvedProviders)
     if (providerNames.length === 1)
-      return c.redirect(`/${providerNames[0]}/authorize`)
+      return c.redirect(`${getBasePath(c.req.raw)}/${providerNames[0]}/authorize`)
     return auth.forward(
       c,
       await select()(
@@ -1313,11 +1417,11 @@ export function issuer<
       throw new UnauthorizedClientError(client_id, redirect_uri)
     await auth.set(c, "authorization", 60 * 60 * 24, authorization)
     c.set("authorization", authorization)
-    if (provider) return c.redirect(`/tenant/${tenantId}/${provider}/authorize`)
+    if (provider) return c.redirect(`${getBasePath(c.req.raw)}/tenant/${tenantId}/${provider}/authorize`)
     const resolvedProviders = await getProviders(c)
     const providerNames = Object.keys(resolvedProviders)
     if (providerNames.length === 1)
-      return c.redirect(`/tenant/${tenantId}/${providerNames[0]}/authorize`)
+      return c.redirect(`${getBasePath(c.req.raw)}/tenant/${tenantId}/${providerNames[0]}/authorize`)
     return auth.forward(
       c,
       await select()(

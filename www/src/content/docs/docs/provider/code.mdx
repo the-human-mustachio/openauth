@@ -71,7 +71,7 @@ CodeProvider(config)
 </Section>
 <Section type="parameters">
 #### Parameters
-- <p><code class="key">config</code> [<code class="type">CodeProviderConfig</code>](/docs/provider/code#codeproviderconfig)</p>
+- <p><code class="key">config</code> <code class="type">CodeProviderConfig</code></p>
 </Section>
 <InlineSection>
 **Returns** <code class="type">Provider</code>
@@ -81,8 +81,8 @@ CodeProvider(config)
 <Segment>
 <Section type="parameters">
 - <p>[<code class="key">length?</code>](#codeproviderconfig.length) <code class="primitive">number</code></p>
-- <p>[<code class="key">request</code>](#codeproviderconfig.request) <code class="primitive">(req: <code class="type">Request</code>, state: [<code class="type">CodeProviderState</code>](/docs/provider/code#codeproviderstate), form?: <code class="type">FormData</code>, error?: [<code class="type">CodeProviderError</code>](/docs/provider/code#codeprovidererror)) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code></p>
-- <p>[<code class="key">sendCode</code>](#codeproviderconfig.sendcode) <code class="primitive">(claims: <code class="primitive">Record</code><code class="symbol">&lt;</code><code class="primitive">string</code>, <code class="primitive">string</code><code class="symbol">&gt;</code>, code: <code class="primitive">string</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="primitive">void</code><code class="symbol"> | </code>[<code class="type">CodeProviderError</code>](/docs/provider/code#codeprovidererror)<code class="symbol">&gt;</code></code></p>
+- <p>[<code class="key">request</code>](#codeproviderconfig.request) <code class="primitive">(req: <code class="type">Request</code>, state: <code class="type">CodeProviderState</code>, form?: <code class="type">FormData</code>, error?: <code class="type">CodeProviderError</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code></p>
+- <p>[<code class="key">sendCode</code>](#codeproviderconfig.sendcode) <code class="primitive">(claims: <code class="type">Claims</code>, code: <code class="primitive">string</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="primitive">void</code><code class="symbol"> | </code><code class="type">CodeProviderError</code><code class="symbol">&gt;</code></code></p>
 </Section>
 </Segment>
 <NestedTitle id="codeproviderconfig.length" Tag="h4" parent="CodeProviderConfig.">length?</NestedTitle>
@@ -102,7 +102,7 @@ The length of the pin code.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** <code class="primitive">(req: <code class="type">Request</code>, state: [<code class="type">CodeProviderState</code>](/docs/provider/code#codeproviderstate), form?: <code class="type">FormData</code>, error?: [<code class="type">CodeProviderError</code>](/docs/provider/code#codeprovidererror)) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code>
+**Type** <code class="primitive">(req: <code class="type">Request</code>, state: <code class="type">CodeProviderState</code>, form?: <code class="type">FormData</code>, error?: <code class="type">CodeProviderError</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">Response</code><code class="symbol">&gt;</code></code>
 </InlineSection>
 </Section>
 The request handler to generate the UI for the code flow.
@@ -120,7 +120,7 @@ in return.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** <code class="primitive">(claims: <code class="primitive">Record</code><code class="symbol">&lt;</code><code class="primitive">string</code>, <code class="primitive">string</code><code class="symbol">&gt;</code>, code: <code class="primitive">string</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="primitive">void</code><code class="symbol"> | </code>[<code class="type">CodeProviderError</code>](/docs/provider/code#codeprovidererror)<code class="symbol">&gt;</code></code>
+**Type** <code class="primitive">(claims: <code class="type">Claims</code>, code: <code class="primitive">string</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="primitive">void</code><code class="symbol"> | </code><code class="type">CodeProviderError</code><code class="symbol">&gt;</code></code>
 </InlineSection>
 </Section>
 Callback to send the pin code to the user.

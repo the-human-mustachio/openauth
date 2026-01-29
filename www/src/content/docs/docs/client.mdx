@@ -57,11 +57,11 @@ createClient(input)
 </Section>
 <Section type="parameters">
 #### Parameters
-- <p><code class="key">input</code> [<code class="type">ClientInput</code>](#clientinput)</p>
+- <p><code class="key">input</code> <code class="type">ClientInput</code></p>
 Configure the client.
 </Section>
 <InlineSection>
-**Returns** [<code class="type">Client</code>](#client)
+**Returns** <code class="type">Client</code>
 </InlineSection>
 Create an OpenAuth client.
 </Segment>
@@ -73,7 +73,7 @@ An instance of the OpenAuth client contains the following methods.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** <code class="primitive">(redirectURI: <code class="primitive">string</code>, response: <code class="symbol">&ldquo;</code><code class="primitive">code</code><code class="symbol">&rdquo;</code><code class="symbol"> | </code><code class="symbol">&ldquo;</code><code class="primitive">token</code><code class="symbol">&rdquo;</code>, opts?: [<code class="type">AuthorizeOptions</code>](#authorizeoptions)) => <code class="primitive">Promise</code><code class="symbol">&lt;</code>[<code class="type">AuthorizeResult</code>](#authorizeresult)<code class="symbol">&gt;</code></code>
+**Type** <code class="primitive">(redirectURI: <code class="primitive">string</code>, response: <code class="symbol">&ldquo;</code><code class="primitive">code</code><code class="symbol">&rdquo;</code><code class="symbol"> | </code><code class="symbol">&ldquo;</code><code class="primitive">token</code><code class="symbol">&rdquo;</code>, opts?: <code class="type">AuthorizeOptions</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">AuthorizeResult</code><code class="symbol">&gt;</code></code>
 </InlineSection>
 </Section>
 Start the autorization flow. For example, in SSR sites.
@@ -111,7 +111,7 @@ This returns a redirect URL and a challenge that you need to use later to verify
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** <code class="primitive">(code: <code class="primitive">string</code>, redirectURI: <code class="primitive">string</code>, verifier?: <code class="primitive">string</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code>[<code class="type">ExchangeSuccess</code>](#exchangesuccess)<code class="symbol"> | </code>[<code class="type">ExchangeError</code>](#exchangeerror)<code class="symbol">&gt;</code></code>
+**Type** <code class="primitive">(code: <code class="primitive">string</code>, redirectURI: <code class="primitive">string</code>, verifier?: <code class="primitive">string</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">ExchangeSuccess</code><code class="symbol"> | </code><code class="type">ExchangeError</code><code class="symbol">&gt;</code></code>
 </InlineSection>
 </Section>
 Exchange the code for access and refresh tokens.
@@ -168,7 +168,7 @@ const { access, refresh } = exchanged.tokens
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** <code class="primitive">(refresh: <code class="primitive">string</code>, opts?: [<code class="type">RefreshOptions</code>](#refreshoptions)) => <code class="primitive">Promise</code><code class="symbol">&lt;</code>[<code class="type">RefreshSuccess</code>](#refreshsuccess)<code class="symbol"> | </code>[<code class="type">RefreshError</code>](#refresherror)<code class="symbol">&gt;</code></code>
+**Type** <code class="primitive">(refresh: <code class="primitive">string</code>, opts?: <code class="type">RefreshOptions</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">RefreshSuccess</code><code class="symbol"> | </code><code class="type">RefreshError</code><code class="symbol">&gt;</code></code>
 </InlineSection>
 </Section>
 Refreshes the tokens if they have expired. This is used in an SPA app to maintain the
@@ -215,7 +215,7 @@ if (next.err) {
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** <code class="primitive">(subjects: [<code class="type">SubjectSchema</code>](/docs/subject#subjectschema), token: <code class="primitive">string</code>, options?: [<code class="type">VerifyOptions</code>](#verifyoptions)) => <code class="primitive">Promise</code><code class="symbol">&lt;</code>[<code class="type">VerifyError</code>](#verifyerror)<code class="symbol"> | </code>[<code class="type">VerifyResult</code>](#verifyresult)<code class="symbol">&gt;</code></code>
+**Type** <code class="primitive">(subjects: <code class="type">T</code>, token: <code class="primitive">string</code>, options?: <code class="type">VerifyOptions</code>) => <code class="primitive">Promise</code><code class="symbol">&lt;</code><code class="type">VerifyError</code><code class="symbol"> | </code><code class="type">VerifyResult</code><code class="symbol">&gt;</code></code>
 </InlineSection>
 </Section>
 Verify the token in the incoming request.
@@ -316,7 +316,7 @@ If there's only one provider configured, the user will be redirected to that.
 ## AuthorizeResult
 <Segment>
 <Section type="parameters">
-- <p>[<code class="key">challenge</code>](#authorizeresult.challenge) [<code class="type">Challenge</code>](#challenge)</p>
+- <p>[<code class="key">challenge</code>](#authorizeresult.challenge) <code class="type">Challenge</code></p>
 - <p>[<code class="key">url</code>](#authorizeresult.url) <code class="primitive">string</code></p>
 </Section>
 </Segment>
@@ -324,7 +324,7 @@ If there's only one provider configured, the user will be redirected to that.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** [<code class="type">Challenge</code>](#challenge)
+**Type** <code class="type">Challenge</code>
 </InlineSection>
 </Section>
 The challenge that you can use to verify the code. This is for the PKCE flow for SPA apps.
@@ -413,7 +413,7 @@ The URL of your OpenAuth server.
 ## ExchangeError
 <Segment>
 <Section type="parameters">
-- <p>[<code class="key">err</code>](#exchangeerror.err) [<code class="type">InvalidAuthorizationCodeError</code>](/docs/issuer#invalidauthorizationcodeerror)</p>
+- <p>[<code class="key">err</code>](#exchangeerror.err) <code class="type">InvalidAuthorizationCodeError</code></p>
 </Section>
 Returned when the exchange fails.
 </Segment>
@@ -421,7 +421,7 @@ Returned when the exchange fails.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** [<code class="type">InvalidAuthorizationCodeError</code>](/docs/issuer#invalidauthorizationcodeerror)
+**Type** <code class="type">InvalidAuthorizationCodeError</code>
 </InlineSection>
 </Section>
 The type of error that occurred. You can handle this by checking the type.
@@ -435,7 +435,7 @@ console.log(err instanceof InvalidAuthorizationCodeError)
 <Segment>
 <Section type="parameters">
 - <p>[<code class="key">err</code>](#exchangesuccess.err) <code class="primitive">false</code></p>
-- <p>[<code class="key">tokens</code>](#exchangesuccess.tokens) [<code class="type">Tokens</code>](#tokens)</p>
+- <p>[<code class="key">tokens</code>](#exchangesuccess.tokens) <code class="type">Tokens</code></p>
 </Section>
 Returned when the exchange is successful.
 </Segment>
@@ -452,7 +452,7 @@ This is always `false` when the exchange is successful.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** [<code class="type">Tokens</code>](#tokens)
+**Type** <code class="type">Tokens</code>
 </InlineSection>
 </Section>
 The access and refresh tokens.
@@ -460,7 +460,7 @@ The access and refresh tokens.
 ## RefreshError
 <Segment>
 <Section type="parameters">
-- <p>[<code class="key">err</code>](#refresherror.err) [<code class="type">InvalidRefreshTokenError</code>](/docs/issuer#invalidrefreshtokenerror)<code class="symbol"> | </code>[<code class="type">InvalidAccessTokenError</code>](/docs/issuer#invalidaccesstokenerror)</p>
+- <p>[<code class="key">err</code>](#refresherror.err) <code class="type">InvalidRefreshTokenError</code><code class="symbol"> | </code><code class="type">InvalidAccessTokenError</code></p>
 </Section>
 Returned when the refresh fails.
 </Segment>
@@ -468,7 +468,7 @@ Returned when the refresh fails.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** [<code class="type">InvalidRefreshTokenError</code>](/docs/issuer#invalidrefreshtokenerror)<code class="symbol"> | </code>[<code class="type">InvalidAccessTokenError</code>](/docs/issuer#invalidaccesstokenerror)
+**Type** <code class="type">InvalidRefreshTokenError</code><code class="symbol"> | </code><code class="type">InvalidAccessTokenError</code>
 </InlineSection>
 </Section>
 The type of error that occurred. You can handle this by checking the type.
@@ -497,7 +497,7 @@ Optionally, pass in the access token.
 <Segment>
 <Section type="parameters">
 - <p>[<code class="key">err</code>](#refreshsuccess.err) <code class="primitive">false</code></p>
-- <p>[<code class="key">tokens?</code>](#refreshsuccess.tokens) [<code class="type">Tokens</code>](#tokens)</p>
+- <p>[<code class="key">tokens?</code>](#refreshsuccess.tokens) <code class="type">Tokens</code></p>
 </Section>
 Returned when the refresh is successful.
 </Segment>
@@ -514,7 +514,7 @@ This is always `false` when the refresh is successful.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** [<code class="type">Tokens</code>](#tokens)
+**Type** <code class="type">Tokens</code>
 </InlineSection>
 </Section>
 Returns the refreshed tokens only if they've been refreshed.
@@ -560,7 +560,7 @@ The refresh token.
 ## VerifyError
 <Segment>
 <Section type="parameters">
-- <p>[<code class="key">err</code>](#verifyerror.err) [<code class="type">InvalidRefreshTokenError</code>](/docs/issuer#invalidrefreshtokenerror)<code class="symbol"> | </code>[<code class="type">InvalidAccessTokenError</code>](/docs/issuer#invalidaccesstokenerror)</p>
+- <p>[<code class="key">err</code>](#verifyerror.err) <code class="type">InvalidRefreshTokenError</code><code class="symbol"> | </code><code class="type">InvalidAccessTokenError</code></p>
 </Section>
 Returned when the verify call fails.
 </Segment>
@@ -568,7 +568,7 @@ Returned when the verify call fails.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** [<code class="type">InvalidRefreshTokenError</code>](/docs/issuer#invalidrefreshtokenerror)<code class="symbol"> | </code>[<code class="type">InvalidAccessTokenError</code>](/docs/issuer#invalidaccesstokenerror)
+**Type** <code class="type">InvalidRefreshTokenError</code><code class="symbol"> | </code><code class="type">InvalidAccessTokenError</code>
 </InlineSection>
 </Section>
 The type of error that occurred. You can handle this by checking the type.
@@ -613,7 +613,7 @@ If passed in, this will automatically refresh the access token if it has expired
 <Section type="parameters">
 - <p>[<code class="key">err?</code>](#verifyresult.err) <code class="primitive">undefined</code></p>
 - <p>[<code class="key">subject</code>](#verifyresult.subject) <code class="type">Subject</code></p>
-- <p>[<code class="key">tokens?</code>](#verifyresult.tokens) [<code class="type">Tokens</code>](#tokens)</p>
+- <p>[<code class="key">tokens?</code>](#verifyresult.tokens) <code class="type">Tokens</code></p>
 </Section>
 </Segment>
 <NestedTitle id="verifyresult.err" Tag="h4" parent="VerifyResult.">err?</NestedTitle>
@@ -640,7 +640,7 @@ Has the same shape as the subjects you defined when creating the issuer.
 <Segment>
 <Section type="parameters">
 <InlineSection>
-**Type** [<code class="type">Tokens</code>](#tokens)
+**Type** <code class="type">Tokens</code>
 </InlineSection>
 </Section>
 Returns the refreshed tokens only if they’ve been refreshed.

@@ -26,6 +26,24 @@ export default issuer({
 })
 ```
 
+#### Using OAuth with form_post response mode
+
+When requesting name or email scopes from Apple, you must use form_post response mode:
+
+```ts {5-9}
+import { AppleProvider } from "@openauthjs/openauth/provider/apple"
+
+export default issuer({
+  providers: {
+    apple: AppleProvider({
+      clientID: "1234567890",
+      clientSecret: "0987654321",
+      responseMode: "form_post"
+    })
+  }
+})
+```
+
 #### Using OIDC
 
 ```ts {5-7}
@@ -51,7 +69,7 @@ AppleOidcProvider(config)
 </Section>
 <Section type="parameters">
 #### Parameters
-- <p><code class="key">config</code> [<code class="type">AppleOidcConfig</code>](/docs/provider/apple#appleoidcconfig)</p>
+- <p><code class="key">config</code> <code class="type">AppleOidcConfig</code></p>
 The config for the provider.
 </Section>
 <InlineSection>
@@ -75,7 +93,7 @@ AppleProvider(config)
 </Section>
 <Section type="parameters">
 #### Parameters
-- <p><code class="key">config</code> [<code class="type">AppleConfig</code>](/docs/provider/apple#appleconfig)</p>
+- <p><code class="key">config</code> <code class="type">AppleConfig</code></p>
 The config for the provider.
 </Section>
 <InlineSection>
@@ -83,9 +101,19 @@ The config for the provider.
 </InlineSection>
 Create an Apple OAuth2 provider.
 ```ts
+// Using default query response mode (GET callback)
 AppleProvider({
   clientID: "1234567890",
   clientSecret: "0987654321"
+})
+
+// Using form_post response mode (POST callback)
+// Required when requesting name or email scope
+AppleProvider({
+  clientID: "1234567890",
+  clientSecret: "0987654321",
+  responseMode: "form_post",
+  scopes: ["name", "email"]
 })
 ```
 </Segment>
@@ -96,6 +124,7 @@ AppleProvider({
 - <p>[<code class="key">clientSecret</code>](#appleconfig.clientsecret) <code class="primitive">string</code></p>
 - <p>[<code class="key">pkce?</code>](#appleconfig.pkce) <code class="primitive">boolean</code></p>
 - <p>[<code class="key">query?</code>](#appleconfig.query) <code class="primitive">Record</code><code class="symbol">&lt;</code><code class="primitive">string</code>, <code class="primitive">string</code><code class="symbol">&gt;</code></p>
+- <p>[<code class="key">responseMode?</code>](#appleconfig.responsemode) <code class="symbol">&ldquo;</code><code class="primitive">query</code><code class="symbol">&rdquo;</code><code class="symbol"> | </code><code class="symbol">&ldquo;</code><code class="primitive">form_post</code><code class="symbol">&rdquo;</code></p>
 - <p>[<code class="key">scopes</code>](#appleconfig.scopes) <code class="primitive">string</code><code class="symbol">[]</code></p>
 </Section>
 </Segment>
@@ -161,6 +190,20 @@ Any additional parameters that you want to pass to the authorization endpoint.
   }
 }
 ```
+</Segment>
+<NestedTitle id="appleconfig.responsemode" Tag="h4" parent="AppleConfig.">responseMode?</NestedTitle>
+<Segment>
+<Section type="parameters">
+<InlineSection>
+**Type** <code class="symbol">&ldquo;</code><code class="primitive">query</code><code class="symbol">&rdquo;</code><code class="symbol"> | </code><code class="symbol">&ldquo;</code><code class="primitive">form_post</code><code class="symbol">&rdquo;</code>
+</InlineSection>
+</Section>
+
+<InlineSection>
+**Default** "query"
+</InlineSection>
+The response mode to use for the authorization request.
+Apple requires 'form_post' response mode when requesting name or email scopes.
 </Segment>
 <NestedTitle id="appleconfig.scopes" Tag="h4" parent="AppleConfig.">scopes</NestedTitle>
 <Segment>

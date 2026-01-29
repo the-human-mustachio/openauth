@@ -360,3 +360,319 @@ describe("tenant-specific routes", () => {
     }
   })
 })
+
+describe("cookie path configuration", () => {
+  beforeEach(async () => {
+    setSystemTime(new Date("1/1/2024"))
+  })
+
+  afterEach(() => {
+    setSystemTime()
+  })
+
+  test("custom cookie path is applied", async () => {
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      cookies: {
+        path: "/",
+      },
+      providers: {
+        dummy: createDummyProvider("test@example.com"),
+      },
+      success: async (ctx, value) => {
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    const response = await auth.request(
+      "https://auth.example.com/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+    )
+    expect(response.status).toBe(302)
+    const cookie = response.headers.get("set-cookie")
+    expect(cookie).toContain("Path=/")
+  })
+
+  test("undefined cookie path uses default behavior", async () => {
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      providers: {
+        dummy: createDummyProvider("test@example.com"),
+      },
+      success: async (ctx, value) => {
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    const response = await auth.request(
+      "https://auth.example.com/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+    )
+    expect(response.status).toBe(302)
+    // Cookie should be set but without explicit Path=/
+    const cookie = response.headers.get("set-cookie")
+    expect(cookie).toBeTruthy()
+  })
+})
+
+describe("request context mechanism", () => {
+  beforeEach(async () => {
+    setSystemTime(new Date("1/1/2024"))
+  })
+
+  afterEach(() => {
+    setSystemTime()
+  })
+
+  test("context is extracted from request and available in success callback", async () => {
+    let receivedContext: { orgSlug: string; appSlug: string } | undefined
+
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      context: (req) => ({
+        orgSlug: req.headers.get("x-org-slug") || "default-org",
+        appSlug: req.headers.get("x-app-slug") || "default-app",
+      }),
+      providers: {
+        dummy: createDummyProvider("test@example.com"),
+      },
+      success: async (ctx, value) => {
+        receivedContext = value.context
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    // Start auth flow with custom headers
+    const authorizeResponse = await auth.request(
+      "https://auth.example.com/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+      {
+        headers: {
+          "x-org-slug": "acme",
+          "x-app-slug": "myapp",
+        },
+      },
+    )
+    expect(authorizeResponse.status).toBe(302)
+
+    // Get the authorization cookie
+    const cookies = authorizeResponse.headers.get("set-cookie")
+
+    // Follow redirect to provider authorize (which triggers success)
+    await auth.request("https://auth.example.com/dummy/authorize", {
+      headers: {
+        Cookie: cookies || "",
+        "x-org-slug": "acme",
+        "x-app-slug": "myapp",
+      },
+    })
+
+    expect(receivedContext).toStrictEqual({
+      orgSlug: "acme",
+      appSlug: "myapp",
+    })
+  })
+
+  test("context is available in providers function", async () => {
+    let providerContext: { orgSlug: string } | undefined
+
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      context: (req) => ({
+        orgSlug: req.headers.get("x-org-slug") || "default-org",
+      }),
+      providers: async (c) => {
+        providerContext = c.get("requestContext") as { orgSlug: string }
+        return {
+          dummy: createDummyProvider("test@example.com"),
+        }
+      },
+      success: async (ctx, value) => {
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    await auth.request(
+      "https://auth.example.com/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+      {
+        headers: {
+          "x-org-slug": "acme-corp",
+        },
+      },
+    )
+
+    expect(providerContext).toStrictEqual({
+      orgSlug: "acme-corp",
+    })
+  })
+
+  test("undefined context (default) maintains backward compatibility", async () => {
+    let receivedValue: any
+
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      providers: {
+        dummy: createDummyProvider("test@example.com"),
+      },
+      success: async (ctx, value) => {
+        receivedValue = value
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    const authorizeResponse = await auth.request(
+      "https://auth.example.com/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+    )
+    const cookies = authorizeResponse.headers.get("set-cookie")
+
+    await auth.request("https://auth.example.com/dummy/authorize", {
+      headers: { Cookie: cookies || "" },
+    })
+
+    // context should be undefined when not configured
+    expect(receivedValue.context).toBeUndefined()
+    expect(receivedValue.provider).toBe("dummy")
+  })
+})
+
+describe("dynamic basePath", () => {
+  beforeEach(async () => {
+    setSystemTime(new Date("1/1/2024"))
+  })
+
+  afterEach(() => {
+    setSystemTime()
+  })
+
+  test("static string basePath works", async () => {
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      basePath: "/auth/v1",
+      providers: {
+        dummy: createDummyProvider("test@example.com"),
+      },
+      success: async (ctx, value) => {
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    const response = await auth.request(
+      "https://auth.example.com/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+    )
+    expect(response.status).toBe(302)
+    // Redirect should include basePath
+    expect(response.headers.get("location")).toBe("/auth/v1/dummy/authorize")
+  })
+
+  test("dynamic function basePath works", async () => {
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      basePath: (req) => `/auth/${req.headers.get("x-org-slug") || "default"}`,
+      providers: {
+        dummy: createDummyProvider("test@example.com"),
+      },
+      success: async (ctx, value) => {
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    const response = await auth.request(
+      "https://auth.example.com/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+      {
+        headers: {
+          "x-org-slug": "acme",
+        },
+      },
+    )
+    expect(response.status).toBe(302)
+    // Redirect should include dynamic basePath
+    expect(response.headers.get("location")).toBe("/auth/acme/dummy/authorize")
+  })
+
+  test("metadata endpoints include basePath in URLs", async () => {
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      basePath: "/auth/tenant1",
+      providers: {
+        dummy: createDummyProvider("test@example.com"),
+      },
+      success: async (ctx, value) => {
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    const response = await auth.request(
+      "https://auth.example.com/.well-known/oauth-authorization-server",
+    )
+    expect(response.status).toBe(200)
+    const metadata = await response.json()
+
+    expect(metadata.issuer).toBe("https://auth.example.com/auth/tenant1")
+    expect(metadata.authorization_endpoint).toBe(
+      "https://auth.example.com/auth/tenant1/authorize",
+    )
+    expect(metadata.token_endpoint).toBe(
+      "https://auth.example.com/auth/tenant1/token",
+    )
+  })
+
+  test("empty basePath (default) maintains current behavior", async () => {
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      providers: {
+        dummy: createDummyProvider("test@example.com"),
+      },
+      success: async (ctx, value) => {
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    const response = await auth.request(
+      "https://auth.example.com/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+    )
+    expect(response.status).toBe(302)
+    // Redirect should NOT have basePath prefix
+    expect(response.headers.get("location")).toBe("/dummy/authorize")
+  })
+
+  test("tenant routes include basePath", async () => {
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      basePath: "/auth/v2",
+      providers: async (c) => ({
+        dummy: createDummyProvider(
+          `${(c.get("tenantId") as string) || "unknown"}@test.com`,
+        ),
+      }),
+      success: async (ctx, value) => {
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    const response = await auth.request(
+      "https://auth.example.com/tenant/acme/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+    )
+    expect(response.status).toBe(302)
+    // Redirect should include both basePath and tenant
+    expect(response.headers.get("location")).toBe(
+      "/auth/v2/tenant/acme/dummy/authorize",
+    )
+  })
+})

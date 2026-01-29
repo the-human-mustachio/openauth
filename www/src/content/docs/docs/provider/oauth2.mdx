@@ -39,7 +39,7 @@ Oauth2Provider(config)
 </Section>
 <Section type="parameters">
 #### Parameters
-- <p><code class="key">config</code> [<code class="type">Oauth2Config</code>](/docs/provider/oauth2#oauth2config)</p>
+- <p><code class="key">config</code> <code class="type">Oauth2Config</code></p>
 </Section>
 <InlineSection>
 **Returns** <code class="type">Provider</code>
@@ -52,6 +52,7 @@ Oauth2Provider(config)
 - <p>[<code class="key">clientSecret</code>](#oauth2config.clientsecret) <code class="primitive">string</code></p>
 - <p>[<code class="key">endpoint</code>](#oauth2config.endpoint) <code class="primitive">Object</code></p>
   - <p>[<code class="key">authorization</code>](#endpoint.authorization) <code class="primitive">string</code></p>
+  - <p>[<code class="key">jwks?</code>](#endpoint.jwks) <code class="primitive">string</code></p>
   - <p>[<code class="key">token</code>](#endpoint.token) <code class="primitive">string</code></p>
 - <p>[<code class="key">pkce?</code>](#oauth2config.pkce) <code class="primitive">boolean</code></p>
 - <p>[<code class="key">query?</code>](#oauth2config.query) <code class="primitive">Record</code><code class="symbol">&lt;</code><code class="primitive">string</code>, <code class="primitive">string</code><code class="symbol">&gt;</code></p>
@@ -102,7 +103,8 @@ The URLs of the authorization and token endpoints.
 {
   endpoint: {
     authorization: "https://auth.myserver.com/authorize",
-    token: "https://auth.myserver.com/token"
+    token: "https://auth.myserver.com/token",
+    jwks: "https://auth.myserver.com/auth/keys"
   }
 }
 ```
@@ -115,6 +117,15 @@ The URLs of the authorization and token endpoints.
 </InlineSection>
 </Section>
 The URL of the authorization endpoint.
+</Segment>
+<NestedTitle id="endpoint.jwks" Tag="h5" parent="Oauth2Config.endpoint.">jwks?</NestedTitle>
+<Segment>
+<Section type="parameters">
+<InlineSection>
+**Type** <code class="primitive">string</code>
+</InlineSection>
+</Section>
+The URL of the JWKS endpoint.
 </Segment>
 <NestedTitle id="endpoint.token" Tag="h5" parent="Oauth2Config.endpoint.">token</NestedTitle>
 <Segment>

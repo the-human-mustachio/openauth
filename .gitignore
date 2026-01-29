@@ -7,3 +7,4 @@ persist.json
 notes
 .nvim.lua
 .svelte-kit
+.claude
