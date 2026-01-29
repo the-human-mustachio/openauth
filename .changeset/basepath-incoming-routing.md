@@ -1,5 +1,5 @@
 ---
-"@openauthjs/openauth": minor
+"@_mustachio/openauth": minor
 ---
 
 Add automatic basePath stripping for incoming requests
