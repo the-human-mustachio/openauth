@@ -511,6 +511,66 @@ describe("request context mechanism", () => {
     })
   })
 
+  test("context is available in dynamic provider route handlers", async () => {
+    let providerContextInRoute: { orgSlug: string } | undefined
+    let successContext: { orgSlug: string } | undefined
+
+    // Create a provider that captures context in its route handler
+    const createContextAwareProvider = (): Provider<{ email: string }> => ({
+      type: "context-aware",
+      init(route, ctx) {
+        route.get("/authorize", async (c) => {
+          // Capture context inside the provider's route handler
+          providerContextInRoute = c.get("requestContext") as
+            | { orgSlug: string }
+            | undefined
+          return ctx.success(c, { email: "test@example.com" })
+        })
+      },
+    })
+
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      context: (req) => ({
+        orgSlug: req.headers.get("x-org-slug") || "default-org",
+      }),
+      // Use dynamic providers (function)
+      providers: async (c) => {
+        return {
+          dummy: createContextAwareProvider(),
+        }
+      },
+      success: async (ctx, value) => {
+        successContext = value.context as { orgSlug: string }
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    // Start auth flow
+    const authorizeResponse = await auth.request(
+      "https://auth.example.com/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+      {
+        headers: { "x-org-slug": "dynamic-org" },
+      },
+    )
+    const cookies = authorizeResponse.headers.get("set-cookie")
+
+    // Follow redirect to provider - this goes through the dynamic route handler
+    await auth.request("https://auth.example.com/dummy/authorize", {
+      headers: {
+        Cookie: cookies || "",
+        "x-org-slug": "dynamic-org",
+      },
+    })
+
+    // Context should be available in the provider's route handler
+    expect(providerContextInRoute).toStrictEqual({ orgSlug: "dynamic-org" })
+    // And in the success callback
+    expect(successContext).toStrictEqual({ orgSlug: "dynamic-org" })
+  })
+
   test("undefined context (default) maintains backward compatibility", async () => {
     let receivedValue: any
 

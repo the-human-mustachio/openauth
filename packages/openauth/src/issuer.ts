@@ -1517,10 +1517,14 @@ export function issuer<
       const value = providers[name]
       if (!value) return next()
 
+      const requestContext = c.get("requestContext")
       const route = new Hono<any>()
       route.use(async (c, next) => {
         c.set("provider", name)
         c.set("tenantId", tenantId)
+        if (requestContext !== undefined) {
+          c.set("requestContext", requestContext)
+        }
         await next()
       })
       value.init(route, {
@@ -1539,9 +1543,13 @@ export function issuer<
       const value = providers[name]
       if (!value) return next()
 
+      const requestContext = c.get("requestContext")
       const route = new Hono<any>()
       route.use(async (c, next) => {
         c.set("provider", name)
+        if (requestContext !== undefined) {
+          c.set("requestContext", requestContext)
+        }
         await next()
       })
       value.init(route, {
