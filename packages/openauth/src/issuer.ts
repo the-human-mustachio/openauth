@@ -1336,11 +1336,14 @@ export function issuer<
       throw new UnauthorizedClientError(client_id, redirect_uri)
     await auth.set(c, "authorization", 60 * 60 * 24, authorization)
     c.set("authorization", authorization)
-    if (provider) return c.redirect(`${getBasePath(c.req.raw)}/${provider}/authorize`)
+    if (provider)
+      return c.redirect(`${getBasePath(c.req.raw)}/${provider}/authorize`)
     const resolvedProviders = await getProviders(c)
     const providerNames = Object.keys(resolvedProviders)
     if (providerNames.length === 1)
-      return c.redirect(`${getBasePath(c.req.raw)}/${providerNames[0]}/authorize`)
+      return c.redirect(
+        `${getBasePath(c.req.raw)}/${providerNames[0]}/authorize`,
+      )
     return auth.forward(
       c,
       await select()(
@@ -1417,11 +1420,16 @@ export function issuer<
       throw new UnauthorizedClientError(client_id, redirect_uri)
     await auth.set(c, "authorization", 60 * 60 * 24, authorization)
     c.set("authorization", authorization)
-    if (provider) return c.redirect(`${getBasePath(c.req.raw)}/tenant/${tenantId}/${provider}/authorize`)
+    if (provider)
+      return c.redirect(
+        `${getBasePath(c.req.raw)}/tenant/${tenantId}/${provider}/authorize`,
+      )
     const resolvedProviders = await getProviders(c)
     const providerNames = Object.keys(resolvedProviders)
     if (providerNames.length === 1)
-      return c.redirect(`${getBasePath(c.req.raw)}/tenant/${tenantId}/${providerNames[0]}/authorize`)
+      return c.redirect(
+        `${getBasePath(c.req.raw)}/tenant/${tenantId}/${providerNames[0]}/authorize`,
+      )
     return auth.forward(
       c,
       await select()(

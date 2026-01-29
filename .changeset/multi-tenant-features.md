@@ -11,6 +11,7 @@ Add multi-tenant support features:
 - **`context`** - Extract custom context from requests. The context is available in providers via `ctx.get("requestContext")` and in the success callback via `value.context`.
 
 Example usage:
+
 ```ts
 const app = issuer({
   basePath: (req) => `/auth/${req.headers.get("x-org-slug")}`,
