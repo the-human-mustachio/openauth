@@ -1608,7 +1608,7 @@ export function issuer<
 
       return app.fetch(request)
     })
-    return wrapper as typeof app
+    return wrapper as unknown as typeof app
   }
 
   return app
