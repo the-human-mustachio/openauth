@@ -81,7 +81,7 @@ window.addEventListener("load", async () => {
     // GET registration options from the endpoint that calls
     // @simplewebauthn/server -> generateRegistrationOptions()
     const resp = await fetch(
-      "/passkey/authenticate-options?userId=" + email + "&rpID=" + rpID
+      "authenticate-options?userId=" + email + "&rpID=" + rpID
     );
 
     const optionsJSON = await resp.json();
@@ -100,7 +100,7 @@ window.addEventListener("load", async () => {
       throw error;
     }
     const verificationResp = await fetch(
-      "/passkey/authenticate-verify?userId=" +
+      "authenticate-verify?userId=" +
         email +
         "&rpID=" +
         rpID +
@@ -197,7 +197,7 @@ window.addEventListener("load", async () => {
     // GET registration options from the endpoint that calls
     // @simplewebauthn/server -> generateRegistrationOptions()
     const resp = await fetch(
-      "/passkey/register-request?userId=" +
+      "register-request?userId=" +
         email +
         "&origin=" +
         origin +
@@ -227,7 +227,7 @@ window.addEventListener("load", async () => {
     // @simplewebauthn/server -> verifyRegistrationResponse()
     try {
       const verificationResp = await fetch(
-        "/passkey/register-verify?userId=" +
+        "register-verify?userId=" +
           email +
           "&origin=" +
           origin +
