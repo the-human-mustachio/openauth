@@ -1593,5 +1593,23 @@ export function issuer<
     return c.redirect(url.toString())
   })
 
+  // If basePath is configured, wrap app to strip basePath from incoming requests
+  if (input.basePath) {
+    const wrapper = new Hono()
+    wrapper.all("*", async (c) => {
+      const base = getBasePath(c.req.raw)
+      let request = c.req.raw
+
+      if (base && c.req.path.startsWith(base)) {
+        const url = new URL(c.req.url)
+        url.pathname = url.pathname.slice(base.length) || "/"
+        request = new Request(url.toString(), c.req.raw)
+      }
+
+      return app.fetch(request)
+    })
+    return wrapper as typeof app
+  }
+
   return app
 }

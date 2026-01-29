@@ -735,4 +735,91 @@ describe("dynamic basePath", () => {
       "/auth/v2/tenant/acme/dummy/authorize",
     )
   })
+
+  test("basePath is stripped from incoming requests for routing", async () => {
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      basePath: "/auth/acme",
+      providers: {
+        dummy: createDummyProvider("test@example.com"),
+      },
+      success: async (ctx, value) => {
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    // Request WITH basePath prefix - simulates how consumer forwards request
+    const response = await auth.request(
+      "https://auth.example.com/auth/acme/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+    )
+    expect(response.status).toBe(302)
+    // Should route correctly and redirect to provider with basePath
+    expect(response.headers.get("location")).toBe("/auth/acme/dummy/authorize")
+  })
+
+  test("basePath stripping works with dynamic function", async () => {
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      basePath: (req) => `/auth/${req.headers.get("x-org-slug") || "default"}`,
+      providers: {
+        dummy: createDummyProvider("test@example.com"),
+      },
+      success: async (ctx, value) => {
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    // Request WITH basePath prefix and header
+    const response = await auth.request(
+      "https://auth.example.com/auth/acme/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+      {
+        headers: {
+          "x-org-slug": "acme",
+        },
+      },
+    )
+    expect(response.status).toBe(302)
+    // Should route correctly and redirect to provider with basePath
+    expect(response.headers.get("location")).toBe("/auth/acme/dummy/authorize")
+  })
+
+  test("basePath stripping works for full OAuth flow", async () => {
+    const auth = issuer({
+      storage: MemoryStorage(),
+      subjects,
+      allow: async () => true,
+      basePath: "/auth/acme",
+      providers: {
+        dummy: createDummyProvider("test@example.com"),
+      },
+      success: async (ctx, value) => {
+        return ctx.subject("user", { userID: value.email })
+      },
+    })
+
+    // Step 1: Authorize request with basePath prefix
+    const authorizeResponse = await auth.request(
+      "https://auth.example.com/auth/acme/authorize?client_id=123&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcallback&response_type=code",
+    )
+    expect(authorizeResponse.status).toBe(302)
+    const providerRedirect = authorizeResponse.headers.get("location")
+    expect(providerRedirect).toBe("/auth/acme/dummy/authorize")
+
+    // Step 2: Provider authorize (with basePath prefix)
+    const cookies = authorizeResponse.headers.get("set-cookie") || ""
+    const providerResponse = await auth.request(
+      `https://auth.example.com${providerRedirect}`,
+      {
+        headers: { cookie: cookies },
+      },
+    )
+    expect(providerResponse.status).toBe(302)
+    const callbackUrl = providerResponse.headers.get("location")
+    expect(callbackUrl).toContain("client.example.com/callback")
+    expect(callbackUrl).toContain("code=")
+  })
 })
