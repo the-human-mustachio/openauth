@@ -1,46 +1,53 @@
 # Multi-Tenant Support Features for OpenAuth
 
 ## Overview
+
 Add three features to support dynamic multi-tenant applications:
+
 1. Dynamic `basePath` option
 2. Cookie configuration (path and domain)
 3. Request context mechanism
 
 ## Goal
+
 Enable usage like:
+
 ```ts
-type AppContext = { orgSlug: string; appSlug: string };
+type AppContext = { orgSlug: string; appSlug: string }
 
 const appAuthIssuer = issuer({
   subjects,
   storage,
-  basePath: (req) => `/auth/${req.headers.get("x-org-slug")}/${req.headers.get("x-app-slug")}`,
+  basePath: (req) =>
+    `/auth/${req.headers.get("x-org-slug")}/${req.headers.get("x-app-slug")}`,
   cookies: {
     path: "/",
-    domain: ".yourauth.com"  // Optional: for cross-subdomain
+    domain: ".yourauth.com", // Optional: for cross-subdomain
   },
   context: (req) => ({
     orgSlug: req.headers.get("x-org-slug")!,
     appSlug: req.headers.get("x-app-slug")!,
   }),
   providers: async (ctx) => {
-    const { orgSlug, appSlug } = ctx.get("context");  // Type-safe access
-    const org = await getOrganizationBySlug(orgSlug);
-    const app = await getApplicationByOrgAndSlug(org.organizationId, appSlug);
+    const { orgSlug, appSlug } = ctx.get("context") // Type-safe access
+    const org = await getOrganizationBySlug(orgSlug)
+    const app = await getApplicationByOrgAndSlug(org.organizationId, appSlug)
     // ... return providers
   },
   success: async (response, input, req) => {
     // context is part of input object (like tenantId)
-    const { orgSlug, appSlug } = input.context;
-    return response.subject("user", { userId: "...", orgSlug, appSlug });
+    const { orgSlug, appSlug } = input.context
+    return response.subject("user", { userId: "...", orgSlug, appSlug })
   },
-});
+})
 
-app.route("/auth/:orgSlug/:appSlug", appAuthIssuer);
+app.route("/auth/:orgSlug/:appSlug", appAuthIssuer)
 ```
 
 ## Backward Compatibility Strategy
+
 All new features are optional with sensible defaults:
+
 - `basePath`: defaults to `""` (current behavior)
 - `cookies.path`: defaults to `undefined` (current behavior - Hono's default)
 - `cookies.domain`: defaults to `undefined` (current behavior)
@@ -52,35 +59,36 @@ All new features are optional with sensible defaults:
 
 ### Risk Assessment
 
-| Feature | Risk Level | Attack Vector | Mitigation |
-|---------|------------|---------------|------------|
-| basePath | **Medium** | Path injection via malicious headers | Regex validation of path format |
-| cookies | **Low** | Overly broad domain config | Documentation + optional warning |
-| context | **Low** | Trusting unvalidated header data | Documentation (developer responsibility) |
+| Feature  | Risk Level | Attack Vector                        | Mitigation                               |
+| -------- | ---------- | ------------------------------------ | ---------------------------------------- |
+| basePath | **Medium** | Path injection via malicious headers | Regex validation of path format          |
+| cookies  | **Low**    | Overly broad domain config           | Documentation + optional warning         |
+| context  | **Low**    | Trusting unvalidated header data     | Documentation (developer responsibility) |
 
 ### Security Mitigations
 
 **1. basePath Validation (Required)**
 
 The basePath can be derived from user-controlled headers, making it a potential injection vector:
+
 - Open redirect: `x-org-slug: /../../../evil.com`
 - Issuer URL manipulation in JWTs
 
 **Implementation:**
+
 ```ts
 // Only allow: empty string, or paths like /foo, /foo/bar, /foo-bar/baz_123
 const VALID_BASE_PATH_REGEX = /^(\/[a-zA-Z0-9_-]+)*$/
 
 const resolveBasePath = (req: Request): string => {
   if (!input.basePath) return ""
-  const base = typeof input.basePath === "string"
-    ? input.basePath
-    : input.basePath(req)
+  const base =
+    typeof input.basePath === "string" ? input.basePath : input.basePath(req)
 
   // Security: Reject invalid basePath to prevent path injection
   if (base && !VALID_BASE_PATH_REGEX.test(base)) {
     console.error("Invalid basePath rejected:", base)
-    return ""  // Safe fallback
+    return "" // Safe fallback
   }
   return base
 }
@@ -89,14 +97,15 @@ const resolveBasePath = (req: Request): string => {
 **2. Cookie Domain Warning (Optional)**
 
 Warn developers about overly broad cookie domains:
+
 ```ts
 if (input.cookies?.domain) {
-  const parts = input.cookies.domain.replace(/^\./, '').split('.')
+  const parts = input.cookies.domain.replace(/^\./, "").split(".")
   if (parts.length < 2 || (parts.length === 2 && parts[1].length <= 3)) {
     console.warn(
       "OpenAuth: Cookie domain may be too broad:",
       input.cookies.domain,
-      "- this could expose cookies to unintended sites"
+      "- this could expose cookies to unintended sites",
     )
   }
 }
@@ -105,6 +114,7 @@ if (input.cookies?.domain) {
 **3. Context Security Documentation**
 
 Add JSDoc warnings to make developers aware:
+
 ```ts
 /**
  * Extract custom context from each request.
@@ -137,12 +147,13 @@ context?: (req: Request) => RequestContext
 
 **Important**: `basePath` and the existing `/tenant/:tenantId/*` routes serve different purposes:
 
-| Feature | Purpose | When to Use |
-|---------|---------|-------------|
-| `basePath` | Dynamic URL prefix for the entire issuer | When mounting at dynamic paths (e.g., `/auth/:org/:app`) |
-| `/tenant/:tenantId/*` | Built-in tenant isolation within a single issuer | When using path-based tenant identification |
+| Feature               | Purpose                                          | When to Use                                              |
+| --------------------- | ------------------------------------------------ | -------------------------------------------------------- |
+| `basePath`            | Dynamic URL prefix for the entire issuer         | When mounting at dynamic paths (e.g., `/auth/:org/:app`) |
+| `/tenant/:tenantId/*` | Built-in tenant isolation within a single issuer | When using path-based tenant identification              |
 
 **Interaction**: These features are **composable**. If both are used:
+
 - basePath: `/auth/acme/myapp`
 - Tenant route: `/tenant/tenant123/authorize`
 - Full path: `/auth/acme/myapp/tenant/tenant123/authorize`
@@ -154,6 +165,7 @@ The basePath is prepended to ALL routes, including tenant routes.
 **File: `packages/openauth/src/issuer.ts`**
 
 1. **Add to IssuerInput interface** (~line 532):
+
 ```ts
 /**
  * Base path prefix for all routes and URLs. Can be a static string or a
@@ -178,26 +190,27 @@ basePath?: string | ((req: Request) => string)
 ```
 
 2. **Add helper to resolve basePath with validation** (~line 550):
+
 ```ts
 // Security: Only allow safe path characters
 const VALID_BASE_PATH_REGEX = /^(\/[a-zA-Z0-9_-]+)*$/
 
 const resolveBasePath = (req: Request): string => {
   if (!input.basePath) return ""
-  const base = typeof input.basePath === "string"
-    ? input.basePath
-    : input.basePath(req)
+  const base =
+    typeof input.basePath === "string" ? input.basePath : input.basePath(req)
 
   // Security: Reject invalid basePath to prevent path injection
   if (base && !VALID_BASE_PATH_REGEX.test(base)) {
     console.error("Invalid basePath rejected:", base)
-    return ""  // Safe fallback rather than throwing
+    return "" // Safe fallback rather than throwing
   }
   return base
 }
 ```
 
 3. **Modify issuer() helper function** (line 830-832):
+
 ```ts
 function getIssuerUrl(ctx: Context): string {
   const base = resolveBasePath(ctx.req.raw)
@@ -209,6 +222,7 @@ function getIssuerUrl(ctx: Context): string {
 4. **Update internal redirects** to use basePath:
 
 Location: Lines 1235, 1239, 1316, 1320
+
 ```ts
 // Before:
 return c.redirect(`/${provider}/authorize`)
@@ -218,15 +232,19 @@ return c.redirect(`${resolveBasePath(c.req.raw)}/${provider}/authorize`)
 ```
 
 For tenant routes:
+
 ```ts
 // Before:
 return c.redirect(`/tenant/${tenantId}/${provider}/authorize`)
 
 // After:
-return c.redirect(`${resolveBasePath(c.req.raw)}/tenant/${tenantId}/${provider}/authorize`)
+return c.redirect(
+  `${resolveBasePath(c.req.raw)}/tenant/${tenantId}/${provider}/authorize`,
+)
 ```
 
 5. **Update metadata endpoints** (lines 885-896):
+
 ```ts
 const metadataHandler = async (c: Context) => {
   const iss = getIssuerUrl(c)
@@ -249,7 +267,9 @@ Note: Since `iss` already includes the basePath, endpoints are just appended.
 ## Feature 2: Cookie Configuration
 
 ### Expanded Scope
+
 Support both `path` and `domain` for multi-tenant scenarios where:
+
 - `path: "/"` - Cookies work across all sub-paths
 - `domain: ".yourauth.com"` - Cookies work across subdomains
 
@@ -258,6 +278,7 @@ Support both `path` and `domain` for multi-tenant scenarios where:
 **File: `packages/openauth/src/issuer.ts`**
 
 1. **Add to IssuerInput interface** (~line 532):
+
 ```ts
 /**
  * Cookie configuration options for the authorization flow.
@@ -283,6 +304,7 @@ cookies?: {
 ```
 
 2. **Modify auth.set()** (lines 696-703):
+
 ```ts
 async set(ctx, key, maxAge, value) {
   setCookie(ctx, key, await encrypt(value), {
@@ -298,6 +320,7 @@ async set(ctx, key, maxAge, value) {
 ```
 
 3. **Modify auth.unset()** (lines 712-714):
+
 ```ts
 async unset(ctx: Context, key: string) {
   deleteCookie(ctx, key, {
@@ -314,6 +337,7 @@ async unset(ctx: Context, key: string) {
 ### Type-Safe Design
 
 The key challenge is making context type-safe throughout the flow. We'll:
+
 1. Add a `RequestContext` generic to the issuer function
 2. Extend Hono's Variables type to include the context
 3. Provide type-safe access via `ctx.get("context")`
@@ -323,6 +347,7 @@ The key challenge is making context type-safe throughout the flow. We'll:
 **File: `packages/openauth/src/issuer.ts`**
 
 1. **Update issuer function signature** (~line 537):
+
 ```ts
 export function issuer<
   Providers extends Record<string, Provider<any>>,
@@ -333,14 +358,17 @@ export function issuer<
       {
         provider: key
         tenantId?: string
-      } & (RequestContext extends undefined ? {} : { context: RequestContext })
-      & (Providers[key] extends Provider<infer T> ? T : {})
+      } & (RequestContext extends undefined
+        ? {}
+        : { context: RequestContext }) &
+        (Providers[key] extends Provider<infer T> ? T : {})
     >
   }[keyof Providers],
 >(input: IssuerInput<Providers, Subjects, RequestContext, Result>)
 ```
 
 2. **Add to IssuerInput interface**:
+
 ```ts
 /**
  * Extract custom context from each request. The context is available:
@@ -366,6 +394,7 @@ context?: (req: Request) => RequestContext
 ```
 
 3. **Update Hono app Variables type** (lines 834-838):
+
 ```ts
 const app = new Hono<{
   Variables: {
@@ -378,6 +407,7 @@ const app = new Hono<{
 ```
 
 4. **Add context extraction middleware** (after app creation, ~line 840):
+
 ```ts
 if (input.context) {
   app.use(async (c, next) => {
@@ -390,6 +420,7 @@ if (input.context) {
 5. **Update success callback invocations**:
 
 In `auth.success()` (line 621):
+
 ```ts
 return await input.success(
   { async subject(...) { ... } },
@@ -404,6 +435,7 @@ return await input.success(
 ```
 
 In client_credentials flow (line 1150):
+
 ```ts
 return input.success(
   { async subject(...) { ... } },
@@ -417,6 +449,7 @@ return input.success(
 ```
 
 6. **Update refresh callback** (line 1080):
+
 ```ts
 return input.refresh(
   { async subject(...) { ... } },
@@ -434,28 +467,31 @@ return input.refresh(
 ### Usage Examples
 
 **In providers (Hono Context):**
+
 ```ts
 providers: async (ctx) => {
   // Type-safe: ctx.get("context") returns RequestContext
-  const { orgSlug, appSlug } = ctx.get("context");
+  const { orgSlug, appSlug } = ctx.get("context")
   // ...
 }
 ```
 
 **In success callback (input object):**
+
 ```ts
 success: async (response, input, req) => {
   // Type-safe: input.context is RequestContext
-  const { orgSlug, appSlug } = input.context;
+  const { orgSlug, appSlug } = input.context
   // ...
 }
 ```
 
 **In refresh callback:**
+
 ```ts
 refresh: async (response, input, req) => {
   // Context from the refresh request (may differ from original auth)
-  const { orgSlug } = input.context;
+  const { orgSlug } = input.context
   // ...
 }
 ```
@@ -475,6 +511,7 @@ refresh: async (response, input, req) => {
 ### Unit Tests to Add
 
 **1. basePath tests** (in `dynamic-providers.test.ts`):
+
 ```ts
 describe("basePath", () => {
   test("static basePath is included in redirects", async () => { ... })
@@ -492,6 +529,7 @@ describe("basePath", () => {
 ```
 
 **2. Cookie config tests** (in `issuer.test.ts`):
+
 ```ts
 describe("cookie configuration", () => {
   test("custom cookie path is applied to set-cookie header", async () => { ... })
@@ -502,6 +540,7 @@ describe("cookie configuration", () => {
 ```
 
 **3. Context tests** (in `dynamic-providers.test.ts`):
+
 ```ts
 describe("request context", () => {
   test("context is extracted from request", async () => { ... })
@@ -513,6 +552,7 @@ describe("request context", () => {
 ```
 
 ### Manual Verification
+
 ```bash
 cd packages/openauth && bun test
 ```
@@ -531,12 +571,12 @@ Each feature should be committed separately for easy review and rollback.
 
 ## Summary of Key Decisions
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Context access in success | `input.context` | Matches existing `tenantId` pattern |
-| Context access in providers | `ctx.get("context")` | Uses Hono's typed Variables |
-| basePath + tenant routes | Composable (basePath prefixes all) | Maximum flexibility |
-| Cookie config scope | `path` + `domain` | Covers multi-tenant scenarios |
-| Default behavior | All features optional | Full backward compatibility |
-| basePath security | Regex validation + safe fallback | Prevents path injection attacks |
-| Context security | Documentation + examples | Developer responsibility with guidance |
+| Decision                    | Choice                             | Rationale                              |
+| --------------------------- | ---------------------------------- | -------------------------------------- |
+| Context access in success   | `input.context`                    | Matches existing `tenantId` pattern    |
+| Context access in providers | `ctx.get("context")`               | Uses Hono's typed Variables            |
+| basePath + tenant routes    | Composable (basePath prefixes all) | Maximum flexibility                    |
+| Cookie config scope         | `path` + `domain`                  | Covers multi-tenant scenarios          |
+| Default behavior            | All features optional              | Full backward compatibility            |
+| basePath security           | Regex validation + safe fallback   | Prevents path injection attacks        |
+| Context security            | Documentation + examples           | Developer responsibility with guidance |
