@@ -1,0 +1,132 @@
+/**
+ * Cookie parsing + serialization for the HTTP layer.
+ *
+ * The framework owns cookie policy (per `ARCHITECTURE.md` §"Response
+ * sanitization"). Methods never set cookies through `Response.headers`; they
+ * return `SetCookie[]` data and this module renders them. We additionally
+ * strip method-returned `Set-Cookie` / security / `Cache-Control` headers so
+ * methods cannot bypass policy.
+ */
+import type { SetCookie } from "../types/method"
+
+/** Parse an incoming `Cookie:` header into a read-only map. */
+export function parseCookieHeader(header: string | null): Map<string, string> {
+  const out = new Map<string, string>()
+  if (!header) return out
+  for (const part of header.split(";")) {
+    const trimmed = part.trim()
+    if (!trimmed) continue
+    const eq = trimmed.indexOf("=")
+    if (eq === -1) {
+      out.set(trimmed, "")
+      continue
+    }
+    const name = trimmed.slice(0, eq).trim()
+    const raw = trimmed.slice(eq + 1).trim()
+    const value = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw
+    try {
+      out.set(name, decodeURIComponent(value))
+    } catch {
+      out.set(name, value)
+    }
+  }
+  return out
+}
+
+export type CookieDefaults = {
+  /** Secure flag default. Production should pass `true`. */
+  secure?: boolean
+  domain?: string
+  path?: string
+}
+
+const RESERVED_PREFIX = /^(auth|idp)\./
+
+/**
+ * Serialize a single `SetCookie` data instruction into a `Set-Cookie` header
+ * string. Enforces framework policy:
+ *   - `Secure` forced on if `defaults.secure === true`.
+ *   - `SameSite` defaults to `Lax` if unspecified.
+ *   - `HttpOnly` defaults to `true` for any cookie name in the `auth.*` /
+ *     `idp.*` reserved namespace.
+ *   - `null` value → `Max-Age=0` to clear.
+ */
+export function serializeSetCookie(
+  cookie: SetCookie,
+  defaults: CookieDefaults = {},
+): string {
+  const parts: string[] = []
+  const value = cookie.value ?? ""
+  parts.push(`${cookie.name}=${encodeURIComponent(value)}`)
+
+  const path = cookie.path ?? defaults.path ?? "/"
+  parts.push(`Path=${path}`)
+
+  const domain = cookie.domain ?? defaults.domain
+  if (domain) parts.push(`Domain=${domain}`)
+
+  if (cookie.value === null) {
+    parts.push("Max-Age=0")
+  } else if (cookie.maxAge !== undefined) {
+    parts.push(`Max-Age=${cookie.maxAge}`)
+  }
+
+  const secure = cookie.secure ?? defaults.secure ?? false
+  if (secure) parts.push("Secure")
+
+  const httpOnly = cookie.httpOnly ?? RESERVED_PREFIX.test(cookie.name)
+  if (httpOnly) parts.push("HttpOnly")
+
+  const sameSite = cookie.sameSite ?? "lax"
+  parts.push(`SameSite=${sameSite.charAt(0).toUpperCase() + sameSite.slice(1)}`)
+
+  return parts.join("; ")
+}
+
+/** Headers the framework strips from any method-returned `Response`. */
+const STRIPPED_HEADERS = [
+  "set-cookie",
+  "set-cookie2",
+  "strict-transport-security",
+  "content-security-policy",
+  "content-security-policy-report-only",
+  "x-frame-options",
+  "x-content-type-options",
+  "referrer-policy",
+  "permissions-policy",
+  "cache-control",
+] as const
+
+export type ApplyOptions = {
+  setCookies?: SetCookie[]
+  cookieDefaults?: CookieDefaults
+  /** When set, framework writes this `Cache-Control` value. Default `no-store`. */
+  cacheControl?: string
+}
+
+/**
+ * Sanitize a method-returned `Response` and apply framework-owned headers.
+ *
+ * Returns a new `Response` so the original is left untouched.
+ */
+export function applyResponsePolicy(
+  response: Response,
+  opts: ApplyOptions = {},
+): Response {
+  const headers = new Headers(response.headers)
+  for (const h of STRIPPED_HEADERS) headers.delete(h)
+
+  headers.set("Cache-Control", opts.cacheControl ?? "no-store")
+
+  if (opts.setCookies) {
+    for (const c of opts.setCookies) {
+      headers.append("Set-Cookie", serializeSetCookie(c, opts.cookieDefaults))
+    }
+  }
+
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}

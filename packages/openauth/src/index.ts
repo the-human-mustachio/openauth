@@ -111,17 +111,77 @@ export type { SessionRecord, SessionStore } from "./ports/session-store"
 export type { TokenStore } from "./ports/token-store"
 
 import type { IdP, IdPOptions } from "./types/idp"
+import { MethodCache } from "./domain/method-cache"
+import { buildRouter } from "./http/router"
+import type { HttpDeps } from "./http/context"
 
 /**
- * Construct a new IdP from the supplied options. **Stub — Phase 1 ships
- * types only.** The full implementation lands in Phases 2 (domain
- * functions + memory adapters) and 3 (HTTP adapter).
+ * Construct a new IdP from the supplied options.
  *
- * Calling this in Phase 1 throws `Error("createIdP: not implemented
- * (Phase 1 ships types only)")`. The function signature is the
- * committed public surface; downstream code can be type-checked against
- * it today.
+ * Phase 3 ships the full HTTP surface backed by the Phase 2 domain
+ * functions. Wire up:
+ *
+ *  - A `MethodCache` over the configured factories. The factory map's
+ *    keys MUST equal each factory's `kind`; we throw on construction if
+ *    any disagree.
+ *  - A `HttpDeps` record passed into the Hono router.
+ *  - The returned `IdP.handle` is `app.fetch.bind(app)`; the per-endpoint
+ *    primitives (`authorize`, `token`, etc.) re-enter the same app.
  */
-export function createIdP(_opts: IdPOptions): IdP {
-  throw new Error("createIdP: not implemented (Phase 1 ships types only)")
+export function createIdP(opts: IdPOptions): IdP {
+  // Validate factory-key invariant before any request can hit a bad map.
+  const mismatched = Object.entries(opts.methods)
+    .filter(([key, factory]) => key !== factory.kind)
+    .map(([key, factory]) => `${key}!=${factory.kind}`)
+  if (mismatched.length > 0) {
+    throw new Error(
+      `createIdP: methods map keys must equal factory.kind. Offenders: ${mismatched.join(", ")}`,
+    )
+  }
+
+  const clock = () => Date.now()
+  const auditLog = opts.auditLog
+  const methodCache = new MethodCache({
+    factories: opts.methods,
+    ...(auditLog ? { auditLog } : {}),
+    now: clock,
+  })
+
+  const resolveIssuer = (req: Request): string =>
+    typeof opts.issuerUrl === "string" ? opts.issuerUrl : opts.issuerUrl(req)
+
+  const deps: HttpDeps = {
+    configStore: opts.configStore,
+    tokenStore: opts.tokenStore,
+    sessionStore: opts.sessionStore,
+    keyStore: opts.keyStore,
+    ...(opts.methodStore ? { methodStore: opts.methodStore } : {}),
+    ...(auditLog ? { auditLog } : {}),
+    methodCache,
+    stateKeys: opts.stateKeys,
+    resolveIssuer,
+    ...(opts.callbackHostFor ? { callbackHostFor: opts.callbackHostFor } : {}),
+    resolveTenant: opts.resolveTenant,
+    success: opts.success,
+    ...(opts.persistUpstreamTokens
+      ? { persistUpstreamTokens: opts.persistUpstreamTokens }
+      : {}),
+    clock,
+    cookieDefaults: { secure: true },
+  }
+
+  const app = buildRouter(deps)
+  const fetch = async (req: Request): Promise<Response> =>
+    await app.fetch(req)
+
+  return {
+    handle: fetch,
+    authorize: fetch,
+    token: fetch,
+    userinfo: fetch,
+    jwks: fetch,
+    discovery: fetch,
+    revoke: fetch,
+    introspect: fetch,
+  }
 }
