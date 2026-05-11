@@ -250,15 +250,146 @@ See `ports/CONSISTENCY.md` for the authoritative table. Summary:
 - `AuditLog.log` — append-only, durable. Ordering across instances not
   required.
 
+## Embedding pattern — what the framework does and doesn't do
+
+This package is a **server-side library** that runs inside a larger host
+application — the host is the product, this library is the auth brain.
+The boundary matters for every scoping decision: features that look like
+"identity" sometimes belong on the host side, not in the library.
+
+**The host application owns:**
+
+- The console UI for managing partitions, registered applications, audit
+  log display, invite flows, billing.
+- The product's data model — Users, Workspaces, Apps, App-Tenants, and
+  whatever other concepts the product introduces.
+- Authorization (RBAC) — "is this subject allowed to do X?" — including
+  whether a subject is an "admin." The library only authenticates; the host
+  decides what an authenticated subject is permitted to do.
+- Mutations to per-partition config — the host writes through the
+  framework's `ConfigStore` / `MethodStore` adapters via plain function
+  calls, no HTTP API in between.
+- Inheritance logic — e.g. an App's default providers overridden by an
+  App-Tenant's own providers. The framework only sees the resolved
+  `TenantConfig`; the merge happens in the host's `ConfigStore`
+  implementation.
+
+**The library owns:**
+
+- OAuth 2.1 / OIDC Core endpoints (`/authorize`, `/token`, `/cb/*`,
+  `/m/*`, `/userinfo`, `/revoke`, `/introspect`, `/.well-known/*`).
+- Per-partition isolation — tokens minted for partition A cannot be
+  consumed at partition B's `/token`; refresh-token rotation honours
+  family scoping; audit events carry the partition id.
+- The auth-method registry (factories) and per-partition instance cache.
+- Port interfaces (`ConfigStore`, `MethodStore`, `TokenStore`,
+  `SessionStore`, `KeyStore`, `AuditLog`) and concrete adapters (memory,
+  Postgres, D1, Durable Objects, KV, DynamoDB, KMS).
+- Standards posture — PKCE enforcement, refresh-token reuse detection,
+  encryption-at-rest of code payloads, MAC-bound state envelope.
+
+### `Tenant` is an opaque partition key
+
+The framework's `Tenant` is **not** a business-domain concept. It is a
+configuration partition: an opaque branded string keying the per-request
+config blob the framework operates on. The host's `resolveTenant(req)`
+decides what counts as a partition for an incoming request; the host's
+`ConfigStore` returns the partition's config.
+
+What the framework explicitly does **not** know:
+
+- What a tenant "is" in the host's business model (it could be an
+  organization, a workspace, an App-Tenant tuple, a deployment, a
+  realm — the framework is agnostic).
+- A hierarchy. Tenants are flat. The host may simulate hierarchy by
+  encoding tuples into the key.
+- Lifecycle. The host creates / destroys partitions on its own schedule.
+
+### Common two-level encoding: `App × App-Tenant`
+
+When the host has two levels of scoping (a registered Application has
+default providers, and that App's customers — "App-Tenants" — may override
+with their own providers), the standard pattern is:
+
+```ts
+// Host's resolveTenant:
+async function resolveTenant(req: Request): Promise<Result<TenantId>> {
+  const url = new URL(req.url)
+  const clientId = url.searchParams.get("client_id")
+  const subdomain = url.hostname.split(".")[0]
+
+  const app = await db.apps.findByOAuthClientId(clientId)
+  if (!app) return err(authError.tenantNotFound("unknown client", ""))
+
+  const appTenant = await db.appTenants.findBySubdomain(subdomain)
+
+  return ok(`${app.id}:${appTenant?.id ?? "__default__"}` as TenantId)
+}
+
+// Host's ConfigStore.getTenantConfig:
+async function getTenantConfig(id: TenantId): Promise<Result<TenantConfig>> {
+  const [appId, subId] = (id as string).split(":")
+  const app = await db.apps.get(appId)
+  const appTenant = subId === "__default__" ? null : await db.appTenants.get(subId)
+
+  return ok({
+    id,
+    displayName: appTenant?.displayName ?? app.name,
+    clients: [
+      {
+        id: app.oauthClientId,
+        name: app.name,
+        type: "confidential",
+        secretHash: app.oauthClientSecretHash,
+        redirectUris: app.allowedRedirectUris,
+        grantTypes: ["authorization_code", "refresh_token"],
+        scopes: app.allowedScopes,
+        pkceRequired: true,
+      },
+    ],
+    methods: appTenant?.providers ?? app.defaultProviders,
+    theme: app.theme,
+    cookieDomain: app.cookieDomain,
+  })
+}
+```
+
+The framework gets a single `TenantConfig`; the merge is the host's
+business. Tokens minted under `acme:bigcorp` are invalid at
+`acme:smallco`, the audit log slices by `tid`, and method-instance caches
+are keyed by `(tenantId, methodId)` so the upstream Google client_id for
+BigCorp doesn't leak into SmallCo's flow.
+
+### Why the library doesn't ship a console
+
+Open Question #1 in the plan ("Console placement") is closed with **"not in
+this package."** The console UI, admin API, invite flow, and audit viewer
+are host-application concerns:
+
+- **Console UI** lives in the host product where the rest of the product UI
+  lives.
+- **Admin API** is unnecessary as a separate HTTP surface — the host
+  process imports `createIdP` and the port adapters, so it has direct
+  in-process access to every mutation it needs. There is no boundary to
+  protect with `/admin/*` routes because there is no other client.
+- **RBAC / admin determination** is authorization, not authentication.
+  The library authenticates the subject and issues a token; the host's
+  middleware reads the token claim, looks the user up in its model, and
+  decides what they can do.
+- **Audit log display** is read-side; the host queries its underlying
+  store directly. Adding a generic `AuditLog.query(filter)` port would be
+  necessarily less expressive than raw SQL / native queries the host
+  already needs for joins, aggregations, and full-text search.
+
 ## Phase status
 
-| Phase                                | Status   | Notes                                                                                                                                  |
-| ------------------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 — Domain types + project skeleton  | **done** | All `types/` and `ports/` files populated; `ports/CONSISTENCY.md` written; `createIdP` stub throws.                                    |
-| 2 — Domain logic + memory adapters   | pending  | Pure functions over typed ports; in-memory adapter set; full unit suite.                                                               |
-| 3 — HTTP adapter (Hono)              | pending  | Thin Hono layer; tenant middleware; Zod schemas; hand-built conformance matrix gate (17 cases minimum, see plan §"Conformance scope"). |
-| 4 — Credential + WebAuthn methods    | pending  | `password`, `code`, `m2m`, `passkey` on the new `AuthMethod` interface.                                                                |
-| 5 — OAuth / OIDC provider family     | pending  | All 22 existing providers ported to `oauth2-generic` / `oidc-generic`.                                                                 |
-| 6 — Real storage adapters            | pending  | D1, Durable Objects, KV (read-eventual paths only), DynamoDB, Postgres, KMS.                                                           |
-| 7 — Management console               | pending  | `apps/console/` — IdP authenticates its own admin login.                                                                               |
-| 8 — Standards + production hardening | pending  | PKCE enforcement, revoke, introspect, DPoP, PAR, mTLS, DCR, rate limiting, OTEL.                                                       |
+| Phase                                | Status         | Notes                                                                                                                                                                          |
+| ------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 — Domain types + project skeleton  | **done**       | All `types/` and `ports/` files populated; `ports/CONSISTENCY.md` written; `createIdP` stub throws.                                                                            |
+| 2 — Domain logic + memory adapters   | **done**       | Pure functions over typed ports; in-memory adapter set; full unit suite.                                                                                                       |
+| 3 — HTTP adapter (Hono)              | **done**       | Thin Hono layer; tenant middleware; Zod schemas; 17-case hand-built OAuth 2.1 / OIDC conformance matrix green.                                                                 |
+| 4 — Credential + WebAuthn methods    | **done**       | `password` (argon2id), `code`, `m2m`, `passkey` on the new `AuthMethod` interface.                                                                                             |
+| 5 — OAuth / OIDC provider family     | **done**       | 15 OAuth/OIDC providers via `buildOauth2Method` / `buildOidcMethod`; matrix test covers each end-to-end.                                                                       |
+| 6 — Real storage adapters            | **done**       | Postgres, D1, Durable Objects, KV (read-eventual paths), DynamoDB, KMS; parameterized port-conformance suite under `test/ports/`.                                              |
+| 7 — Library-only scoping             | **done**       | Phase 7 rescoped from "build a console" to "make the embedding contract explicit." See "Embedding pattern" above. Open Question #1 closed.                                     |
+| 8 — Standards + production hardening | pending        | PKCE enforcement details, DPoP, PAR, mTLS, Dynamic Client Registration, rate limiting, structured logging + OTEL ports.                                                        |

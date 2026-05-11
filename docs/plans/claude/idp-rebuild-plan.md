@@ -94,7 +94,7 @@ These are the big calls that shape everything else. Sign off on these before Pha
 
 **Still open:**
 
-- [ ] **Console placement.** Separate `packages/console/` (Next.js / Astro / SvelteKit) or under `apps/console/`? (Pre-Phase 7.)
+- _none_ — Open Question #1 ("Console placement") closed in Phase 7 with **"not in this package."** This is a server-side library consumed by a larger host application; the host owns the console UI, the admin API surface, and tenant management. See Phase 7 below and `packages/openauth/ARCHITECTURE.md` §"Embedding pattern".
 
 ---
 
@@ -1376,44 +1376,96 @@ Each phase has: **Goal**, **Deliverables**, **Acceptance Criteria**, **Risks**. 
 
 ---
 
-### Phase 7 — Management Console
+### Phase 7 — Library-Only Rescope (Embedding Contract) ✅ **COMPLETE**
 
-**Goal:** Build the IdP's own management console as a real OAuth client of the IdP. Eat the dogfood.
+**Goal (rescoped):** Make the embedding contract explicit. This package is
+a server-side library consumed by a larger host application; the host owns
+the console UI, the admin surface, and tenant management. Phase 7 ships
+the docs + JSDoc tightening that names this boundary, and closes the
+plan's open questions about console scope.
+
+**Why rescoped:** the original Phase 7 deliverable (`apps/console/` —
+Next.js / Astro / SvelteKit) presumed this package was a standalone
+product. In practice the package is consumed by a host application that
+already provides UI / data model / RBAC / mutations. Building a second
+console inside this package would duplicate the host's work and reintroduce
+scope (UI framework, invite flow, billing) that doesn't belong in an auth
+library.
 
 **Deliverables:**
 
-- `apps/console/` — Next.js (or Astro, or SvelteKit) app. Pick once.
-- Auth flow:
-  - Reserved "system" tenant configured in the IdP.
-  - Console registered as an OAuth client of the system tenant.
-  - Admin login: passkey + magic code (no public OAuth providers in system tenant).
-  - Console uses the access token to call its own admin API.
-- Console features (MVP):
-  - List tenants.
-  - Create / edit tenant (basic config — name, theme, cookie domain).
-  - Per-tenant: list / create / edit / disable clients.
-  - Per-tenant: list / configure auth methods (enable Google, set OAuth credentials, etc.).
-  - Per-tenant: view audit log.
-  - Self-service admin management (invite / remove admins).
-- Admin API endpoints in the IdP (separate from OAuth endpoints):
-  - `GET /admin/tenants`, `POST /admin/tenants`, ...
-  - Guarded by access token with `admin:*` scope, only issuable from system tenant.
-- Audit log entries for all admin actions.
+- `packages/openauth/ARCHITECTURE.md` — new "Embedding pattern" section
+  describing what the framework does / doesn't do, the opaque-`TenantId`
+  contract, the canonical `App × App-Tenant` encoding pattern, and the
+  reasoning for not shipping a console here. Phase status table updated
+  to reflect Phases 1-7 complete.
+- `src/types/tenant.ts` — `TenantId` JSDoc rewritten to make opacity
+  explicit: the framework never parses the key, never assumes a
+  hierarchy or lifecycle, never knows what counts as a "tenant" in the
+  host's business model.
+- Plan updates — Open Question #1 (Console placement), #2 (Storage
+  default), #3 (Audit log backend), #4 (Tenant onboarding flow) all
+  closed; Phase 7 entry rewritten; DoD checklist updated.
+- Memory: persistent project-role note (`.claude/projects/.../memory/
+  project_role.md`) so future sessions don't reintroduce console / admin
+  / RBAC scope into the library.
 
 **Acceptance criteria:**
 
-- Admin can sign up for system tenant, log in via passkey.
-- Admin can create a new tenant, configure Google + password methods, register a client.
-- Test app (a tiny example) can authenticate users via that tenant.
-- All admin actions appear in audit log with actor + target + diff.
-- "Login as tenant user" flow (support engineer) is a separate, gated, audit-logged action — not part of normal login.
+- A host-application developer can read ARCHITECTURE.md "Embedding
+  pattern" and know exactly which concerns are theirs vs the library's.
+- The `TenantId` type docs make it impossible to misread the brand as
+  carrying business semantics.
+- The plan's Phase 7 entry no longer suggests building a console here.
+
+**What was NOT built (and why):**
+
+- **Console UI** — the host's product UI lives in the host product. The
+  library is composed in, not the other way around.
+- **`/admin/*` HTTP routes** — the host imports `createIdP` and the port
+  adapters into the same process; it calls `configStore.putTenantConfig`,
+  `methodStore.putMethodConfig`, etc. directly. There is no boundary
+  between host and library that needs an HTTP API.
+- **`admin:*` scope schema** — authorization is the host's concern. The
+  library authenticates a subject and emits a JWT; the host's middleware
+  reads the JWT, looks the user up in its own model, and decides what
+  they can do.
+- **Reserved "system" tenant semantics** — it's a *configuration pattern*
+  the host may choose (run a dedicated partition for admin auth), not a
+  framework primitive. The host writes the rows; the framework doesn't
+  need a `systemTenantId` config field.
+- **`AuditLog.query(filter)` port** — reads are a host concern. The host
+  queries its underlying store directly; a generic filter API would be
+  strictly less expressive than the SQL / native queries the host needs
+  anyway for joins, aggregations, full-text search.
+- **`idp.impersonate(...)` helper** — the host can mint an impersonation
+  token in ~10 lines using `keyStore.currentSigningKey()` + `jose`. Adding
+  a framework helper for a rare, trivially-implementable operation isn't
+  worth the surface.
 
 **Risks:**
 
-- Console framework choice affects long-term maintenance. Mitigation: Phase 7 starts with a decision doc; pick based on team familiarity.
-- Admin API security. Mitigation: separate scopes, separate audit trail, integration tests for authz.
+- Future readers re-litigating console / admin scope. Mitigation: this
+  Phase 7 entry plus the ARCHITECTURE.md section plus the project-role
+  memory note triangulate the boundary clearly.
 
-**Estimated effort:** 3-4 weeks for MVP.
+#### Phase 7 — Decisions captured for later phases
+
+- **The framework is feature-complete as a library for the host's needs.**
+  Phase 8 (standards + production hardening — DPoP, PAR, mTLS, DCR, rate
+  limiting, OTEL ports) is the only substantive engineering work left in
+  this package.
+- **Tenant is an opaque partition key, not a business concept.** Any
+  future contributor proposing a framework feature should ask "is this
+  authentication or authorization?" — authentication belongs here;
+  authorization (admin RBAC, billing, org hierarchy) belongs to the host.
+- **The `App × App-Tenant` encoding** (`tenantId = "${appId}:${appTenantId
+  ?? "__default__"}"`) is the canonical pattern documented in
+  ARCHITECTURE.md. Hosts implementing their own `resolveTenant` /
+  `ConfigStore` should mirror it unless they have a specific reason to
+  diverge.
+
+**Estimated effort:** done, < 1 hour.
 
 ---
 
@@ -1563,15 +1615,14 @@ None apply to the management-console-plus-internal-apps scope of this rebuild. A
 - ✅ **AD7** — Hand-built conformance matrix; OIDF deferred. See _Conformance scope_.
 - ✅ **AD12** — In-place rebuild in `packages/openauth/src/`.
 - ✅ **Package name** — stays `@_mustachio/openauth`.
+- ✅ **Console placement / framework / onboarding flow (was Open Q #1, #4, and the framework choice).** Closed in Phase 7 with "not in this package." This package is a server-side library consumed by a larger host application. The host owns the console UI, framework choice, onboarding UX, and admin surface. See Phase 7 § "Shipped" and `packages/openauth/ARCHITECTURE.md` § "Embedding pattern."
+- ✅ **Audit log backend (was Open Q #3).** Closed in Phase 6: the framework's `AuditLog` is write-only; reads are a host concern. Adapters: memory (tests/dev), Postgres / D1 / DynamoDB / KV all ship; the host queries its underlying store directly for display. No generic `query()` port added — see ARCHITECTURE.md "Why the library doesn't ship a console."
+- ✅ **Storage default (was Open Q #2).** Closed in Phase 6: every adapter passes the same conformance suite; the host picks based on its deployment target. Postgres for Node, D1 for Cloudflare Workers, DynamoDB for AWS Lambda.
 
 **Still open (answer before the relevant phase):**
 
-1. **Console framework.** Next.js, Astro, SvelteKit, or Remix? (Pre-Phase 7.)
-2. **Storage default.** D1 or Postgres for the "out of the box" experience? Take: D1 if Cloudflare is primary deployment target; Postgres if Node. (Pre-Phase 6.)
-3. **Audit log backend.** Built-in defaults? Console-only? Pluggable only? (Pre-Phase 6.)
-4. **Tenant onboarding flow.** Open self-serve sign-up, invite-only, or both? Affects Phase 7 design. (Pre-Phase 7.)
-5. **Effect-TS.** Revisit at end of Phase 3 — if the domain is getting tangled with Result/error plumbing, Effect may be worth adopting. (Phase 3 retro.)
-6. **Registered redirect URI matching semantics.** Strawman: exact-match against `ClientConfig.redirectUris`, no wildcards or path-suffix. (Pre-Phase 3 — affects the `/authorize` validator and the `FlowRecord.callbackHost`/`callbackPath` derivation.)
+1. **Effect-TS.** Revisit at end of Phase 3 — if the domain is getting tangled with Result/error plumbing, Effect may be worth adopting. (Phase 3 retro.) — _Phase 3 shipped with plain `Result`; revisit moot unless Phase 8 finds friction._
+2. **Registered redirect URI matching semantics.** Strawman: exact-match against `ClientConfig.redirectUris`, no wildcards or path-suffix. (Pre-Phase 3 — affects the `/authorize` validator and the `FlowRecord.callbackHost`/`callbackPath` derivation.) — _Phase 3 shipped with exact-match; tighten in Phase 8 if a real consumer needs wildcards._
 
 ---
 
@@ -1596,11 +1647,11 @@ This rebuild is done when:
 
 - [ ] All 22 existing providers run on the new `AuthMethod` interface with parity to current behavior.
 - [ ] All legacy files under `packages/openauth/src/` (the original `issuer.ts`, `provider/*.ts`, etc.) are deleted; only the rebuilt structure remains.
-- [ ] Management console can manage 1+ tenants and ship to internal users.
+- [x] ~~Management console can manage 1+ tenants and ship to internal users.~~ — _Removed in Phase 7 rescope. The host application owns the console; this package is a library composed in. The framework provides every port the host needs (`ConfigStore`, `MethodStore`, `AuditLog`, etc.) for in-process mutation. See Phase 7 § "What was NOT built (and why)" and `packages/openauth/ARCHITECTURE.md` § "Embedding pattern."_
 - [x] CI runs full integration tests against every storage adapter on every commit. _(Phase 6: parameterized port-conformance suite at `test/ports/` runs against memory, Postgres (PGlite), D1 (`bun:sqlite` shim), Durable Objects (in-process shim), KV (in-process shim), DynamoDB (in-process executor shim), and KMS (mock + in-memory backing). Real-network nightly runs against actual Postgres / D1 / DynamoDB / KMS are deferred to Phase 8.)_
 - [x] OAuth 2.1 + OIDC Core compliance verified via the hand-built conformance matrix (Phase 3: 17/17 cases green on every commit; Phase 8 will extend with DPoP / PAR / revoke / introspect specifics).
 - [ ] DPoP, PAR, revoke, introspect available and tested. _(revoke + introspect HTTP shims shipped in Phase 3 over the existing Phase 2 domain; remaining hardening lands in Phase 8.)_
-- [ ] At least one external service is using the IdP for its login (the console counts).
+- [ ] At least one external service is using the IdP for its login. _(The host application is the first such consumer.)_
 - [ ] A deployment runbook exists for at least 2 of: Cloudflare, AWS, Node+Postgres.
 
 ---

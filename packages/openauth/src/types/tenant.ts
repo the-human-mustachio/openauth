@@ -13,13 +13,38 @@
  */
 
 /**
- * Branded tenant id. Treat as an opaque, comparable string; the brand exists
- * to keep arbitrary `string` values from being passed where a `TenantId` is
- * expected.
+ * Branded tenant id — **opaque to the framework**.
+ *
+ * The framework treats `TenantId` as a comparable string and nothing more.
+ * It never parses it, never assumes a hierarchy or naming convention, never
+ * imposes uniqueness rules, never knows the lifecycle of a tenant. The
+ * embedding application decides what a tenant *is* (an organization, a
+ * workspace, an App-Tenant tuple, a customer, …) and supplies a
+ * `resolveTenant(req)` that maps incoming requests to the right key.
+ *
+ * Common embedding pattern when the host application has two levels of
+ * scoping (e.g. `App` ⇒ `App-Tenant`): encode the tuple into the key.
+ *
+ * ```ts
+ * // Inside the host application's resolveTenant:
+ * return ok(`${app.id}:${appTenant?.id ?? "__default__"}` as TenantId)
+ *
+ * // Inside the host application's ConfigStore.getTenantConfig:
+ * const [appId, subId] = (id as string).split(":")
+ * // merge App defaults + App-Tenant overrides from your own DB ...
+ * ```
+ *
+ * The brand exists to keep arbitrary `string` values from being passed
+ * where a `TenantId` is expected; the *meaning* of the string is the host
+ * application's concern.
  */
 export type TenantId = string & { readonly __brand: "TenantId" }
 
-/** Cast helper for code that mints `TenantId` from a validated string. */
+/**
+ * Cast helper for code that mints `TenantId` from a validated string. The
+ * framework imposes no validation on the value — callers ensure their key
+ * is non-empty and stable per partition.
+ */
 export const asTenantId = (value: string): TenantId => value as TenantId
 
 /** OAuth 2.1 grant types in scope for this IdP. Implicit is intentionally absent. */
