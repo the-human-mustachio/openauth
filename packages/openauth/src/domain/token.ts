@@ -28,7 +28,7 @@ import type { PersistUpstreamTokens, SuccessMapInput } from "../types/idp"
 import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { SubjectClaim } from "../types/subject"
-import type { ClientConfig, TenantContext } from "../types/tenant"
+import type { TenantContext } from "../types/tenant"
 import type {
   AccessTokenClaims,
   CodePayload,
@@ -36,12 +36,12 @@ import type {
   TokenResponse,
 } from "../types/token"
 
+import { verifyClientCredentials } from "./client-auth"
 import {
   base64url,
   randomId,
   randomToken,
   sha256,
-  timingSafeEqualStr,
   utf8,
 } from "./crypto"
 import { signAccessToken } from "./jwt"
@@ -96,7 +96,7 @@ export async function exchangeCode(
   if (client.id !== req.clientId) {
     return err(authError.invalidGrant("client_id mismatch with auth code"))
   }
-  const authResult = await authenticateClient(client, req.clientSecret)
+  const authResult = await verifyClientCredentials(client, req.clientSecret)
   if (authResult) return err(authResult)
 
   // 4. Redirect URI binding.
@@ -259,34 +259,6 @@ export async function mintTokens(args: {
     refresh_token: refresh,
     scope: payload.scopes.join(" "),
   })
-}
-
-async function authenticateClient(
-  client: ClientConfig,
-  clientSecret: string | undefined,
-): Promise<AuthError | null> {
-  if (client.type === "public") {
-    // Public clients must NOT present a secret (RFC 6749 §2.3).
-    if (clientSecret) {
-      return authError.invalidClient(
-        "public clients must not present a client_secret",
-      )
-    }
-    return null
-  }
-  if (!clientSecret) {
-    return authError.invalidClient("confidential client requires client_secret")
-  }
-  if (!client.secretHash) {
-    return authError.invalidClient(
-      `client "${client.id}" has no secretHash configured`,
-    )
-  }
-  const supplied = await hashClientSecret(clientSecret)
-  if (!timingSafeEqualStr(supplied, client.secretHash)) {
-    return authError.invalidClient("client_secret mismatch")
-  }
-  return null
 }
 
 /**

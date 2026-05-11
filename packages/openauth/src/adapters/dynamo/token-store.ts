@@ -193,6 +193,27 @@ export class DynamoTokenStore implements TokenStore {
     return err(authError.internalError("consumeRefresh: unexplained miss"))
   }
 
+  async peekRefresh(
+    refresh: string,
+  ): Promise<Result<RefreshTokenPayload>> {
+    let existing: Record<string, unknown> | undefined
+    try {
+      existing = await this.#exec.get({
+        key: { pk: "refresh", sk: refresh },
+        consistentRead: true,
+      })
+    } catch (e) {
+      return err(authError.internalError("peekRefresh: lookup failed", e))
+    }
+    if (!existing) {
+      return err(authError.invalidGrant("refresh token unknown"))
+    }
+    if (this.#clock() >= Number(existing.expires_at)) {
+      return err(authError.invalidGrant("refresh token expired"))
+    }
+    return ok(parseRefresh(existing.payload))
+  }
+
   async revokeFamily(family: string): Promise<Result<void>> {
     let items: Record<string, unknown>[]
     try {

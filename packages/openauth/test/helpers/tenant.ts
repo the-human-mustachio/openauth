@@ -3,6 +3,8 @@
  */
 import {
   asTenantId,
+  type ClientConfig,
+  type GrantType,
   type TenantConfig,
   type TenantId,
 } from "../../src/types/tenant"
@@ -29,21 +31,35 @@ export async function buildTenant(
   opts: BuildTenantOpts = {},
 ): Promise<TenantConfig> {
   const id = asTenantId(opts.id ?? "acme")
-  const client = {
-    id: opts.clientId ?? "rp-1",
-    name: "Test RP",
-    type: opts.clientType ?? ("public" as "public" | "confidential"),
-    redirectUris: [opts.redirectUri ?? "https://app.example/callback"],
-    grantTypes: ["authorization_code", "refresh_token"] as Array<
-      "authorization_code" | "refresh_token" | "client_credentials"
-    >,
-    scopes: opts.scopes ?? ["openid", "email", "profile"],
-    pkceRequired: opts.pkceRequired ?? true,
-  }
-  if (opts.clientType === "confidential" && opts.clientSecretPlain) {
-    Object.assign(client, {
-      secretHash: await hashClientSecret(opts.clientSecretPlain),
-    })
+  const grantTypes: GrantType[] = ["authorization_code", "refresh_token"]
+  const scopes = opts.scopes ?? ["openid", "email", "profile"]
+  const redirectUris = [opts.redirectUri ?? "https://app.example/callback"]
+  const clientId = opts.clientId ?? "rp-1"
+  const clientType = opts.clientType ?? "public"
+  let client: ClientConfig
+  if (clientType === "confidential") {
+    client = {
+      id: clientId,
+      name: "Test RP",
+      type: "confidential",
+      secretHash: opts.clientSecretPlain
+        ? await hashClientSecret(opts.clientSecretPlain)
+        : "",
+      redirectUris,
+      grantTypes,
+      scopes,
+      pkceRequired: opts.pkceRequired ?? true,
+    }
+  } else {
+    client = {
+      id: clientId,
+      name: "Test RP",
+      type: "public",
+      redirectUris,
+      grantTypes,
+      scopes,
+      pkceRequired: true,
+    }
   }
 
   const methods = opts.methods?.map((m) => ({

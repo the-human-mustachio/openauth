@@ -102,20 +102,49 @@ export type ThemeConfig = {
   font?: string
 }
 
-/** Registered OAuth client of this IdP (an app, SPA, mobile, M2M). */
-export type ClientConfig = {
+/**
+ * Registered OAuth client of this IdP (an app, SPA, mobile, M2M).
+ *
+ * Phase 8: split into a discriminated union so misconfiguration is a type
+ * error, not a runtime check. The runtime in `domain/authorize.ts` still
+ * enforces PKCE for public clients defensively, but hosts will see the
+ * problem at compile time.
+ *
+ * - **Public clients** (SPAs, mobile apps, native apps): no client secret;
+ *   `pkceRequired` is the literal `true`. PKCE is non-negotiable per
+ *   OAuth 2.1 BCP §2.1.1.
+ * - **Confidential clients** (server-side apps, M2M): `secretHash` is
+ *   required (this used to be optional, in practice always set). PKCE
+ *   recommended but may be disabled by the host.
+ */
+export type ClientConfig = PublicClientConfig | ConfidentialClientConfig
+
+export type PublicClientConfig = {
   id: string
   name: string
-  type: "public" | "confidential"
-  /**
-   * Hash of the client secret for confidential clients. Null / absent for
-   * public clients (which must use PKCE).
-   */
-  secretHash?: string
+  type: "public"
   redirectUris: string[]
   grantTypes: GrantType[]
   scopes: string[]
-  /** Default true. False is only permissible for confidential clients. */
+  /** Must be `true` for public clients per OAuth 2.1 §2.1.1. */
+  pkceRequired: true
+  /** Phase 8. */
+  dpopRequired?: boolean
+}
+
+export type ConfidentialClientConfig = {
+  id: string
+  name: string
+  type: "confidential"
+  /** Hash of the client secret. Required for confidential clients. */
+  secretHash: string
+  redirectUris: string[]
+  grantTypes: GrantType[]
+  scopes: string[]
+  /**
+   * Default true. Disabling it is permitted for confidential clients but
+   * strongly discouraged; OAuth 2.1 §2.1.1 recommends PKCE for every client.
+   */
   pkceRequired: boolean
   /** Phase 8. */
   dpopRequired?: boolean

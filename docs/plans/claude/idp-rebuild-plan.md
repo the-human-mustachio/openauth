@@ -1469,23 +1469,103 @@ library.
 
 ---
 
-### Phase 8 — Standards & Production Hardening
+### Phase 8 — Standards & Production Hardening (in progress)
 
 **Goal:** Ship modern OAuth/OIDC features and operational features for production.
+
+#### Phase 8 — Session 1: Client-auth hardening (PKCE / revoke / introspect / refresh)
+
+**Shipped:**
+
+- **PKCE type-system enforcement (item 1).** `ClientConfig` is now a
+  discriminated union: `PublicClientConfig` pins `pkceRequired` to the
+  literal `true`; `ConfidentialClientConfig` requires `secretHash`. The
+  runtime check at `domain/authorize.ts:validatePkceRequirement` simplified
+  to `if (!client.pkceRequired)` — the union makes the public-client opt-out
+  unrepresentable. Public API exports `PublicClientConfig` and
+  `ConfidentialClientConfig` for hosts that want to discriminate at their
+  own boundary.
+- **Shared client-auth helper.** New `domain/client-auth.ts` exposes
+  `verifyClientCredentials`, `parseBasicAuth`, `resolveClientCredentials`.
+  Replaces three near-duplicate copies that previously lived in
+  `domain/token.ts`, `domain/client-credentials.ts`, and (implicit / absent)
+  in `domain/refresh.ts`.
+- **`TokenStore.peekRefresh` port addition.** Non-destructive lookup;
+  callers verify token-to-client binding before consuming. Implemented in
+  all four production adapters (`memory`, `postgres`, `d1`, `dynamo`).
+  Port-conformance suite extended with 3 cases × 4 backends = 12 new tests
+  (idempotent peek, unknown=invalid_grant, expired=invalid_grant).
+- **Revoke hardening (item 2, RFC 7009).** `/revoke` now follows
+  RFC 7009 §2.2: peek → ownership check → consume. Anonymous revoke is
+  still permitted for public-client tokens; confidential-client tokens
+  MUST authenticate. Wrong-client revoke returns `invalid_grant` without
+  burning the token. Unknown / expired / consumed tokens still 200 (no-op).
+- **Introspect hardening (item 3, RFC 7662).** `/introspect` now REQUIRES
+  client auth (§2.1) at the HTTP layer; domain function loads the
+  authenticating client from `ConfigStore` via the verified JWT's `tid`
+  claim. Audience mismatch (`claims.aud !== authClient.id`) returns
+  `{active: false}` per §2.2 to avoid leaking token existence.
+- **Refresh-token grant client-auth (latent RFC 6749 §6 gap, fixed).**
+  Refresh-token grant previously consumed the refresh token before
+  validating client auth — confidential clients could refresh anonymously
+  by possession of the token alone. `domain/refresh.ts` now peeks first,
+  verifies client credentials (required for confidential), and only
+  consumes after auth. Closes a real security gap; behaviour change is
+  scoped to confidential clients, which were already authenticating on
+  the auth-code grant so no working integration breaks.
+- **Conformance matrix extended.** 10 new cases (18–27) under a new
+  `Phase 8 — revoke / introspect / client-auth hardening` describe block:
+  revoke success, unknown-token no-op, audit emission, wrong-client
+  rejection, anonymous introspect rejection, owning-client success,
+  cross-client `{active: false}`, garbage-token `{active: false}`,
+  confidential anonymous revoke rejection, confidential anonymous refresh
+  rejection. Total conformance test count: 27.
+
+**Test posture:** 397/397 green (was 375). Increase = 12 port-conformance
+(peekRefresh × 4 adapters) + 10 OAuth conformance cases. `bunx tsc --noEmit`
+exits 0 under strict.
+
+**Decisions captured for future Phase 8 sessions:**
+
+- **Atomic token-to-client binding pattern.** RFC-correct revoke requires
+  a non-destructive read of the refresh-token payload to verify the
+  caller owns the token before consuming. We picked `peekRefresh` (new
+  port method) over extending `consumeRefresh` with `expectedClientId`
+  for two reasons: (a) keeps the consume API uncluttered; (b) lays the
+  groundwork for DPoP, where resource servers will also need to peek
+  token metadata to verify the `cnf` claim against a presented DPoP
+  proof. DPoP work in a later session can extend `peekRefresh` with a
+  parallel `peekAccess` if access-token state lands in the store.
+- **Refresh-token rotation reuse detection (item 8) — verified.** Existing
+  conformance case 12 already covers the family-revocation path; the
+  Phase 7 audit shim (`refresh_reuse_detected`) is emitted. No code
+  change needed; behaviour is RFC-compliant. The Phase 8 refresh-grant
+  client-auth fix above hardens the same code path against a different
+  threat (token-without-secret reuse) that was distinct from the reuse
+  window.
+- **What's NOT shipped this session (deferred to later Phase 8 sessions):**
+  DPoP (item 4), PAR (item 5), mTLS hook (item 6), DCR (item 7 — likely
+  scoped down to a host-callable domain helper, per the boundary
+  discussion captured in Phase 7), rate-limiting port (item 9), Logger /
+  Tracer ports (item 10). These are independent and can land in any
+  order; DPoP should probably be the next major slice since `peekRefresh`
+  already gives us the necessary read path.
+
+#### Remaining Phase 8 deliverables (priority order)
 
 **Note:** OAuth 2.1 + OIDC Core conformance is verified continuously starting in Phase 3 via the hand-built matrix (per AD7). Phase 8 extends that matrix with new feature cases (DPoP, PAR, revoke, introspect). OIDF Conformance Suite is not in scope; see _Conformance scope_.
 
 **Deliverables (in priority order):**
 
-1. **PKCE required by default** (already from Phase 2; this phase enforces no opt-out for public clients).
-2. **Token revocation** (RFC 7009) — `/revoke` endpoint. Handler exists in Phase 2; expose via HTTP and test.
-3. **Token introspection** (RFC 7662) — `/introspect` endpoint. Same.
+1. ✅ **PKCE required by default** — type-level + runtime enforcement shipped Session 1.
+2. ✅ **Token revocation (RFC 7009)** — RFC 7009 §2.1 + §2.2 compliance shipped Session 1.
+3. ✅ **Token introspection (RFC 7662)** — RFC 7662 §2.1 + §2.2 compliance shipped Session 1.
 4. **DPoP** (RFC 9449) — sender-constrained access tokens via proof-of-possession. New `DPoP` header handling, `cnf` claim in JWT, validation on resource servers.
 5. **PAR — Pushed Authorization Requests** (RFC 9126) — `/par` endpoint accepts authorization request body, returns `request_uri`; `/authorize` consumes `request_uri`.
-6. **mTLS client auth** (RFC 8705) — optional for confidential clients.
-7. **Dynamic Client Registration** (RFC 7591) — `/register` endpoint, gated by admin scope, audit-logged.
-8. **Refresh token rotation hardening** — reuse detection escalates to invalidating all tokens for the subject (current behavior already does this; verify).
-9. **Rate limiting middleware** — per-tenant, per-IP. Pluggable via a `RateLimiter` port.
+6. **mTLS client auth** (RFC 8705) — optional for confidential clients. Library exposes `extractClientCert(req)` hook; host wires up platform-specific cert extraction.
+7. **Dynamic Client Registration** (RFC 7591) — likely scoped to a host-callable `registerClient(input)` domain helper (no HTTP route in the library); host owns the admin endpoint + RBAC.
+8. ✅ **Refresh token rotation hardening** — verified Session 1; existing reuse-detection family revocation covered by conformance case 12. Additional gap (refresh grant didn't authenticate confidential clients) fixed Session 1.
+9. **Rate limiting middleware** — per-tenant, per-IP. Pluggable via a `RateLimiter` port; library ships in-memory default, host plugs in production impl.
 10. **Structured logging + OTEL stub** — `Logger` and `Tracer` ports. Default impls log to console. Production impls integrate OTEL.
 
 **Acceptance criteria:**
@@ -1649,8 +1729,8 @@ This rebuild is done when:
 - [ ] All legacy files under `packages/openauth/src/` (the original `issuer.ts`, `provider/*.ts`, etc.) are deleted; only the rebuilt structure remains.
 - [x] ~~Management console can manage 1+ tenants and ship to internal users.~~ — _Removed in Phase 7 rescope. The host application owns the console; this package is a library composed in. The framework provides every port the host needs (`ConfigStore`, `MethodStore`, `AuditLog`, etc.) for in-process mutation. See Phase 7 § "What was NOT built (and why)" and `packages/openauth/ARCHITECTURE.md` § "Embedding pattern."_
 - [x] CI runs full integration tests against every storage adapter on every commit. _(Phase 6: parameterized port-conformance suite at `test/ports/` runs against memory, Postgres (PGlite), D1 (`bun:sqlite` shim), Durable Objects (in-process shim), KV (in-process shim), DynamoDB (in-process executor shim), and KMS (mock + in-memory backing). Real-network nightly runs against actual Postgres / D1 / DynamoDB / KMS are deferred to Phase 8.)_
-- [x] OAuth 2.1 + OIDC Core compliance verified via the hand-built conformance matrix (Phase 3: 17/17 cases green on every commit; Phase 8 will extend with DPoP / PAR / revoke / introspect specifics).
-- [ ] DPoP, PAR, revoke, introspect available and tested. _(revoke + introspect HTTP shims shipped in Phase 3 over the existing Phase 2 domain; remaining hardening lands in Phase 8.)_
+- [x] OAuth 2.1 + OIDC Core compliance verified via the hand-built conformance matrix (Phase 3: 17/17 cases green; Phase 8 Session 1: extended to 27/27 with revoke + introspect + client-auth hardening cases).
+- [ ] DPoP, PAR, revoke, introspect available and tested. _(revoke + introspect now RFC 7009 §2.1+§2.2 / RFC 7662 §2.1+§2.2 compliant after Phase 8 Session 1 client-auth hardening; DPoP + PAR remaining.)_
 - [ ] At least one external service is using the IdP for its login. _(The host application is the first such consumer.)_
 - [ ] A deployment runbook exists for at least 2 of: Cloudflare, AWS, Node+Postgres.
 

@@ -221,6 +221,44 @@ export function describeTokenStore(opts: TokenStoreSuiteOptions): void {
         expect(sibling.ok).toBe(false)
       })
 
+      test("peekRefresh returns the payload without consuming", async () => {
+        const refresh = uniqueSuffix("r")
+        const payload = makeRefreshPayload({ family: "PEEK-FAM" })
+        await tokenStore.saveRefresh(refresh, payload)
+        const peek1 = await tokenStore.peekRefresh(refresh)
+        expect(peek1.ok).toBe(true)
+        if (peek1.ok) {
+          expect(peek1.value.family).toBe("PEEK-FAM")
+          expect(peek1.value.clientId).toBe(payload.clientId)
+        }
+        // Peek is idempotent — second peek still returns the payload.
+        const peek2 = await tokenStore.peekRefresh(refresh)
+        expect(peek2.ok).toBe(true)
+        // And consume still works because peek didn't mark it consumed.
+        const consumed = await tokenStore.consumeRefresh(refresh)
+        expect(consumed.ok).toBe(true)
+      })
+
+      test("peekRefresh on unknown token yields invalid_grant", async () => {
+        const result = await tokenStore.peekRefresh(uniqueSuffix("r"))
+        expect(result.ok).toBe(false)
+        if (!result.ok) expect(result.error.code).toBe("invalid_grant")
+      })
+
+      test("peekRefresh on expired token yields invalid_grant", async () => {
+        const refresh = uniqueSuffix("r")
+        await tokenStore.saveRefresh(
+          refresh,
+          makeRefreshPayload({
+            issuedAt: clock.now(),
+            expiresAt: clock.now() + 1000,
+          }),
+        )
+        clock.advance(2000)
+        const result = await tokenStore.peekRefresh(refresh)
+        expect(result.ok).toBe(false)
+      })
+
       test("revokeBySubject scoped to (tenant, subject)", async () => {
         const ra = uniqueSuffix("r")
         const rb = uniqueSuffix("r")

@@ -142,6 +142,19 @@ export class MemoryTokenStore implements TokenStore {
     return ok(stored.payload)
   }
 
+  async peekRefresh(
+    refresh: string,
+  ): Promise<Result<RefreshTokenPayload>> {
+    const stored = this.#refresh.get(refresh)
+    if (!stored) {
+      return err(authError.invalidGrant("refresh token unknown"))
+    }
+    if (this.#clock() >= stored.payload.expiresAt) {
+      return err(authError.invalidGrant("refresh token expired"))
+    }
+    return ok(stored.payload)
+  }
+
   async revokeFamily(family: string): Promise<Result<void>> {
     for (const [token, stored] of this.#refresh) {
       if (stored.payload.family === family) {

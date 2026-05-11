@@ -207,6 +207,31 @@ export class D1TokenStore implements TokenStore {
     return err(authError.internalError("consumeRefresh: unexplained miss"))
   }
 
+  async peekRefresh(
+    refresh: string,
+  ): Promise<Result<RefreshTokenPayload>> {
+    let row: { expires_at: number; payload: string } | null
+    try {
+      row = await primarySession(this.#db)
+        .prepare(
+          `SELECT expires_at, payload
+             FROM openauth_refresh_tokens
+            WHERE token = ?1`,
+        )
+        .bind(refresh)
+        .first<{ expires_at: number; payload: string }>()
+    } catch (e) {
+      return err(authError.internalError("peekRefresh: lookup failed", e))
+    }
+    if (!row) {
+      return err(authError.invalidGrant("refresh token unknown"))
+    }
+    if (this.#clock() >= Number(row.expires_at)) {
+      return err(authError.invalidGrant("refresh token expired"))
+    }
+    return ok(parseRefresh(row.payload))
+  }
+
   async revokeFamily(family: string): Promise<Result<void>> {
     try {
       await primarySession(this.#db)

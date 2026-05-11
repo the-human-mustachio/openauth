@@ -48,9 +48,11 @@ export { authError } from "./types/error"
 
 export type {
   ClientConfig,
+  ConfidentialClientConfig,
   GrantType,
   MethodConfig,
   MethodType,
+  PublicClientConfig,
   StateEnvelope,
   StateKey,
   StateKeyRing,

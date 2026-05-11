@@ -216,6 +216,35 @@ export class PostgresTokenStore implements TokenStore {
     return err(authError.internalError("consumeRefresh: unexplained miss"))
   }
 
+  async peekRefresh(
+    refresh: string,
+  ): Promise<Result<RefreshTokenPayload>> {
+    let row:
+      | { expires_at: string | number; payload: unknown }
+      | undefined
+    try {
+      const result = await this.#exec.query<{
+        expires_at: string | number
+        payload: unknown
+      }>(
+        `SELECT expires_at, payload
+           FROM openauth_refresh_tokens
+          WHERE token = $1`,
+        [refresh],
+      )
+      row = result.rows[0]
+    } catch (e) {
+      return err(authError.internalError("peekRefresh: lookup failed", e))
+    }
+    if (!row) {
+      return err(authError.invalidGrant("refresh token unknown"))
+    }
+    if (this.#clock() >= Number(row.expires_at)) {
+      return err(authError.invalidGrant("refresh token expired"))
+    }
+    return ok(parseRefreshPayload(row.payload))
+  }
+
   async revokeFamily(family: string): Promise<Result<void>> {
     try {
       await this.#exec.query(

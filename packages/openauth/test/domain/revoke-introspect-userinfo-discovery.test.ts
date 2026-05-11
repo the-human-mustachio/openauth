@@ -93,7 +93,12 @@ describe("revoke", () => {
     const tokens = await issueTokens(f)
     const r = await revokeToken(
       { token: tokens.refresh_token!, tokenTypeHint: "refresh_token" },
-      { tokenStore: f.tokenStore, auditLog: f.auditLog, clock: f.clock },
+      {
+        tokenStore: f.tokenStore,
+        configStore: f.configStore,
+        auditLog: f.auditLog,
+        clock: f.clock,
+      },
     )
     expect(r.ok).toBe(true)
     expect(f.auditLog.byKind("token_revoked").length).toBe(1)
@@ -103,7 +108,11 @@ describe("revoke", () => {
     const f = await fixture()
     const r = await revokeToken(
       { token: "definitely-not-a-token" },
-      { tokenStore: f.tokenStore, clock: f.clock },
+      {
+        tokenStore: f.tokenStore,
+        configStore: f.configStore,
+        clock: f.clock,
+      },
     )
     expect(r.ok).toBe(true)
   })
@@ -112,7 +121,11 @@ describe("revoke", () => {
     const f = await fixture()
     const r = await revokeToken(
       { token: "abc", tokenTypeHint: "access_token" },
-      { tokenStore: f.tokenStore, clock: f.clock },
+      {
+        tokenStore: f.tokenStore,
+        configStore: f.configStore,
+        clock: f.clock,
+      },
     )
     expect(r.ok).toBe(true)
   })
@@ -122,7 +135,10 @@ describe("revoke", () => {
     await issueTokens(f)
     // Derive the subject id by introspecting:
     const tokens = await issueTokens(f)
-    const intr = await introspect(tokens.access_token, { keyStore: f.keyStore })
+    const intr = await introspect(
+      { token: tokens.access_token, clientId: "rp-1" },
+      { keyStore: f.keyStore, configStore: f.configStore },
+    )
     if (!intr.ok || !intr.value.active) throw new Error("intr failed")
     const subjectId = intr.value.sub
     await revokeAllForSubject(tenantId, subjectId, {
@@ -140,10 +156,14 @@ describe("introspect", () => {
   test("returns active=true with claims for a freshly issued JWT", async () => {
     const f = await fixture()
     const tokens = await issueTokens(f)
-    const r = await introspect(tokens.access_token, {
-      keyStore: f.keyStore,
-      issuerUrl: "https://idp.example",
-    })
+    const r = await introspect(
+      { token: tokens.access_token, clientId: "rp-1" },
+      {
+        keyStore: f.keyStore,
+        configStore: f.configStore,
+        issuerUrl: "https://idp.example",
+      },
+    )
     expect(r.ok).toBe(true)
     if (r.ok && r.value.active) {
       expect(r.value.tid).toBe(tenantId)
@@ -154,7 +174,10 @@ describe("introspect", () => {
 
   test("returns active=false for garbage", async () => {
     const f = await fixture()
-    const r = await introspect("not-a-jwt", { keyStore: f.keyStore })
+    const r = await introspect(
+      { token: "not-a-jwt", clientId: "rp-1" },
+      { keyStore: f.keyStore, configStore: f.configStore },
+    )
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.value.active).toBe(false)
   })

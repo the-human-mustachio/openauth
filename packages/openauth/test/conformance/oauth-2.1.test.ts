@@ -697,3 +697,272 @@ describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
     ]).toContain(body.error)
   })
 })
+
+describe("Phase 8 — revoke / introspect / client-auth hardening", () => {
+  // Helpers — local to this describe so they don't leak conformance state.
+  async function issueTokensFor(h: Awaited<ReturnType<typeof buildHarness>>) {
+    const authorize = await h.idp.handle(
+      new Request(
+        authorizeUrl(h.issuerUrl, {
+          response_type: "code",
+          client_id: "rp-1",
+          redirect_uri: "https://app.example/callback",
+          scope: "openid",
+          state: "rp-csrf",
+          code_challenge: h.challengePair.challenge,
+          code_challenge_method: "S256",
+        }),
+      ),
+    )
+    const cb = await driveCallback(h.idp, authorize.headers.get("location")!)
+    const code = new URL(cb.headers.get("location")!).searchParams.get("code")!
+    const tok = await h.idp.handle(
+      tokenRequest(h.issuerUrl, {
+        grant_type: "authorization_code",
+        code,
+        client_id: "rp-1",
+        redirect_uri: "https://app.example/callback",
+        code_verifier: h.challengePair.verifier,
+      }),
+    )
+    return (await tok.json()) as {
+      access_token: string
+      refresh_token: string
+    }
+  }
+
+  function formRequest(base: string, path: string, body: Record<string, string>) {
+    return new Request(base + path, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(body).toString(),
+    })
+  }
+
+  // ─── case 18: revoke success (public client, anonymous) ───
+  test("18. /revoke with known refresh token → 200 + token unusable", async () => {
+    const h = await buildHarness()
+    const tokens = await issueTokensFor(h)
+    const res = await h.idp.handle(
+      formRequest(h.issuerUrl, "/revoke", {
+        token: tokens.refresh_token,
+        token_type_hint: "refresh_token",
+      }),
+    )
+    expect(res.status).toBe(200)
+    // Subsequent refresh attempt fails with invalid_grant.
+    const tryRefresh = await h.idp.handle(
+      tokenRequest(h.issuerUrl, {
+        grant_type: "refresh_token",
+        refresh_token: tokens.refresh_token,
+        client_id: "rp-1",
+      }),
+    )
+    expect(tryRefresh.status).toBe(400)
+  })
+
+  // ─── case 19: revoke unknown token → 200 no-op (RFC 7009 §2.2) ───
+  test("19. /revoke with unknown token → 200 no-op", async () => {
+    const h = await buildHarness()
+    const res = await h.idp.handle(
+      formRequest(h.issuerUrl, "/revoke", {
+        token: "definitely-not-a-token",
+      }),
+    )
+    expect(res.status).toBe(200)
+  })
+
+  // ─── case 20: revoke emits audit event ───
+  test("20. /revoke success emits token_revoked audit", async () => {
+    const h = await buildHarness()
+    const tokens = await issueTokensFor(h)
+    const before = h.auditLog.byKind("token_revoked").length
+    const res = await h.idp.handle(
+      formRequest(h.issuerUrl, "/revoke", { token: tokens.refresh_token }),
+    )
+    expect(res.status).toBe(200)
+    expect(h.auditLog.byKind("token_revoked").length).toBe(before + 1)
+  })
+
+  // ─── case 21: revoke wrong client → 400 invalid_grant ───
+  test("21. /revoke with non-owning client → invalid_grant", async () => {
+    const h = await buildHarness()
+    const tokens = await issueTokensFor(h)
+    const res = await h.idp.handle(
+      formRequest(h.issuerUrl, "/revoke", {
+        token: tokens.refresh_token,
+        client_id: "rp-impostor", // not the issuing client
+      }),
+    )
+    expect(res.status).toBe(400)
+    const body = await res.json()
+    expect(body.error).toBe("invalid_grant")
+  })
+
+  // ─── case 22: introspect requires client auth (RFC 7662 §2.1) ───
+  test("22. /introspect anonymous → 400 invalid_client", async () => {
+    const h = await buildHarness()
+    const tokens = await issueTokensFor(h)
+    const res = await h.idp.handle(
+      formRequest(h.issuerUrl, "/introspect", { token: tokens.access_token }),
+    )
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body.error).toBe("invalid_client")
+  })
+
+  // ─── case 23: introspect active token for owning client → claims ───
+  test("23. /introspect by owning client → active + claims", async () => {
+    const h = await buildHarness()
+    const tokens = await issueTokensFor(h)
+    const res = await h.idp.handle(
+      formRequest(h.issuerUrl, "/introspect", {
+        token: tokens.access_token,
+        client_id: "rp-1",
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.active).toBe(true)
+    expect(body.client_id).toBe("rp-1")
+    expect(body.tid).toBe(h.tenant.id)
+  })
+
+  // ─── case 24: introspect non-owning client → {active: false} ───
+  test("24. /introspect by non-owning client → {active: false}", async () => {
+    // Seed a tenant with two clients; only "rp-1" issues the token, "rp-2"
+    // tries to introspect it.
+    const tenant = await buildTenant({})
+    tenant.clients.push({
+      id: "rp-2",
+      name: "Other RP",
+      type: "public",
+      redirectUris: ["https://other.example/cb"],
+      grantTypes: ["authorization_code", "refresh_token"],
+      scopes: ["openid"],
+      pkceRequired: true,
+    })
+    tenant.methods = [{ id: "stub", kind: "stub", type: "custom", enabled: true, config: {} }]
+
+    const h = await buildHarness({ tenant })
+    const tokens = await issueTokensFor(h)
+    const res = await h.idp.handle(
+      formRequest(h.issuerUrl, "/introspect", {
+        token: tokens.access_token,
+        client_id: "rp-2", // not the audience
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.active).toBe(false)
+  })
+
+  // ─── case 25: introspect unverifiable token → {active: false} ───
+  test("25. /introspect with garbage token → {active: false}", async () => {
+    const h = await buildHarness()
+    const res = await h.idp.handle(
+      formRequest(h.issuerUrl, "/introspect", {
+        token: "not.a.jwt",
+        client_id: "rp-1",
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.active).toBe(false)
+  })
+
+  // ─── case 26: confidential client must authenticate at /revoke ───
+  test("26. /revoke without auth for confidential-issued token → invalid_client", async () => {
+    const tenant = await buildTenant({
+      clientType: "confidential",
+      clientSecretPlain: "shh-secret",
+      methods: [{ id: "stub", kind: "stub" }],
+    })
+    const h = await buildHarness({ tenant })
+
+    // Issue tokens via the confidential client.
+    const authorize = await h.idp.handle(
+      new Request(
+        authorizeUrl(h.issuerUrl, {
+          response_type: "code",
+          client_id: "rp-1",
+          redirect_uri: "https://app.example/callback",
+          scope: "openid",
+          state: "rp-csrf",
+          code_challenge: h.challengePair.challenge,
+          code_challenge_method: "S256",
+        }),
+      ),
+    )
+    const cb = await driveCallback(h.idp, authorize.headers.get("location")!)
+    const code = new URL(cb.headers.get("location")!).searchParams.get("code")!
+    const tok = await h.idp.handle(
+      tokenRequest(h.issuerUrl, {
+        grant_type: "authorization_code",
+        code,
+        client_id: "rp-1",
+        client_secret: "shh-secret",
+        redirect_uri: "https://app.example/callback",
+        code_verifier: h.challengePair.verifier,
+      }),
+    )
+    const { refresh_token } = (await tok.json()) as { refresh_token: string }
+
+    // Anonymous revoke of a confidential-client token is rejected.
+    const res = await h.idp.handle(
+      formRequest(h.issuerUrl, "/revoke", { token: refresh_token }),
+    )
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body.error).toBe("invalid_client")
+  })
+
+  // ─── case 27: refresh-token grant requires client auth for confidential clients (RFC 6749 §6) ───
+  test("27. refresh_token grant: confidential client without secret → invalid_client", async () => {
+    const tenant = await buildTenant({
+      clientType: "confidential",
+      clientSecretPlain: "shh-secret",
+      methods: [{ id: "stub", kind: "stub" }],
+    })
+    const h = await buildHarness({ tenant })
+
+    const authorize = await h.idp.handle(
+      new Request(
+        authorizeUrl(h.issuerUrl, {
+          response_type: "code",
+          client_id: "rp-1",
+          redirect_uri: "https://app.example/callback",
+          scope: "openid",
+          state: "rp-csrf",
+          code_challenge: h.challengePair.challenge,
+          code_challenge_method: "S256",
+        }),
+      ),
+    )
+    const cb = await driveCallback(h.idp, authorize.headers.get("location")!)
+    const code = new URL(cb.headers.get("location")!).searchParams.get("code")!
+    const tok = await h.idp.handle(
+      tokenRequest(h.issuerUrl, {
+        grant_type: "authorization_code",
+        code,
+        client_id: "rp-1",
+        client_secret: "shh-secret",
+        redirect_uri: "https://app.example/callback",
+        code_verifier: h.challengePair.verifier,
+      }),
+    )
+    const { refresh_token } = (await tok.json()) as { refresh_token: string }
+
+    // Refresh without client_secret is rejected.
+    const refresh = await h.idp.handle(
+      tokenRequest(h.issuerUrl, {
+        grant_type: "refresh_token",
+        refresh_token,
+        client_id: "rp-1",
+      }),
+    )
+    expect(refresh.status).toBe(401)
+    const body = await refresh.json()
+    expect(body.error).toBe("invalid_client")
+  })
+})

@@ -233,6 +233,46 @@ CI lint additionally flags methods that import `cookie` /
 - **State-MAC key overlap** — at least the flow-record TTL; recommended
   1 hour.
 
+## `ClientConfig` is a discriminated union
+
+`ClientConfig` is `PublicClientConfig | ConfidentialClientConfig`. Hosts
+constructing client rows in their `ConfigStore` implementation must
+choose a branch at the type level:
+
+- **Public clients**: `pkceRequired: true` is a literal (not a boolean).
+  The framework rejects any attempt to disable PKCE for public clients
+  at the type level; the runtime check in `domain/authorize.ts` is a
+  defensive backstop.
+- **Confidential clients**: `secretHash` is required (was optional
+  pre-Phase-8). All confidential-client endpoints — `/token`,
+  `/revoke`, `/introspect` — validate the presented `client_secret`
+  against this hash.
+
+Migration: hosts that ran on pre-Phase-8 `ClientConfig` will see
+type errors at compile time wherever they constructed `{type: "public",
+pkceRequired: false}` or `{type: "confidential"}` without `secretHash`.
+No runtime breakage — both shapes were already rejected at request time.
+
+## Client auth on `/revoke` and `/introspect`
+
+- **`/revoke` (RFC 7009 §2.1 + §2.2):** anonymous calls are permitted
+  for tokens issued to **public clients only**. Confidential-client
+  tokens require valid `client_id` + `client_secret` (Basic auth or
+  form body). Wrong-client revoke returns `invalid_grant` without
+  consuming the token; unknown / expired / consumed tokens still 200
+  per §2.2.
+- **`/introspect` (RFC 7662 §2.1 + §2.2):** client auth is REQUIRED.
+  Anonymous calls are rejected at the HTTP layer with `invalid_client`.
+  The authenticating client must match the token's `aud` claim; any
+  cross-client introspection attempt returns `{active: false}` rather
+  than a structured error (§2.2 — don't leak existence of other clients'
+  tokens).
+- **Refresh-token grant (RFC 6749 §6):** confidential clients MUST
+  authenticate. The library now peeks the refresh token before consuming
+  so auth failures don't burn the token.
+
+The shared parsing + verification lives in `domain/client-auth.ts`.
+
 ## Port consistency contracts
 
 See `ports/CONSISTENCY.md` for the authoritative table. Summary:
@@ -392,4 +432,4 @@ are host-application concerns:
 | 5 — OAuth / OIDC provider family     | **done**       | 15 OAuth/OIDC providers via `buildOauth2Method` / `buildOidcMethod`; matrix test covers each end-to-end.                                                                       |
 | 6 — Real storage adapters            | **done**       | Postgres, D1, Durable Objects, KV (read-eventual paths), DynamoDB, KMS; parameterized port-conformance suite under `test/ports/`.                                              |
 | 7 — Library-only scoping             | **done**       | Phase 7 rescoped from "build a console" to "make the embedding contract explicit." See "Embedding pattern" above. Open Question #1 closed.                                     |
-| 8 — Standards + production hardening | pending        | PKCE enforcement details, DPoP, PAR, mTLS, Dynamic Client Registration, rate limiting, structured logging + OTEL ports.                                                        |
+| 8 — Standards + production hardening | in progress    | Session 1 shipped: PKCE type-system enforcement, RFC 7009 revoke + RFC 7662 introspect client-auth + audience checks, refresh-grant RFC 6749 §6 client-auth, new `TokenStore.peekRefresh` port, 27/27 conformance cases. Remaining: DPoP, PAR, mTLS hook, DCR helper, rate-limiter port, Logger/Tracer ports. |

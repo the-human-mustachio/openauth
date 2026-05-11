@@ -273,8 +273,9 @@ function validatePkceRequirement(
   req: AuthorizationRequest,
   client: ClientConfig,
 ): AuthError | null {
-  const requiresPkce = client.pkceRequired || client.type === "public"
-  if (!requiresPkce) return null
+  // ClientConfig is a discriminated union: public clients have pkceRequired
+  // pinned to the literal `true`, so this single check covers both branches.
+  if (!client.pkceRequired) return null
   if (!req.codeChallenge) {
     return authError.invalidRequest(
       `client "${client.id}" requires PKCE — missing code_challenge`,

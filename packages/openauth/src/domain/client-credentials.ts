@@ -29,8 +29,9 @@ import type { SubjectClaim } from "../types/subject"
 import type { TenantContext } from "../types/tenant"
 import type { TokenResponse } from "../types/token"
 
-import { randomId, timingSafeEqualStr } from "./crypto"
-import { hashClientSecret, mintTokens } from "./token"
+import { verifyClientCredentials } from "./client-auth"
+import { randomId } from "./crypto"
+import { mintTokens } from "./token"
 import { MethodCache } from "./method-cache"
 
 export type ClientCredentialsRequest = {
@@ -79,15 +80,8 @@ export async function clientCredentialsGrant(
       ),
     )
   }
-  if (!client.secretHash) {
-    return err(
-      authError.invalidClient(`client "${client.id}" has no secretHash`),
-    )
-  }
-  const supplied = await hashClientSecret(req.clientSecret)
-  if (!timingSafeEqualStr(supplied, client.secretHash)) {
-    return err(authError.invalidClient("client_secret mismatch"))
-  }
+  const authErr = await verifyClientCredentials(client, req.clientSecret)
+  if (authErr) return err(authErr)
 
   // 2. Scope validation.
   const requestedScopes = req.scope

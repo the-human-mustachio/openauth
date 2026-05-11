@@ -22,6 +22,7 @@ import { err, isErr } from "../types/result"
 import type { TenantContext } from "../types/tenant"
 import type { TokenResponse } from "../types/token"
 
+import { verifyClientCredentials } from "./client-auth"
 import { mintTokens } from "./token"
 
 export type RefreshGrantRequest = {
@@ -50,6 +51,41 @@ export async function refreshTokens(
   req: RefreshGrantRequest,
   deps: RefreshTokensDeps,
 ): Promise<Result<TokenResponse, AuthError>> {
+  // Peek before consuming so we can authenticate the client without
+  // burning the token on auth failures (RFC 6749 §6).
+  const peek = await deps.tokenStore.peekRefresh(req.refreshToken)
+  if (isErr(peek)) return err(peek.error)
+  const peekedPayload = peek.value
+
+  const tenantCfg = await deps.configStore.getTenantConfig(peekedPayload.tenantId)
+  if (isErr(tenantCfg)) return err(tenantCfg.error)
+  const client = tenantCfg.value.clients.find(
+    (c) => c.id === peekedPayload.clientId,
+  )
+  if (!client) {
+    return err(
+      authError.invalidClient(`unknown client "${peekedPayload.clientId}"`),
+    )
+  }
+
+  // Refresh tokens are bound to the issuing client. If a `client_id`
+  // was presented, it must match the bound client. Confidential clients
+  // must always authenticate (no anonymous refresh).
+  if (req.clientId !== undefined && req.clientId !== peekedPayload.clientId) {
+    return err(
+      authError.invalidGrant("refresh token does not belong to this client"),
+    )
+  }
+  if (client.type === "confidential" && !req.clientSecret) {
+    return err(
+      authError.invalidClient(
+        "confidential client must authenticate to refresh tokens",
+      ),
+    )
+  }
+  const authErr = await verifyClientCredentials(client, req.clientSecret)
+  if (authErr) return err(authErr)
+
   const consumed = await deps.tokenStore.consumeRefresh(req.refreshToken, {
     reuseWindowMs: deps.reuseWindowMs,
   })
@@ -67,9 +103,6 @@ export async function refreshTokens(
     return err(consumed.error)
   }
   const payload = consumed.value
-
-  const tenantCfg = await deps.configStore.getTenantConfig(payload.tenantId)
-  if (isErr(tenantCfg)) return err(tenantCfg.error)
 
   // Narrow scope if requested (must be subset of original).
   const requestedScopes = req.scope

@@ -15,6 +15,8 @@ export const revokeBodySchema = z.object({
 export const introspectBodySchema = z.object({
   token: z.string().min(1, "missing token"),
   token_type_hint: z.enum(["access_token", "refresh_token"]).optional(),
+  client_id: z.string().optional(),
+  client_secret: z.string().optional(),
 })
 
 export type RevokeBody = z.infer<typeof revokeBodySchema>

@@ -64,6 +64,22 @@ export type TokenStore = {
   ): Promise<Result<RefreshTokenPayload>>
 
   /**
+   * Non-destructive lookup. Returns the refresh-token payload without
+   * marking it consumed.
+   *
+   * Used by RFC 7009 `/revoke` to enforce token-to-client binding
+   * (§2.2) before destructively consuming. Returns `invalid_grant` for
+   * unknown or expired tokens; `peekRefresh` does **not** trigger
+   * reuse-detection — a token already past `consumeRefresh` is still
+   * reported here so the caller can decide whether to escalate.
+   *
+   * Eventual consistency is acceptable: callers race `peekRefresh` then
+   * `consumeRefresh`, and the atomicity guarantees of `consumeRefresh`
+   * remain authoritative.
+   */
+  peekRefresh(refresh: string): Promise<Result<RefreshTokenPayload>>
+
+  /**
    * Revoke all refresh tokens whose `RefreshTokenPayload.family` equals
    * `family`. Used by reuse-detection to invalidate every descendant of a
    * compromised refresh chain.

@@ -149,7 +149,10 @@ describe("end-to-end: authorize → callback → token → refresh → revoke", 
     expect(access1.split(".").length).toBe(3) // JWT shape
 
     // ─── 5. introspect the access token ───
-    const intr = await introspect(access1, { keyStore, issuerUrl })
+    const intr = await introspect(
+      { token: access1, clientId: "rp-1" },
+      { keyStore, configStore, issuerUrl },
+    )
     expect(intr.ok).toBe(true)
     if (intr.ok && intr.value.active) {
       expect(intr.value.tid).toBe(tenant.id)
@@ -208,7 +211,7 @@ describe("end-to-end: authorize → callback → token → refresh → revoke", 
     // ─── 8. Revoke (no-op on already-revoked token) ───
     const revoked = await revokeToken(
       { token: refresh2, tokenTypeHint: "refresh_token" },
-      { tokenStore, auditLog, clock },
+      { tokenStore, configStore, auditLog, clock },
     )
     expect(revoked.ok).toBe(true)
 

@@ -1,11 +1,18 @@
 /**
  * RFC 7009 `/revoke` and RFC 7662 `/introspect` HTTP shims.
  *
- * Both accept `application/x-www-form-urlencoded`. The current
- * implementation does not enforce client authentication beyond the
- * domain's own checks — confidential-client authentication on these
- * endpoints lands with the broader Phase 8 hardening pass.
+ * Both accept `application/x-www-form-urlencoded`. Client credentials
+ * may ride in the form body (`client_id`, `client_secret`) or in an
+ * `Authorization: Basic` header (RFC 6749 §2.3.1); the header wins when
+ * both are present.
+ *
+ * Revoke: anonymous calls are permitted for tokens issued to public
+ * clients (RFC 7009 §2.1). Confidential-client tokens require auth.
+ *
+ * Introspect: client auth is REQUIRED (RFC 7662 §2.1). Anonymous calls
+ * are rejected at this layer with `invalid_client`.
  */
+import { resolveClientCredentials } from "../../domain/client-auth"
 import { introspect } from "../../domain/introspect"
 import { revokeToken } from "../../domain/revoke"
 import { authError } from "../../types/error"
@@ -29,15 +36,25 @@ export function makeRevokeHandler(deps: HttpDeps) {
         authError.invalidRequest(parsed.error.issues[0]?.message ?? "invalid"),
       )
     }
+    const creds = resolveClientCredentials({
+      authorizationHeader: c.req.header("authorization") ?? null,
+      bodyClientId: parsed.data.client_id,
+      bodyClientSecret: parsed.data.client_secret,
+    })
     const res = await revokeToken(
       {
         token: parsed.data.token,
         ...(parsed.data.token_type_hint
           ? { tokenTypeHint: parsed.data.token_type_hint }
           : {}),
+        ...(creds ? { clientId: creds.clientId } : {}),
+        ...(creds?.clientSecret !== undefined
+          ? { clientSecret: creds.clientSecret }
+          : {}),
       },
       {
         tokenStore: deps.tokenStore,
+        configStore: deps.configStore,
         ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
         clock: deps.clock,
       },
@@ -67,10 +84,36 @@ export function makeIntrospectHandler(deps: HttpDeps) {
         authError.invalidRequest(parsed.error.issues[0]?.message ?? "invalid"),
       )
     }
-    const res = await introspect(parsed.data.token, {
-      keyStore: deps.keyStore,
-      issuerUrl: c.get("issuerUrl"),
+    const creds = resolveClientCredentials({
+      authorizationHeader: c.req.header("authorization") ?? null,
+      bodyClientId: parsed.data.client_id,
+      bodyClientSecret: parsed.data.client_secret,
     })
+    if (!creds) {
+      // RFC 7662 §2.1 — endpoint MUST require some form of auth.
+      return tokenEndpointErrorResponse(
+        authError.invalidClient(
+          "introspection requires client authentication",
+        ),
+      )
+    }
+    const res = await introspect(
+      {
+        token: parsed.data.token,
+        ...(parsed.data.token_type_hint
+          ? { tokenTypeHint: parsed.data.token_type_hint }
+          : {}),
+        clientId: creds.clientId,
+        ...(creds.clientSecret !== undefined
+          ? { clientSecret: creds.clientSecret }
+          : {}),
+      },
+      {
+        keyStore: deps.keyStore,
+        configStore: deps.configStore,
+        issuerUrl: c.get("issuerUrl"),
+      },
+    )
     if (isErr(res)) return tokenEndpointErrorResponse(res.error)
     return new Response(JSON.stringify(res.value), {
       status: 200,
