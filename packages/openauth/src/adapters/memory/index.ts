@@ -11,6 +11,10 @@ export {
 } from "./config-store"
 export { MemoryKeyStore, type MemoryKeyStoreOptions } from "./key-store"
 export {
+  MemoryMethodStore,
+  type MemoryMethodStoreOptions,
+} from "./method-store"
+export {
   MemorySessionStore,
   type MemorySessionStoreOptions,
 } from "./session-store"
