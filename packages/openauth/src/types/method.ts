@@ -14,7 +14,7 @@
  * headers, `Cache-Control`) so methods cannot bypass framework policy. See
  * `ARCHITECTURE.md` §"Response sanitization".
  */
-import type { z } from "zod"
+import type { v1 } from "@standard-schema/spec"
 
 import type { AuthError } from "./error"
 import type { FlowRecord } from "./flow"
@@ -232,12 +232,19 @@ export type AuthMethodFactory<P = unknown, S = unknown, Cfg = unknown> = {
   kind: string
 
   /**
-   * Zod schema for the tenant-supplied config blob. The framework runs this
-   * after `ConfigStore` returns a tenant's `MethodConfig.config` and
-   * rejects loads that don't validate (audit + log). The validated value is
-   * threaded into `build`.
+   * Standard Schema for the tenant-supplied config blob. The framework
+   * runs this after `ConfigStore` returns a tenant's `MethodConfig.config`
+   * and rejects loads that don't validate (audit + log). The validated
+   * value is threaded into `build`.
+   *
+   * Any validation library implementing [Standard Schema v1] satisfies
+   * this contract — Zod 3.24+, Valibot 1.0+, Arktype 2.0+, Effect Schema,
+   * etc. This decouples the library from any one validator's version
+   * choices.
+   *
+   * [Standard Schema v1]: https://github.com/standard-schema/standard-schema
    */
-  configSchema: z.ZodType<Cfg>
+  configSchema: v1.StandardSchema<unknown, Cfg>
 
   /**
    * Build a concrete `AuthMethod` from validated config plus the binding

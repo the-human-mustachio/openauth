@@ -139,14 +139,25 @@ export class MethodCache {
       )
     }
 
-    const parsed = factory.configSchema.safeParse(cfg.config)
-    if (!parsed.success) {
+    // Standard Schema v1: `validate` may return a Result or a Promise<Result>.
+    // Successful Result has `{ value }`; failure has `{ issues }`.
+    let parsed = factory.configSchema["~standard"].validate(cfg.config)
+    if (parsed instanceof Promise) parsed = await parsed
+    if ("issues" in parsed && parsed.issues) {
       await this.#audit({
         kind: "invalid_method_config",
         tenantId,
         methodId: cfg.id,
         methodKind: cfg.kind,
-        errorPath: parsed.error.issues.map((i) => i.path.join(".")).join(","),
+        errorPath: parsed.issues
+          .map((issue) =>
+            (issue.path ?? [])
+              .map((segment) =>
+                typeof segment === "object" ? String(segment.key) : String(segment),
+              )
+              .join("."),
+          )
+          .join(","),
         timestamp: this.#now(),
       })
       return err(
@@ -163,7 +174,7 @@ export class MethodCache {
         id: cfg.id,
         kind: cfg.kind,
         tenantId,
-        config: parsed.data,
+        config: parsed.value,
       })
     } catch (e) {
       return err(
