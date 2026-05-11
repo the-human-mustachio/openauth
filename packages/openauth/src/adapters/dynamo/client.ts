@@ -69,10 +69,29 @@ export type DynamoQueryInput = {
 }
 
 export type DynamoQueryByGsiInput = {
-  /** GSI name configured on the table. */
-  indexName: "family-index" | "subject-index"
+  /**
+   * GSI name configured on the table. Each entry corresponds to a GSI
+   * the bundled adapters need:
+   *   - `family-index`         (refresh-token family revocation)
+   *   - `subject-index`        (revokeBySubject)
+   *   - `passkey-user-index`   (PasskeyCredentialStore.findByUsername)
+   */
+  indexName: "family-index" | "subject-index" | "passkey-user-index"
   /** Hash key value on the GSI. */
   hashKey: string
+}
+
+/**
+ * Update a single item's attributes — equivalent to DynamoDB's
+ * `UpdateItem` with a `SET` expression over each provided attribute.
+ *
+ * Used by passkey-counter updates today; future Phase 8 features
+ * (DPoP jti replay, etc.) may reuse it.
+ */
+export type DynamoUpdateItemInput = {
+  key: DynamoKey
+  /** Attribute name → new value. Top-level only, no nested updates. */
+  set: Record<string, unknown>
 }
 
 export type DynamoExecutor = {
@@ -89,4 +108,6 @@ export type DynamoExecutor = {
   ): Promise<Record<string, unknown> | null>
   query(input: DynamoQueryInput): Promise<Record<string, unknown>[]>
   queryByGsi(input: DynamoQueryByGsiInput): Promise<Record<string, unknown>[]>
+  /** Generic attribute update. No-op if the item does not exist. */
+  updateItem(input: DynamoUpdateItemInput): Promise<void>
 }

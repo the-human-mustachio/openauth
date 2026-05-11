@@ -15,6 +15,7 @@ import {
   DynamoConfigStore,
   DynamoKeyStore,
   DynamoMethodStore,
+  DynamoPasskeyCredentialStore,
   DynamoSessionStore,
   DynamoTokenStore,
 } from "../../src/adapters/dynamo"
@@ -25,6 +26,7 @@ import {
   describeConfigStore,
   describeKeyStore,
   describeMethodStore,
+  describePasskeyCredentialStore,
   describeSessionStore,
   describeTokenStore,
 } from "../ports"
@@ -73,6 +75,13 @@ describeConfigStore({
   adapterName: "dynamo (in-memory)",
   async makeStore() {
     return { store: new DynamoConfigStore({ exec }) }
+  },
+})
+
+describePasskeyCredentialStore({
+  adapterName: "dynamo (in-memory)",
+  async makeStore() {
+    return { store: new DynamoPasskeyCredentialStore({ exec }) }
   },
 })
 

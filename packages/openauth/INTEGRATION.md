@@ -141,9 +141,24 @@ import type {
 | **AWS Lambda** | All ports from `/adapters/dynamo`; optionally `KeyStore` from `/adapters/kms` for HSM-grade key wrapping |
 | **Dev / Tests** | All ports from `/adapters/memory` |
 
+Per-port adapter coverage (every cell is a bundled, conformance-tested
+adapter; "—" means not implemented and the alternatives in the same
+row cover that backend):
+
+| Port | memory | postgres | d1 | dynamo | kv | durable-object | kms |
+|---|---|---|---|---|---|---|---|
+| `TokenStore` | ✓ | ✓ | ✓ | ✓ | — (eventual) | — | — |
+| `SessionStore` | ✓ | ✓ | ✓ | ✓ | — (eventual) | ✓ | — |
+| `KeyStore` | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
+| `ConfigStore` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `MethodStore` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `AuditLog` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `PasskeyCredentialStore` | ✓ | ✓ | — | ✓ | — | — | — |
+
 **Hard constraint:** `TokenStore` and `SessionStore` require strong CAS.
 Cloudflare KV is **not** acceptable for those two ports. See
-`ports/CONSISTENCY.md`.
+`ports/CONSISTENCY.md`. `PasskeyCredentialStore` similarly needs
+strong reads for the signature-counter update path, which rules out KV.
 
 ---
 
@@ -534,14 +549,75 @@ m2mMethod({
 // Per-tenant config: { rpName, rpID, origins, title? }.
 // `rpID` and `origins` are usually per-tenant because each customer
 // runs on their own domain.
+//
+// The bundled adapters under @_mustachio/openauth/adapters/{memory,
+// postgres,dynamo} ship a ready-to-use credential store. For Postgres,
+// the schema is created by the same `migrate()` call you run for the
+// other tables:
+import { PostgresPasskeyCredentialStore } from "@_mustachio/openauth/adapters/postgres"
+
 passkeyMethod({
-  credentials: {
-    async findByUsername(username, tenantId) { /* ... */ },
-    async findById(credentialId, tenantId) { /* ... */ },
-    async updateCounter({ credentialId, counter, tenantId }) { /* ... */ },
-    async create?({ userId, credential, tenantId }) { /* ... */ },
-  },
+  credentials: new PostgresPasskeyCredentialStore({ exec }),
 })
+
+// Or for AWS Lambda / DynamoDB:
+//   import { DynamoPasskeyCredentialStore } from "@_mustachio/openauth/adapters/dynamo"
+//   passkeyMethod({ credentials: new DynamoPasskeyCredentialStore({ exec }) })
+//
+// Or write your own against existing user-management tables — the
+// interface is four small methods, all framework-internal:
+//   findByUsername(username, tenantId) → { userId, credentials[] } | null
+//   findById(credentialId, tenantId)   → StoredCredential | null
+//   updateCounter({ credentialId, counter, tenantId })
+//   create?({ userId, credential, tenantId })  -- omit to disable registration
+```
+
+**Reference-adapter simplification.** All three bundled stores
+(memory / postgres / dynamo) treat `userId` as the username lookup
+key. This matches the bundled `passkeyMethod`, which sets
+`userId = parsed.data.username` at registration. Hosts that need
+`username ≠ userId` (e.g. usernames may rebrand without re-issuing
+credentials) write their own `PasskeyCredentialStore` against their
+own user model — see `src/adapters/postgres/passkey-credential-store.ts`
+as a one-page reference for the SQL shape, then swap the `WHERE
+user_id = $2` clause for a join against your `users` table by
+username.
+
+**Writing a custom adapter — quick sketch.** The interface is plain
+async functions, no `Result<T>` wrapping:
+
+```ts
+import type { PasskeyCredentialStore } from "@_mustachio/openauth"
+
+class MyPasskeyStore implements PasskeyCredentialStore {
+  constructor(private db: MyDb) {}
+
+  async findByUsername(username, tenantId) {
+    const user = await this.db.users.byUsername({ username, tenantId })
+    if (!user) return null
+    const rows = await this.db.passkeys.byUserId({ userId: user.id, tenantId })
+    return { userId: user.id, credentials: rows.map(toStoredCredential) }
+  }
+
+  async findById(credentialId, tenantId) {
+    const row = await this.db.passkeys.byCredentialId({ credentialId, tenantId })
+    return row ? toStoredCredential(row) : null
+  }
+
+  async updateCounter({ credentialId, counter, tenantId }) {
+    await this.db.passkeys.updateCounter({ credentialId, counter, tenantId })
+  }
+
+  async create({ userId, credential, tenantId }) {
+    await this.db.passkeys.insert({
+      tenantId, userId,
+      credentialId: credential.credentialId,
+      publicKey: credential.publicKey,
+      counter: credential.counter,
+      transports: credential.transports ?? null,
+    })
+  }
+}
 ```
 
 The corresponding `MethodConfig.config` shapes (what hosts put inside

@@ -1,11 +1,11 @@
 /**
  * AWS DynamoDB adapter set.
  *
- * Single-table design with `pk` / `sk` primary key plus two GSIs for
- * refresh-token revocation:
+ * Single-table design with `pk` / `sk` primary key plus three GSIs:
  *
- *   `family-index`     hash = `family`        (revokeFamily)
- *   `subject-index`    hash = `subject_key`   (revokeBySubject) — value is `<tenantId>#<subjectId>`
+ *   `family-index`         hash = `family`        (revokeFamily)
+ *   `subject-index`        hash = `subject_key`   (revokeBySubject) — value is `<tenantId>#<subjectId>`
+ *   `passkey-user-index`   hash = `user_key`      (PasskeyCredentialStore.findByUsername) — value is `<tenantId>#<userId>`
  *
  * The adapter satisfies every contract in `ports/CONSISTENCY.md` provided
  * the underlying calls use `ConsistentRead=true` on the strong reads and
@@ -43,6 +43,10 @@
  *   GSI: subject-index
  *     Hash key: subject_key (S)
  *     Projection: ALL
+ *
+ *   GSI: passkey-user-index
+ *     Hash key: user_key (S)
+ *     Projection: ALL
  */
 export { DynamoAuditLog, type DynamoAuditLogOptions } from "./audit-log"
 export { DynamoConfigStore, type DynamoConfigStoreOptions } from "./config-store"
@@ -53,6 +57,10 @@ export {
   type DynamoSessionStoreOptions,
 } from "./session-store"
 export { DynamoTokenStore, type DynamoTokenStoreOptions } from "./token-store"
+export {
+  DynamoPasskeyCredentialStore,
+  type DynamoPasskeyCredentialStoreOptions,
+} from "./passkey-credential-store"
 export { fromDynamoDBClient } from "./sdk"
 export type {
   DynamoDeleteInput,
@@ -63,4 +71,5 @@ export type {
   DynamoQueryByGsiInput,
   DynamoQueryInput,
   DynamoUpdateConsumeRefreshInput,
+  DynamoUpdateItemInput,
 } from "./client"

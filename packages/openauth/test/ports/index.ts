@@ -20,6 +20,10 @@ export {
   type MethodStoreSuiteOptions,
 } from "./method-store"
 export { describeAuditLog, type AuditLogSuiteOptions } from "./audit-log"
+export {
+  describePasskeyCredentialStore,
+  type PasskeyCredentialStoreSuiteOptions,
+} from "./passkey-credential-store"
 
 export {
   fixtureTenantId,

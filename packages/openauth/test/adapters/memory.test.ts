@@ -12,6 +12,7 @@ import {
   MemoryConfigStore,
   MemoryKeyStore,
   MemoryMethodStore,
+  MemoryPasskeyCredentialStore,
   MemorySessionStore,
   MemoryTokenStore,
 } from "../../src/adapters/memory"
@@ -21,6 +22,7 @@ import {
   describeConfigStore,
   describeKeyStore,
   describeMethodStore,
+  describePasskeyCredentialStore,
   describeSessionStore,
   describeTokenStore,
 } from "../ports"
@@ -73,6 +75,13 @@ describeMethodStore({
   adapterName: "memory",
   async makeStore() {
     return { store: new MemoryMethodStore() }
+  },
+})
+
+describePasskeyCredentialStore({
+  adapterName: "memory",
+  async makeStore() {
+    return { store: new MemoryPasskeyCredentialStore() }
   },
 })
 

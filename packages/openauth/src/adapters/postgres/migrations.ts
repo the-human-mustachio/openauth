@@ -91,6 +91,19 @@ CREATE INDEX IF NOT EXISTS openauth_audit_kind_idx
   ON openauth_audit_events (kind);
 CREATE INDEX IF NOT EXISTS openauth_audit_ts_idx
   ON openauth_audit_events (ts);
+
+CREATE TABLE IF NOT EXISTS openauth_passkey_credentials (
+  tenant_id text NOT NULL,
+  credential_id text NOT NULL,
+  user_id text NOT NULL,
+  public_key text NOT NULL,
+  counter bigint NOT NULL DEFAULT 0,
+  transports jsonb,
+  created_at bigint NOT NULL,
+  PRIMARY KEY (tenant_id, credential_id)
+);
+CREATE INDEX IF NOT EXISTS openauth_passkey_user_idx
+  ON openauth_passkey_credentials (tenant_id, user_id);
 `
 
 /**

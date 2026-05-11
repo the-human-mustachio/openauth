@@ -34,6 +34,7 @@ import type {
   DynamoQueryByGsiInput,
   DynamoQueryInput,
   DynamoUpdateConsumeRefreshInput,
+  DynamoUpdateItemInput,
 } from "./client"
 
 export function fromDynamoDBClient(
@@ -130,12 +131,48 @@ export function fromDynamoDBClient(
           IndexName: input.indexName,
           KeyConditionExpression: "#hk = :v",
           ExpressionAttributeNames: {
-            "#hk": input.indexName === "family-index" ? "family" : "subject_key",
+            "#hk":
+              input.indexName === "family-index"
+                ? "family"
+                : input.indexName === "subject-index"
+                  ? "subject_key"
+                  : "user_key",
           },
           ExpressionAttributeValues: { ":v": input.hashKey },
         }),
       )
       return (result.Items as Record<string, unknown>[] | undefined) ?? []
+    },
+    async updateItem(input: DynamoUpdateItemInput) {
+      const names: Record<string, string> = {}
+      const values: Record<string, unknown> = {}
+      const sets: string[] = []
+      let i = 0
+      for (const [attr, value] of Object.entries(input.set)) {
+        const nameRef = `#a${i}`
+        const valueRef = `:v${i}`
+        names[nameRef] = attr
+        values[valueRef] = value
+        sets.push(`${nameRef} = ${valueRef}`)
+        i += 1
+      }
+      if (sets.length === 0) return
+      try {
+        await client.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: input.key,
+            UpdateExpression: `SET ${sets.join(", ")}`,
+            ConditionExpression:
+              "attribute_exists(pk) AND attribute_exists(sk)",
+            ExpressionAttributeNames: names,
+            ExpressionAttributeValues: values,
+          }),
+        )
+      } catch (e) {
+        // Item-missing is a no-op per the executor contract.
+        if (!isConditionalCheckFailed(e)) throw e
+      }
     },
   }
 }

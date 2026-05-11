@@ -19,4 +19,8 @@ export {
   type MemorySessionStoreOptions,
 } from "./session-store"
 export { MemoryTokenStore, type MemoryTokenStoreOptions } from "./token-store"
+export {
+  MemoryPasskeyCredentialStore,
+  type MemoryPasskeyCredentialStoreOptions,
+} from "./passkey-credential-store"
 export { realClock, type Clock } from "./clock"

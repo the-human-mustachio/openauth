@@ -17,6 +17,7 @@ import {
   PostgresConfigStore,
   PostgresKeyStore,
   PostgresMethodStore,
+  PostgresPasskeyCredentialStore,
   PostgresSessionStore,
   PostgresTokenStore,
   type PostgresExecutor,
@@ -27,6 +28,7 @@ import {
   describeConfigStore,
   describeKeyStore,
   describeMethodStore,
+  describePasskeyCredentialStore,
   describeSessionStore,
   describeTokenStore,
 } from "../ports"
@@ -59,6 +61,7 @@ const TABLES = [
   "openauth_flows",
   "openauth_sessions",
   "openauth_audit_events",
+  "openauth_passkey_credentials",
 ]
 
 beforeEach(async () => {
@@ -122,6 +125,13 @@ describeMethodStore({
   adapterName: "postgres (pglite)",
   async makeStore() {
     return { store: new PostgresMethodStore({ exec }) }
+  },
+})
+
+describePasskeyCredentialStore({
+  adapterName: "postgres (pglite)",
+  async makeStore() {
+    return { store: new PostgresPasskeyCredentialStore({ exec }) }
   },
 })
 
