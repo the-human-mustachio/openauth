@@ -26,6 +26,10 @@ import {
 import { createIdP } from "../../src/index"
 import { s256Challenge } from "../../src/domain/pkce"
 import * as providers from "../../src/methods/providers"
+import {
+  oauth2Factory,
+  oidcFactory,
+} from "../../src/methods/oauth2-factory"
 import { asTenantId, type TenantConfig } from "../../src/types/tenant"
 import { ok } from "../../src/types/result"
 import type { AnyAuthMethodFactory } from "../../src/types/method"
@@ -168,6 +172,34 @@ const SPECS: ProviderSpec[] = [
     },
     expectedAuthHostPrefix: "https://my-pool.auth.us-east-1.amazoncognito.com",
     tokenHost: "https://my-pool.auth.us-east-1.amazoncognito.com",
+  },
+  // Generic OAuth 2.0 factory — host points the tenant at an arbitrary
+  // upstream by configuring the URLs directly.
+  {
+    name: "oauth2",
+    factory: oauth2Factory as AnyAuthMethodFactory,
+    config: {
+      clientId: "gen-oauth2-id",
+      clientSecret: "gen-oauth2-secret",
+      scopes: ["read"],
+      authorizationUrl: "https://upstream.example/authorize",
+      tokenUrl: "https://upstream.example/token",
+    },
+    expectedAuthHostPrefix: "https://upstream.example",
+    tokenHost: "https://upstream.example",
+  },
+  // Generic OIDC factory — auto-discovers from the issuer URL.
+  {
+    name: "oidc",
+    factory: oidcFactory as AnyAuthMethodFactory,
+    config: {
+      clientId: "gen-oidc-id",
+      clientSecret: "gen-oidc-secret",
+      issuer: "https://upstream.example",
+    },
+    expectedAuthHostPrefix: "https://upstream.example",
+    discoveryHost: "https://upstream.example",
+    tokenHost: "https://upstream.example",
   },
 ]
 

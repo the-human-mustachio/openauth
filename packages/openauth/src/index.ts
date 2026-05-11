@@ -157,6 +157,17 @@ export type {
 export { buildOidcMethod } from "./methods/oidc-generic"
 export type { OidcMethodInput } from "./methods/oidc-generic"
 
+// Generic multi-tenant factories. Reach for these first when each
+// tenant brings its own issuer / client credentials. The vendor
+// factories above (googleFactory etc.) are convenience wrappers when
+// the issuer is fixed.
+export {
+  oauth2Factory,
+  oidcFactory,
+  type Oauth2FactoryConfig,
+  type OidcFactoryConfig,
+} from "./methods/oauth2-factory"
+
 export {
   appleFactory,
   cognitoFactory,

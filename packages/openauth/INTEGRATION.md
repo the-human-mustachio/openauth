@@ -87,6 +87,14 @@ import {
   codeMethod,
   m2mMethod,
   passkeyMethod,
+  // Generic multi-tenant factories — reach for these first when each
+  // tenant brings its own OAuth 2.0 / OIDC upstream:
+  oauth2Factory,
+  oidcFactory,
+  // Underlying primitives — `buildOauth2Method` / `buildOidcMethod` return
+  // a single static `AuthMethod`. Use them inside your own custom factory
+  // when the upstream config is compile-time constant (single-tenant
+  // deployments). The factories above wrap them for the multi-tenant case.
   buildOauth2Method,
   buildOidcMethod,
 } from "@_mustachio/openauth"
@@ -488,8 +496,14 @@ async function resolveTenant(req: Request): Promise<Result<TenantId, AuthError>>
 
 ### 9.1 Built-in method factories
 
+The factory shape splits **behavioral hooks** (host-supplied functions —
+how to deliver a code, where credentials live) from **per-tenant data**
+(form titles, RP IDs, code length, etc.). Hooks live on the factory
+creation call; tenant data lives on `MethodConfig.config` and is
+validated against the factory's Zod `configSchema` at request time.
+
 ```ts
-// Password (argon2id; opt-in registration)
+// Password — argon2id; opt-in registration. Hook: where users live.
 passwordMethod({
   users: {
     async findByEmail({ tenantId, email }) { /* ... */ },
@@ -499,33 +513,56 @@ passwordMethod({
   title: "Sign in",
 })
 
-// Email/SMS code (magic link by another name)
+// Email/SMS code — magic link by another name.
+// Factory: only `sendCode` (and optional `generateCode`).
+// Per-tenant config: codeLength?, maxAttempts?, destinationKind?, titles?
 codeMethod({
   async sendCode({ destination, code, tenantId }) {
     await sendgrid.send({ to: destination, code })
   },
-  destinationKind: "email",       // or "tel" | "any"
-  maxAttempts: 5,
 })
 
-// M2M (client_credentials grant)
+// M2M (client_credentials grant).
 m2mMethod({
   async resolveSubject({ tenantId, clientId, scope, params }) {
     return { providerSubject: clientId, properties: { tier: "premium" } }
   },
 })
 
-// WebAuthn passkey
+// WebAuthn passkey — multi-tenant.
+// Factory: only `credentials` (the credential store).
+// Per-tenant config: { rpName, rpID, origins, title? }.
+// `rpID` and `origins` are usually per-tenant because each customer
+// runs on their own domain.
 passkeyMethod({
-  rpName: "Your App",
-  rpId: "yourapp.com",
-  origin: "https://yourapp.com",
   credentials: {
-    async findByUserId({ tenantId, userId }) { /* ... */ },
-    async findByCredentialId({ tenantId, credentialId }) { /* ... */ },
-    async save(credential) { /* ... */ },
+    async findByUsername(username, tenantId) { /* ... */ },
+    async findById(credentialId, tenantId) { /* ... */ },
+    async updateCounter({ credentialId, counter, tenantId }) { /* ... */ },
+    async create?({ userId, credential, tenantId }) { /* ... */ },
   },
 })
+```
+
+The corresponding `MethodConfig.config` shapes (what hosts put inside
+their `TenantConfig.methods[]` entries):
+
+```ts
+// codeMethod — all fields optional; defaults documented in the schema.
+{ id: "code", kind: "code", type: "code", enabled: true, config: {
+  codeLength: 6,                   // 4-10, default 6
+  maxAttempts: 5,                  // default 5
+  destinationKind: "email",        // "email" | "tel" | "any"
+  titles: { request: "Sign in", verify: "Enter your code" },
+}}
+
+// passkeyMethod — rpName / rpID / origins required.
+{ id: "passkey", kind: "passkey", type: "passkey", enabled: true, config: {
+  rpName: "Acme",
+  rpID: "acme.example",
+  origins: "https://acme.example",          // or ["https://...", ...]
+  title: "Sign in with passkey",
+}}
 ```
 
 ### 9.2 OAuth/OIDC providers — multi-instance per tenant
@@ -576,29 +613,84 @@ success: async ({ methodId, methodKind, providerSubject }) => {
 }
 ```
 
-### 9.3 Custom upstream providers
+### 9.3 Generic OAuth 2.0 / OIDC factories (multi-tenant)
 
-For providers not in the built-in 15, use the generic builders:
+For providers not in the built-in 15 — or for the common case where
+each tenant brings its own issuer / client credentials — use
+`oauth2Factory` or `oidcFactory`. They're factories (multi-instance,
+per-tenant config) rather than single static methods.
 
 ```ts
-buildOauth2Method({   // plain OAuth 2.0
-  id: "internal-sso",
-  kind: "internal-sso",
-  clientId: "...",
-  clientSecret: "...",
-  scopes: ["read"],
-  authorizationUrl: "https://internal.example/oauth/authorize",
-  tokenUrl: "https://internal.example/oauth/token",
-})
+import { oauth2Factory, oidcFactory } from "@_mustachio/openauth"
 
-buildOidcMethod({     // OIDC w/ discovery + id_token verification
+const methods = {
+  oauth2: oauth2Factory,
+  oidc: oidcFactory,
+}
+
+// Per-tenant MethodConfig:
+{
+  id: "internal-sso",            // becomes /internal-sso/* in URLs
+  kind: "oauth2",                 // matches the factory key
+  type: "oauth2",
+  enabled: true,
+  config: {                       // validated against oauth2Factory.configSchema
+    clientId: "...",
+    clientSecret: "...",
+    scopes: ["read"],
+    authorizationUrl: "https://internal.example/oauth/authorize",
+    tokenUrl: "https://internal.example/oauth/token",
+  },
+}
+
+{
   id: "okta",
-  kind: "okta",
-  issuer: "https://yourtenant.okta.com",
-  clientId: "...",
-  clientSecret: "...",
-})
+  kind: "oidc",
+  type: "oidc",
+  enabled: true,
+  config: {                       // validated against oidcFactory.configSchema
+    issuer: "https://yourtenant.okta.com",
+    clientId: "...",
+    clientSecret: "...",
+    // scopes optional — defaults to ["openid", "email", "profile"]
+    // endpoints optional — supply if discovery is unavailable
+  },
+}
 ```
+
+Each tenant can register many instances of the same factory by using
+distinct `id` values — e.g. `okta-internal` and `okta-customers` both
+backed by `kind: "oidc"`.
+
+### 9.4 Single static AuthMethod (single-tenant only)
+
+`buildOauth2Method` and `buildOidcMethod` are the underlying primitives.
+They return a single `AuthMethod` instance — not a factory — so you call
+them inside your own `AuthMethodFactory.build` when the upstream config
+is a compile-time constant (single-tenant deployments, or for writing a
+vendor-specific factory like the ones in `methods/providers/`).
+
+```ts
+import type { AuthMethodFactory } from "@_mustachio/openauth"
+import { z } from "zod"
+
+const myOkta: AuthMethodFactory<Oauth2Properties, Oauth2State, {}> = {
+  kind: "my-okta",
+  configSchema: z.object({}),
+  build: async ({ id, kind }) =>
+    buildOidcMethod({
+      id,
+      kind,
+      issuer: process.env.OKTA_ISSUER!,
+      clientId: process.env.OKTA_CLIENT_ID!,
+      clientSecret: process.env.OKTA_CLIENT_SECRET!,
+      scopes: ["openid", "email", "profile"],
+    }),
+}
+```
+
+Reach for `oauth2Factory` / `oidcFactory` first; only drop down to the
+builders when the upstream is fixed at the deployment level.
 
 ---
 

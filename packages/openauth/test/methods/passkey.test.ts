@@ -62,7 +62,17 @@ function harness() {
 describe("passkeyMethod (shape)", () => {
   test("GET /authorize renders username form", async () => {
     const tenant = await buildTenant({
-      methods: [{ id: "passkey", kind: "passkey" }],
+      methods: [
+        {
+          id: "passkey",
+          kind: "passkey",
+          config: {
+            rpName: "Test",
+            rpID: "idp.example",
+            origins: "https://idp.example",
+          },
+        },
+      ],
     })
     tenant.methods[0]!.type = "passkey"
 
@@ -79,12 +89,7 @@ describe("passkeyMethod (shape)", () => {
       auditLog: new MemoryAuditLog(),
       issuerUrl: "https://idp.example",
       methods: {
-        passkey: passkeyMethod({
-          rpName: "Test",
-          rpID: "idp.example",
-          origin: "https://idp.example",
-          credentials: harness(),
-        }) as never,
+        passkey: passkeyMethod({ credentials: harness() }) as never,
       },
       subjects: {} as never,
       success: async () => ({ type: "user", properties: {} }) as never,
@@ -112,7 +117,17 @@ describe("passkeyMethod (shape)", () => {
 
   test("POST /authenticate-options for known user → challenge JSON", async () => {
     const tenant = await buildTenant({
-      methods: [{ id: "passkey", kind: "passkey" }],
+      methods: [
+        {
+          id: "passkey",
+          kind: "passkey",
+          config: {
+            rpName: "Test",
+            rpID: "idp.example",
+            origins: "https://idp.example",
+          },
+        },
+      ],
     })
     tenant.methods[0]!.type = "passkey"
 
@@ -128,12 +143,7 @@ describe("passkeyMethod (shape)", () => {
       keyStore: new MemoryKeyStore({ clock: () => Date.now() }),
       issuerUrl: "https://idp.example",
       methods: {
-        passkey: passkeyMethod({
-          rpName: "Test",
-          rpID: "idp.example",
-          origin: "https://idp.example",
-          credentials: harness(),
-        }) as never,
+        passkey: passkeyMethod({ credentials: harness() }) as never,
       },
       subjects: {} as never,
       success: async () => ({ type: "user", properties: {} }) as never,

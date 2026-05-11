@@ -75,21 +75,50 @@ export type PasskeyCredentialStore = {
 }
 
 export type PasskeyMethodOptions = {
-  rpName: string
-  /** RP id (the registrable domain). e.g. `"acme.example"`. */
-  rpID: string
-  /** Expected origin(s). e.g. `["https://acme.example"]`. */
-  origin: string | string[]
+  /**
+   * Tenant-supplied credential store. The framework calls into it for
+   * lookups + writes; it knows nothing about how credentials are stored.
+   */
   credentials: PasskeyCredentialStore
-  title?: string
 }
 
 export type PasskeyState =
   | { phase: "auth"; challenge: string; username: string }
   | { phase: "register"; challenge: string; userId: string; username: string }
 
-const configSchema = z.object({}).strict()
+/**
+ * Per-tenant config. `rpID` is the WebAuthn Relying Party ID (the
+ * registrable domain — e.g. `"acme.example"`); each tenant typically
+ * runs on its own domain so this is per-tenant, not per-factory.
+ *
+ * `origins` is the list of accepted browser origins (HTTPS URLs).
+ * Multi-origin support is useful for tenants with both an app subdomain
+ * and a marketing domain that both terminate at the IdP.
+ */
+const configSchema = z.object({
+  /** Display name shown by the authenticator UI. */
+  rpName: z.string().min(1),
+  /** Relying Party ID — the registrable domain. */
+  rpID: z.string().min(1),
+  /** Accepted origin(s). Either a single URL or an array of URLs. */
+  origins: z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]),
+  /** Form title override. */
+  title: z.string().optional(),
+})
 type PasskeyConfig = z.infer<typeof configSchema>
+
+/**
+ * Resolved per-instance settings threaded into route handlers. We
+ * collapse the union shape of `origins` into the array shape
+ * `@simplewebauthn/server` accepts.
+ */
+type PasskeySettings = {
+  rpName: string
+  rpID: string
+  origin: string | string[]
+  title: string
+  credentials: PasskeyCredentialStore
+}
 
 const usernameBody = z.object({ username: z.string().min(1) })
 const verifyBody = z.object({ response: z.string().min(1) })
@@ -97,60 +126,68 @@ const verifyBody = z.object({ response: z.string().min(1) })
 export function passkeyMethod(
   opts: PasskeyMethodOptions,
 ): AuthMethodFactory<PasskeyProperties, PasskeyState, PasskeyConfig> {
-  const title = opts.title ?? "Sign in with passkey"
-
   return {
     kind: "passkey",
     configSchema,
     build: async ({
       id,
       kind,
-    }): Promise<AuthMethod<PasskeyProperties, PasskeyState>> => ({
-      id,
-      kind,
-      type: "passkey",
-      routes: {
-        "GET /authorize": async () => ({
-          kind: "challenge",
-          response: htmlResponse(
-            renderForm({
-              title,
-              action: `/m/${id}/authenticate-options`,
-              fields: [
-                {
-                  name: "username",
-                  label: "Username",
-                  required: true,
-                  autocomplete: "username webauthn",
-                },
-              ],
-              submit: "Continue",
-            }),
-          ),
-        }),
-        "POST /authenticate-options": async (ctx) =>
-          authOptions(ctx, opts),
-        "POST /authenticate-verify": async (ctx) =>
-          authVerify(ctx, opts),
-        "POST /register-options": async (ctx) =>
-          registerOptions(ctx, id, opts),
-        "POST /register-verify": async (ctx) =>
-          registerVerify(ctx, opts),
-      },
-    }),
+      config,
+    }): Promise<AuthMethod<PasskeyProperties, PasskeyState>> => {
+      const settings: PasskeySettings = {
+        rpName: config.rpName,
+        rpID: config.rpID,
+        origin: config.origins,
+        title: config.title ?? "Sign in with passkey",
+        credentials: opts.credentials,
+      }
+      return {
+        id,
+        kind,
+        type: "passkey",
+        routes: {
+          "GET /authorize": async () => ({
+            kind: "challenge",
+            response: htmlResponse(
+              renderForm({
+                title: settings.title,
+                action: `/m/${id}/authenticate-options`,
+                fields: [
+                  {
+                    name: "username",
+                    label: "Username",
+                    required: true,
+                    autocomplete: "username webauthn",
+                  },
+                ],
+                submit: "Continue",
+              }),
+            ),
+          }),
+          "POST /authenticate-options": async (ctx) =>
+            authOptions(ctx, settings),
+          "POST /authenticate-verify": async (ctx) =>
+            authVerify(ctx, settings),
+          "POST /register-options": async (ctx) =>
+            registerOptions(ctx, id, settings),
+          "POST /register-verify": async (ctx) =>
+            registerVerify(ctx, settings),
+        },
+      }
+    },
   }
 }
 
 async function authOptions(
   ctx: MethodContext<PasskeyState>,
-  opts: PasskeyMethodOptions,
+  settings: PasskeySettings,
 ): Promise<MethodResult<PasskeyProperties, PasskeyState>> {
   const form = await safeForm(ctx.request)
   const parsed = usernameBody.safeParse(form)
   if (!parsed.success) {
     return errorResult("missing username")
   }
-  const found = await opts.credentials.findByUsername(
+  const found = await settings.credentials.findByUsername(
     parsed.data.username,
     ctx.tenant.id,
   )
@@ -158,7 +195,7 @@ async function authOptions(
     return errorResult("unknown user")
   }
   const options = await generateAuthenticationOptions({
-    rpID: opts.rpID,
+    rpID: settings.rpID,
     allowCredentials: found.credentials.map((c) => ({
       id: c.credentialId,
       ...(c.transports ? { transports: c.transports as never } : {}),
@@ -178,7 +215,7 @@ async function authOptions(
 
 async function authVerify(
   ctx: MethodContext<PasskeyState>,
-  opts: PasskeyMethodOptions,
+  settings: PasskeySettings,
 ): Promise<MethodResult<PasskeyProperties, PasskeyState>> {
   if (!ctx.methodState || ctx.methodState.phase !== "auth") {
     return errorResult("verify without prior /authenticate-options")
@@ -196,7 +233,7 @@ async function authVerify(
   }
   const credentialId = assertion?.id as string | undefined
   if (!credentialId) return errorResult("missing credential id")
-  const stored = await opts.credentials.findById(credentialId, ctx.tenant.id)
+  const stored = await settings.credentials.findById(credentialId, ctx.tenant.id)
   if (!stored) return errorResult("unknown credential")
 
   let verification
@@ -204,8 +241,8 @@ async function authVerify(
     verification = await verifyAuthenticationResponse({
       response: assertion,
       expectedChallenge: state.challenge,
-      expectedOrigin: opts.origin,
-      expectedRPID: opts.rpID,
+      expectedOrigin: settings.origin,
+      expectedRPID: settings.rpID,
       credential: {
         id: stored.credentialId,
         publicKey: base64urlDecode(stored.publicKey),
@@ -223,7 +260,7 @@ async function authVerify(
   if (!verification.verified) {
     return errorResult("verification rejected")
   }
-  await opts.credentials.updateCounter({
+  await settings.credentials.updateCounter({
     credentialId: stored.credentialId,
     counter: verification.authenticationInfo.newCounter,
     tenantId: ctx.tenant.id,
@@ -239,9 +276,9 @@ async function authVerify(
 async function registerOptions(
   ctx: MethodContext<PasskeyState>,
   _methodId: string,
-  opts: PasskeyMethodOptions,
+  settings: PasskeySettings,
 ): Promise<MethodResult<PasskeyProperties, PasskeyState>> {
-  if (!opts.credentials.create) {
+  if (!settings.credentials.create) {
     return errorResult("registration not enabled")
   }
   const form = await safeForm(ctx.request)
@@ -250,8 +287,8 @@ async function registerOptions(
 
   const userId = parsed.data.username
   const options = await generateRegistrationOptions({
-    rpName: opts.rpName,
-    rpID: opts.rpID,
+    rpName: settings.rpName,
+    rpID: settings.rpID,
     userName: parsed.data.username,
     userID: new TextEncoder().encode(userId),
     attestationType: "none",
@@ -274,9 +311,9 @@ async function registerOptions(
 
 async function registerVerify(
   ctx: MethodContext<PasskeyState>,
-  opts: PasskeyMethodOptions,
+  settings: PasskeySettings,
 ): Promise<MethodResult<PasskeyProperties, PasskeyState>> {
-  if (!opts.credentials.create) {
+  if (!settings.credentials.create) {
     return errorResult("registration not enabled")
   }
   if (!ctx.methodState || ctx.methodState.phase !== "register") {
@@ -298,8 +335,8 @@ async function registerVerify(
     verification = await verifyRegistrationResponse({
       response: attestation,
       expectedChallenge: state.challenge,
-      expectedOrigin: opts.origin,
-      expectedRPID: opts.rpID,
+      expectedOrigin: settings.origin,
+      expectedRPID: settings.rpID,
       requireUserVerification: false,
     })
   } catch (e) {
@@ -311,7 +348,7 @@ async function registerVerify(
     return errorResult("registration rejected")
   }
   const reg = verification.registrationInfo
-  await opts.credentials.create({
+  await settings.credentials.create({
     userId: state.userId,
     credential: {
       credentialId: reg.credential.id,

@@ -47,26 +47,47 @@ export type CodeState = {
 }
 
 export type CodeMethodOptions = {
-  /** Called when the user submits a destination — return success regardless. */
+  /**
+   * Called when the user submits a destination. The hook receives the
+   * generated code and is responsible for delivering it (email, SMS,
+   * etc.). Returning normally means "delivery attempted"; the framework
+   * does not inspect the outcome.
+   */
   sendCode: (input: {
     destination: string
     code: string
     tenantId: string
   }) => Promise<void>
-  /** Override the displayed form titles. */
-  titles?: {
-    request?: string
-    verify?: string
-  }
-  /** Override code generation. Default: 6-digit numeric. */
+  /**
+   * Override code generation. Default: 6-digit numeric.
+   *
+   * Kept on the factory closure (not per-tenant) because the generation
+   * algorithm is part of the host's overall deliverability + UX
+   * decisions, not something that should be reconfigured per tenant.
+   */
   generateCode?: () => string
-  /** Max verify attempts before denying. Default 5. */
-  maxAttempts?: number
-  /** Validate destination format. Default: email or non-empty string. */
-  destinationKind?: "email" | "tel" | "any"
 }
 
-const configSchema = z.object({}).strict()
+/**
+ * Per-tenant config. Host supplies these via `MethodConfig.config` so
+ * each tenant can ship its own code length, attempt cap, channel kind,
+ * and copy without instantiating a new factory.
+ */
+const configSchema = z.object({
+  /** Default 6. Range 4–10. */
+  codeLength: z.number().int().min(4).max(10).optional(),
+  /** Default 5. After this many failed verifies the flow is denied. */
+  maxAttempts: z.number().int().min(1).max(20).optional(),
+  /** Default "email". */
+  destinationKind: z.enum(["email", "tel", "any"]).optional(),
+  /** Form copy overrides. */
+  titles: z
+    .object({
+      request: z.string().optional(),
+      verify: z.string().optional(),
+    })
+    .optional(),
+})
 type CodeConfig = z.infer<typeof configSchema>
 
 const sendBody = z.object({
@@ -79,48 +100,52 @@ const verifyBody = z.object({
 export function codeMethod(
   opts: CodeMethodOptions,
 ): AuthMethodFactory<CodeProperties, CodeState, CodeConfig> {
-  const titleRequest = opts.titles?.request ?? "Sign in"
-  const titleVerify = opts.titles?.verify ?? "Enter your code"
-  const generateCode = opts.generateCode ?? defaultCode
-  const maxAttempts = opts.maxAttempts ?? 5
-  const destinationKind = opts.destinationKind ?? "email"
-
+  const customGenerator = opts.generateCode
   return {
     kind: "code",
     configSchema,
     build: async ({
       id,
       kind,
-    }): Promise<AuthMethod<CodeProperties, CodeState>> => ({
-      id,
-      kind,
-      type: "code",
-      routes: {
-        "GET /authorize": async (_ctx) => ({
-          kind: "challenge",
-          response: htmlResponse(
-            renderForm({
-              title: titleRequest,
-              action: `/m/${id}/send`,
-              fields: destinationField(destinationKind),
-              submit: "Send code",
-            }),
-          ),
-        }),
-        "POST /send": async (ctx) =>
-          handleSend(
-            ctx,
-            id,
-            titleRequest,
-            titleVerify,
-            destinationKind,
-            generateCode,
-            opts.sendCode,
-          ),
-        "POST /verify": async (ctx) =>
-          handleVerify(ctx, id, titleVerify, maxAttempts),
-      },
-    }),
+      config,
+    }): Promise<AuthMethod<CodeProperties, CodeState>> => {
+      const titleRequest = config.titles?.request ?? "Sign in"
+      const titleVerify = config.titles?.verify ?? "Enter your code"
+      const maxAttempts = config.maxAttempts ?? 5
+      const destinationKind = config.destinationKind ?? "email"
+      const codeLength = config.codeLength ?? 6
+      const generateCode = customGenerator ?? (() => defaultCode(codeLength))
+      return {
+        id,
+        kind,
+        type: "code",
+        routes: {
+          "GET /authorize": async (_ctx) => ({
+            kind: "challenge",
+            response: htmlResponse(
+              renderForm({
+                title: titleRequest,
+                action: `/m/${id}/send`,
+                fields: destinationField(destinationKind),
+                submit: "Send code",
+              }),
+            ),
+          }),
+          "POST /send": async (ctx) =>
+            handleSend(
+              ctx,
+              id,
+              titleRequest,
+              titleVerify,
+              destinationKind,
+              generateCode,
+              opts.sendCode,
+            ),
+          "POST /verify": async (ctx) =>
+            handleVerify(ctx, id, titleVerify, maxAttempts),
+        },
+      }
+    },
   }
 }
 
@@ -300,13 +325,14 @@ function validateDestination(
   return destination.length > 0
 }
 
-function defaultCode(): string {
+function defaultCode(length: number): string {
+  // Modulo over a uniform 32-bit draw — small skew on the high end of the
+  // range, fine for codes gated by rate limiting + max-attempts.
   const buf = randomBytes(4)
-  // 6 digits — uniform-ish on the small range; the entropy is fine for an
-  // email magic code with rate limiting + max-attempts gating.
   const view = new DataView(buf.buffer, buf.byteOffset, 4)
-  const n = view.getUint32(0) % 1_000_000
-  return n.toString().padStart(6, "0")
+  const max = 10 ** length
+  const n = view.getUint32(0) % max
+  return n.toString().padStart(length, "0")
 }
 
 async function safeForm(req: Request): Promise<Record<string, string>> {
