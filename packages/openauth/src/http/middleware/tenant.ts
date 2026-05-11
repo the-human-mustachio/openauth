@@ -123,8 +123,7 @@ async function runCallbackRecovery(
   req: Request,
   deps: HttpDeps,
 ): Promise<TenantRecovery> {
-  const url = new URL(req.url)
-  const state = url.searchParams.get("state")
+  const state = await extractStateParam(req)
   if (state) {
     const env = await verifyStateEnvelope(state, deps.stateKeys)
     if (env.ok) {
@@ -136,4 +135,26 @@ async function runCallbackRecovery(
     }
   }
   return { kind: "fresh-request" }
+}
+
+/**
+ * Pull `state` from the query for GET callbacks, or from a form body for
+ * POST callbacks (Apple's `response_mode=form_post`). The body is cloned
+ * so the handler can still read it.
+ */
+async function extractStateParam(req: Request): Promise<string | null> {
+  const url = new URL(req.url)
+  const fromQuery = url.searchParams.get("state")
+  if (fromQuery) return fromQuery
+  if (req.method !== "POST") return null
+  const ct = req.headers.get("content-type") ?? ""
+  if (!ct.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
+    return null
+  }
+  try {
+    const text = await req.clone().text()
+    return new URLSearchParams(text).get("state")
+  } catch {
+    return null
+  }
 }

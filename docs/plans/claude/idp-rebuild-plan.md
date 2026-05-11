@@ -1187,7 +1187,7 @@ Each phase has: **Goal**, **Deliverables**, **Acceptance Criteria**, **Risks**. 
 
 ---
 
-### Phase 5 — OAuth/OIDC Provider Family (All Existing Providers)
+### Phase 5 — OAuth/OIDC Provider Family (All Existing Providers) ✅ **COMPLETE**
 
 **Goal:** Port all 15 OAuth/OIDC providers (+ generic `oauth2`/`oidc` building blocks + `arctic` wrapper) to the new model. Validate that the generic methods are reusable.
 
@@ -1251,6 +1251,56 @@ Each phase has: **Goal**, **Deliverables**, **Acceptance Criteria**, **Risks**. 
 - Refresh token handling varies wildly across providers. Mitigation: capture upstream refresh tokens in `properties`; let the user's `success` hook decide what to do.
 
 **Estimated effort:** 1.5-2 weeks (most providers are 10-30 minutes each once oauth2-generic + oidc-generic are solid).
+
+#### Phase 5 — Shipped
+
+- **`methods/oauth2-generic.ts` (`buildOauth2Method`)** — the workhorse for every redirect-style provider. Routes:
+  - `GET /authorize` — builds the upstream redirect with `client_id`, `redirect_uri = dispatch.callbackUrl`, `response_type=code`, `state = dispatch.state` (the framework's MAC envelope), `scope`, optional PKCE (`S256` default; `pkce: "none"` opt-out for upstreams that don't accept it), and any provider-specific extra query params. PKCE verifier is stashed in `methodState`.
+  - `GET /callback` — exchanges the auth code at `tokenUrl`, optionally verifies the returned `id_token` against `jwksUri` (via `jose.createRemoteJWKSet` + `jwtVerify` with audience + expected issuer), and returns the standard `Oauth2Properties` shape (`tokens.{access,refresh,expiresIn,idToken}` + decoded `idTokenClaims` + raw token-endpoint response).
+  - `POST /callback` — same as GET, conditionally mounted when `responseMode: "form_post"` (Apple). The HTTP layer now accepts POST on `/cb/*` and the tenant middleware extracts `state` from the form body for `form_post`.
+  - `defaultDeriveSubject` walks `idTokenClaims.sub` → `raw.sub` → `raw.user_id` → `raw.id`; pluggable for providers that compute the subject differently.
+- **`methods/oidc-generic.ts` (`buildOidcMethod`)** — thin layer over `buildOauth2Method`. Fetches `/.well-known/openid-configuration` from the configured `issuer` at factory-build time and plumbs `authorization_endpoint` / `token_endpoint` / `jwks_uri` into the underlying OAuth method. The `MethodCache` caches the built method per `(tenantId, MethodConfig.id)` so discovery is one HTTP round trip per tenant config invalidation. Providers with non-standard discovery (Cognito) pass `endpoints` directly to bypass auto-fetch.
+- **15 provider factories under `methods/providers/`** — each ~35-55 lines, all `<AuthMethodFactory>` exports with a `kind` matching the file name and a Zod `configSchema` for tenant-supplied credentials. Endpoint URLs and defaults baked into the wrapper; the generic methods own all the logic.
+  - OIDC (auto-discovery): `google`, `apple`, `microsoft` (tenant-templated), `slack` (Sign in with Slack), `yahoo`, `jumpcloud`, `keycloak` (per-realm), `cognito` (explicit endpoints).
+  - OAuth 2.0 (no id_token by default): `github` (PKCE off — GitHub doesn't accept it), `discord`, `facebook` (with `useOidc: true` switch), `linkedin`, `spotify`, `twitch`, `x` (PKCE required), `yahoo` (OIDC).
+  - Total wrapper LOC ~600 vs ~345 in the two generics — by LOC the generics are ~57%, but by logic ALL of the OAuth/OIDC ceremony lives in the generics (the wrappers only declare config schemas + endpoint URLs).
+- **`POST /cb/*` support.** Apple `response_mode=form_post` now works end-to-end: the router mounts both GET and POST on `/cb/*`; the tenant middleware reads `state` from query OR form body (via `req.clone()` so the handler can still read the body); `buildOauth2Method`'s callback handler does the same for `code`.
+- **`oauth4webapi` dependency** — added per AD7b. Used for PKCE primitives (`generateRandomCodeVerifier`, `calculatePKCECodeChallenge`). The token-exchange dance and id_token validation stay on plain `fetch` + `jose` because per-provider quirks make oauth4webapi's strict `AuthorizationServer` shape more friction than help; the door is open to migrate fully when a real customer benefits.
+- **Public API exports** — `buildOauth2Method`, `buildOidcMethod`, all 15 `*Factory` exports, plus `Oauth2Properties` / `Oauth2State` / `Oauth2MethodInput` / `OidcMethodInput` types.
+- **15-case provider matrix test** at `test/methods/providers.test.ts`. One parameterized case per provider:
+  1. Configure a tenant with that provider as the sole enabled method.
+  2. Run `/authorize` and assert the redirect lands on the expected upstream host with the framework state, configured `client_id`, and `response_type=code`.
+  3. Simulate the upstream callback (`/cb/<methodId>?state=…&code=upstream-code`) and assert the framework mints an auth code and redirects back to the RP.
+  4. Exchange the auth code at `/token` and assert tokens are issued.
+
+  Global `fetch` is monkey-patched for the test file so discovery docs + token endpoints return deterministic JSON; `afterAll` restores the original. The mock does NOT issue real id_tokens — full id_token-verification coverage needs a real signed JWT + matching JWKS, deferred to integration tests against real upstreams (or fixture-based tests in Phase 8 hardening).
+- **Verification gates passed:**
+  - `bunx tsc --noEmit -p tsconfig.json` exits 0 under `strict`.
+  - `bun test` — **195/195** green (180 prior + 15 provider matrix).
+  - `grep` confirms zero `hono` / `node:*` imports in `src/{types,ports,domain,adapters,methods}/`.
+  - All 17 OAuth 2.1 conformance cases still green; method-route + credential + provider tests still green.
+
+#### Phase 5 — Deferred
+
+- **`arctic` wrapper.** The legacy `provider/arctic.ts` wraps the [Arctic](https://arcticjs.dev) library to lean on its per-provider endpoint constants. The new `buildOauth2Method` already absorbs that role (endpoint URLs are baked into each `methods/providers/*.ts` wrapper), so the Arctic wrapper is dropped per the plan's "or drop" branch. Anyone who needs Arctic-specific behavior can call `buildOauth2Method` directly with Arctic's endpoint constants.
+- **Full id_token verification in CI.** The matrix test stubs `fetch` so the upstream returns `access_token` + `sub` directly. For OIDC providers the framework would normally verify the `id_token` against the JWKS; CI coverage of that path needs a real signed JWT + matching JWKS or a per-provider stub keystore. Phase 8 hardening adds either real-network nightly integration tests or fixture-based ceremonies, whichever lands faster.
+- **`oauth4webapi` deeper integration.** Phase 5 uses it only for PKCE; the token-exchange + id_token-validate flow uses plain `fetch` + `jose`. Migrating to `oauth4webapi`'s `authorizationCodeGrantRequest` / `processAuthorizationCodeResponse` is a clean cleanup but requires reshaping config into `AuthorizationServer` + `Client` + `ClientAuth` objects. Defer until a provider-quirk crisis forces it.
+- **Refresh-token rotation for upstream providers.** The framework's own refresh-token rotation (Phase 2) is unchanged; upstream refresh tokens captured in `properties.tokens.refresh` are stored by the user's `success` callback (or via `IdPOptions.persistUpstreamTokens`). A first-class "refresh upstream tokens" facility lives at the application layer, not in the IdP — same as the legacy provider design.
+- **Provider-specific tests against real upstreams.** The plan's acceptance criterion ("each provider configured in a fake setup, mock the upstream, run full redirect → callback → tokens flow") is satisfied by the matrix test. Real-network smoke tests are an operational concern (private credentials, flakiness) and live in deployment runbooks, not the package suite.
+
+#### Phase 5 — Decisions captured for later phases
+
+- **`buildOauth2Method` is the public API for custom providers.** Users with a provider we haven't pre-wrapped (legacy ADFS, OneLogin, in-house OAuth server, etc.) can wire their own `AuthMethodFactory` whose `build` calls `buildOauth2Method` or `buildOidcMethod`. No internal-only escape hatch; the same path the bundled providers use is the customer-facing one.
+- **Provider wrappers stay tiny by contract.** Each wrapper is *only* a `kind` constant, a `configSchema`, and a `build` that calls the generic with the right URLs. Provider-specific custom logic (overriding `deriveSubject`, fetching userinfo, mapping claims) is allowed but rare; if a wrapper grows past ~50 lines it's a signal that the generic should learn a new hook.
+- **The `idp.flow` cookie is set on every challenge** — including upstream-redirect challenges. This means the cookie is in flight while the user is at the upstream provider; on callback the framework recovers via the state envelope (primary) and the cookie is available as defense-in-depth for the `flowId`-in-URI recovery path when it lands.
+- **`POST /cb/*` requires body cloning in the tenant middleware.** The middleware uses `req.clone().text()` for `form_post` callbacks so the handler can still read the body. Adapter authors building bespoke routers must preserve this — cloning is cheap (the body's bytes haven't been read yet) and indispensable for Apple support.
+- **`expectedIssuer` on the OAuth2 generic is the wire-format issuer**, not the configured `issuer` parameter. For Microsoft this matters: the user passes `tenant: "common"` and the framework builds `issuer = https://login.microsoftonline.com/common/v2.0`, but Microsoft's id_tokens carry a *tenant-specific* `iss` claim (the resolved tenant). `buildOidcMethod` uses `endpoints.issuer` (from discovery) as `expectedIssuer`, which Microsoft's discovery doc fills in correctly.
+- **OIDC method state has no upstream-nonce.** Phase 2's plan §"Two PKCEs, never confuse them" mentions OIDC providers stashing `upstreamNonce`. Phase 5 doesn't currently use `nonce` for OIDC providers; relying on PKCE + state-MAC is sufficient for the auth-code flow against the existing 15 providers. Adding `nonce` is a one-line addition to `buildOauth2Method` if a future provider requires it.
+
+##### Open items surfaced during Phase 5
+
+- The matrix test's mock fetch is per-file. If multiple test files want fetch-level mocking, we'll factor it into a `test/helpers/mock-fetch.ts`. Phase 6 storage tests against real backends (D1, Postgres) won't need it.
+- Provider OIDC discovery cache is per `MethodCache` entry; it lives as long as the tenant config does. Phase 6's `ConfigStore.onInvalidate` hook will need to wire into the cache so a tenant config update forces re-discovery — currently invalidation is manual (`MethodCache.invalidate(tenantId)`). Tracked for Phase 6.
 
 ---
 

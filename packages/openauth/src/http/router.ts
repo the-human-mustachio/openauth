@@ -54,6 +54,8 @@ export function buildRouter(deps: HttpDeps): Hono<HttpEnv> {
 
   app.use("/cb/*", tenantMiddleware(deps))
   app.get("/cb/*", makeCallbackHandler(deps))
+  // Apple `response_mode=form_post` and similar POST-binding callbacks.
+  app.post("/cb/*", makeCallbackHandler(deps))
 
   // Credential-flow method routes — POST and GET allowed.
   app.use("/m/*", tenantMiddleware(deps))

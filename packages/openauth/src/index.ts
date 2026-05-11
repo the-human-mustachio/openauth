@@ -145,6 +145,34 @@ export type {
   Argon2idParams,
 } from "./domain/password-hash"
 
+// Phase 5 — OAuth / OIDC provider factories.
+export { buildOauth2Method } from "./methods/oauth2-generic"
+export type {
+  Oauth2MethodInput,
+  Oauth2Properties,
+  Oauth2State,
+} from "./methods/oauth2-generic"
+export { buildOidcMethod } from "./methods/oidc-generic"
+export type { OidcMethodInput } from "./methods/oidc-generic"
+
+export {
+  appleFactory,
+  cognitoFactory,
+  discordFactory,
+  facebookFactory,
+  githubFactory,
+  googleFactory,
+  jumpcloudFactory,
+  keycloakFactory,
+  linkedinFactory,
+  microsoftFactory,
+  slackFactory,
+  spotifyFactory,
+  twitchFactory,
+  xFactory,
+  yahooFactory,
+} from "./methods/providers"
+
 import type { IdP, IdPOptions } from "./types/idp"
 import { MethodCache } from "./domain/method-cache"
 import { buildRouter } from "./http/router"
