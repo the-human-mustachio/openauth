@@ -112,23 +112,37 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
 
     const out = result.value
     switch (out.kind) {
-      case "challenge":
+      case "challenge": {
+        // Framework stamps the `idp.flow` cookie so credential POSTs to
+        // `/m/<methodId>/<sub>` can identify the in-flight flow.
+        const flowCookie = {
+          name: "idp.flow",
+          value: out.flowId,
+          path: "/",
+          httpOnly: true,
+          sameSite: "lax" as const,
+          maxAge: 60 * 10,
+        }
         return applyResponsePolicy(out.response, {
-          setCookies: out.setCookies,
+          setCookies: [flowCookie, ...out.setCookies],
           cookieDefaults: deps.cookieDefaults,
           cacheControl: cacheControlFor(out.cache),
         })
+      }
       case "issue-code": {
         const redirect = new URL(out.appRedirectUri)
         redirect.searchParams.set("code", out.code)
         if (out.appState !== null) redirect.searchParams.set("state", out.appState)
-        return new Response(null, {
-          status: 302,
-          headers: {
-            location: redirect.toString(),
-            "cache-control": "no-store",
+        return applyResponsePolicy(
+          new Response(null, {
+            status: 302,
+            headers: { location: redirect.toString() },
+          }),
+          {
+            setCookies: [clearFlowCookie()],
+            cookieDefaults: deps.cookieDefaults,
           },
-        })
+        )
       }
       case "denied":
         return applyResponsePolicy(
@@ -137,11 +151,25 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
             q.redirect_uri,
             q.state ?? null,
           ),
-          { setCookies: out.setCookies, cookieDefaults: deps.cookieDefaults },
+          {
+            setCookies: [clearFlowCookie(), ...out.setCookies],
+            cookieDefaults: deps.cookieDefaults,
+          },
         )
       case "select-method":
         return renderMethodPicker(out.methods, q)
     }
+  }
+}
+
+function clearFlowCookie() {
+  return {
+    name: "idp.flow",
+    value: null,
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax" as const,
+    maxAge: 0,
   }
 }
 

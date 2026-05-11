@@ -16,6 +16,7 @@
  * refresh token carries its tenant on its payload, so the auth-code or
  * refresh-token snapshot is authoritative.
  */
+import { clientCredentialsGrant } from "../../domain/client-credentials"
 import { exchangeCode } from "../../domain/token"
 import { refreshTokens } from "../../domain/refresh"
 import { isErr } from "../../types/result"
@@ -85,6 +86,44 @@ export function makeTokenHandler(deps: HttpDeps) {
           issuerUrl: c.get("issuerUrl"),
           clock: deps.clock,
         },
+      )
+      if (isErr(result)) return tokenEndpointErrorResponse(result.error)
+      return jsonResponse(result.value)
+    }
+
+    if (req.grant_type === "client_credentials") {
+      // Resolve tenant — client_credentials carries no auth code, so we
+      // call the user-supplied resolver against the /token request.
+      const tenantRes = await deps.resolveTenant(c.req.raw)
+      if (isErr(tenantRes)) {
+        return tokenEndpointErrorResponse(tenantRes.error)
+      }
+      const params: Record<string, string> = {}
+      for (const [k, v] of body.entries()) {
+        if (typeof v === "string") params[k] = v
+      }
+      const result = await clientCredentialsGrant(
+        {
+          grantType: "client_credentials",
+          clientId: req.client_id,
+          clientSecret: req.client_secret,
+          ...(req.scope !== undefined ? { scope: req.scope } : {}),
+          params,
+        },
+        {
+          configStore: deps.configStore,
+          tokenStore: deps.tokenStore,
+          keyStore: deps.keyStore,
+          ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
+          methodCache: deps.methodCache,
+          success: deps.success,
+          ...(deps.persistUpstreamTokens
+            ? { persistUpstreamTokens: deps.persistUpstreamTokens }
+            : {}),
+          issuerUrl: c.get("issuerUrl"),
+          clock: deps.clock,
+        },
+        tenantRes.value,
       )
       if (isErr(result)) return tokenEndpointErrorResponse(result.error)
       return jsonResponse(result.value)

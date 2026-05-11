@@ -40,6 +40,7 @@
     "hono": "^4.0.0"
   },
   "dependencies": {
+    "@noble/hashes": "2.2.0",
     "@simplewebauthn/server": "13.1.1",
     "@standard-schema/spec": "1.0.0-beta.3",
     "aws4fetch": "1.0.20",

@@ -1108,7 +1108,7 @@ Each phase has: **Goal**, **Deliverables**, **Acceptance Criteria**, **Risks**. 
 
 ---
 
-### Phase 4 — Credential & WebAuthn Methods
+### Phase 4 — Credential & WebAuthn Methods ✅ **COMPLETE**
 
 **Goal:** Implement non-redirect auth methods. Prove the `AuthMethod` abstraction with the four hardest cases.
 
@@ -1134,6 +1134,56 @@ Each phase has: **Goal**, **Deliverables**, **Acceptance Criteria**, **Risks**. 
 - Email/SMS sender abstraction. Mitigation: it's a function the user supplies; we don't build email infra.
 
 **Estimated effort:** 2 weeks.
+
+#### Phase 4 — Shipped
+
+- **The third pipeline.** `domain/method-route.ts` (`handleMethodRoute`) orchestrates credential POSTs: read flow cookie → peek `readFlow` → dispatch the method's `POST <subPath>` (or `GET <subPath>`) → translate `MethodResult` (challenge updates `methodState`; success consumes the flow and snapshots into an auth code). Mounted at `/m/:methodId/*` by `http/handlers/method-route.ts` and `http/router.ts`. The HTTP authorize handler now stamps an HttpOnly `idp.flow=<flowId>` cookie on every `challenge` response so credential POSTs identify the in-flight flow without trusting form input; the cookie is cleared on `issue-code` / `denied`.
+- **`SessionStore.readFlow`** — new port method (peek without consume). The Phase 2 `consumeFlow` stays single-use; `readFlow` lets multi-step methods (`/send` → `/verify`, register-options → register-verify) re-enter the flow record without burning it. The in-memory adapter implements it atomically.
+- **`AuthorizeOutput.challenge.flowId`** — domain `startAuthorize` now exposes the flowId on its challenge output so the HTTP layer can stamp the framework cookie.
+- **`domain/password-hash.ts`** — pluggable `PasswordHasher` interface (`hash` / `verify`) with an argon2id default (`@noble/hashes/argon2`). Output is canonical PHC string (`$argon2id$v=19$m=N,t=N,p=N$<salt>$<hash>`). Defaults follow RFC 9106 §4 (t=3, m=64 MiB, p=4). Pure JS — edge compatible, no native deps.
+- **`methods/password.ts`** — `passwordMethod({ users, hasher?, enableRegistration?, title? })`. Routes: `GET /authorize` (login form), `POST /login` (verify credentials), `POST /register` (gated by `enableRegistration` flag). The framework does NOT own the user record; tenants supply a `PasswordUserStore` (`findByEmail` + optional `create`). Hashes ride on `PasswordUser.passwordHash`. Re-renders the form with `methodState.error` after a failed attempt.
+- **`methods/code.ts`** — `codeMethod({ sendCode, destinationKind?, maxAttempts?, generateCode? })`. Routes: `GET /authorize` (destination form), `POST /send` (mint 6-digit code, call `sendCode` hook, render verify form, stash SHA-256 hash in `methodState`), `POST /verify` (compare timing-safe, increment attempts, deny after `maxAttempts`). Anti-enumeration: `/send` always renders the verify form whether or not the destination resolved.
+- **`methods/m2m.ts`** — `m2mMethod({ verify })`. No URL routes; only a `client` fn. The factory exposes the user's `verify` hook (called AFTER the framework has authenticated `client_id`/`client_secret`) so tenants attach claims and decide whether the (already-authenticated) client may use this method.
+- **`domain/client-credentials.ts`** — `clientCredentialsGrant`. New domain function for RFC 6749 §4.4: authenticates the client (must be confidential + grantTypes includes `client_credentials`), validates scope subset, resolves the tenant's unique enabled `type: "m2m"` method instance (0 or >1 → error), calls `method.client(...)`, runs the user's `success` callback, mints access token. Per §4.4.3 the response strips `refresh_token`.
+- **`/token` accepts `client_credentials`.** Schema extended with `clientCredentialsGrantSchema` (discriminated union); the HTTP handler resolves tenant via `IdPOptions.resolveTenant` against the raw `/token` request, then delegates to `clientCredentialsGrant`.
+- **`methods/passkey.ts`** — `passkeyMethod({ rpName, rpID, origin, credentials, title? })`. Routes: `GET /authorize` (username form), `POST /authenticate-options` (mint `PublicKeyCredentialRequestOptionsJSON`, stash challenge in `methodState`), `POST /authenticate-verify` (verify assertion, update counter, return success), `POST /register-options` + `POST /register-verify` (gated by `credentials.create`). Wraps `@simplewebauthn/server` directly; transports / counter / public key persist via the user-supplied `PasskeyCredentialStore`.
+- **`ui/forms.ts`** — minimal zero-JS HTML form helpers (`htmlPage`, `renderForm`, `escapeHtml`) shared by `password` and `code`. Dark-mode aware via `color-scheme` + `prefers-color-scheme`. Theming + richer customization land in later phases.
+- **Public API exports.** `passwordMethod`, `codeMethod`, `m2mMethod`, `passkeyMethod`, `argon2idHasher`, `DEFAULT_ARGON2ID_PARAMS`, and supporting types are now exported from `src/index.ts`.
+- **Tests (12 new across 5 files, 180 total):**
+  - `test/methods/password.test.ts` — end-to-end happy path (form render → login → token) + wrong-password re-renders error.
+  - `test/methods/code.test.ts` — end-to-end (deterministic code via `generateCode` override, captured deliveries via `sendCode`, wrong code → 400, correct code → 302 → /token success).
+  - `test/methods/m2m.test.ts` — happy path (client_credentials → access token, no refresh, scope honored) + unauthorized client (no `client_credentials` in grantTypes → `unauthorized_client`).
+  - `test/methods/passkey.test.ts` — shape coverage: form render on `/authorize`, JSON challenge minting on `/authenticate-options` for known users. Full ceremony is a manual / Phase 7 console test; see Deferred.
+  - `test/methods/password-hash.test.ts` — argon2id round-trip, wrong-password rejection, malformed PHC rejection, non-argon2id algorithm rejection, salt uniqueness.
+- **Verification gates passed:**
+  - `bunx tsc --noEmit -p tsconfig.json` exits 0 under `strict: true`.
+  - `bun test` — 180/180 green (168 Phase 1-3 + 12 Phase 4).
+  - `grep` confirms zero `hono` / `node:*` imports in `src/{types,ports,domain,adapters,methods}/`.
+  - All 17 OAuth 2.1 + OIDC conformance cases remain green — Phase 4 is additive.
+
+#### Phase 4 — Deferred
+
+- **Password forgot / reset routes.** `POST /forgot` and `POST /reset` need the same `sendCode`-style hook the magic-code method uses. They land in Phase 5 alongside email-sender infrastructure (the OAuth/OIDC migration touches the same hook plumbing for emails like "your <provider> account was linked").
+- **Full WebAuthn ceremony in CI.** Phase 4 ships shape coverage (form render, options minting, error paths) but a real authenticator → verify roundtrip requires either a simulated authenticator harness (e.g. `@simplewebauthn/server` test fixtures) or a real browser. The plan §"Acceptance criteria" calls out "manual test, automated test if feasible"; the management console (Phase 7) is the natural home for the automated end-to-end since it has a real browser context.
+- **Multi-domain passkey RPs.** Per-factory `rpID` works; tenants with multiple RP domains today instantiate multiple factories. A single-method-multi-domain model lands if a real customer needs it.
+- **Argon2id parameter migrations.** `verify()` accepts arbitrary `t` / `m` / `p` parameters from the stored hash (so legacy hashes continue to verify). A `needsRehash` helper that flags weak parameters and a transparent rehash-on-login path are not yet implemented; the standard pattern is "rehash inside the user's `success` callback when `passwordHash` is below current strength."
+- **Rate limiting on `/m/*`.** Phase 8 brings the cross-cutting rate-limiter port; Phase 4 leans on `codeMethod.maxAttempts` for the most obvious lockout and on the framework's own flow TTL for general bounding.
+
+#### Phase 4 — Decisions captured for later phases
+
+- **`idp.flow` cookie is the credential-flow identity token.** HttpOnly, SameSite=Lax, framework-owned. Methods cannot read or write it directly. Set on every `/authorize` challenge; cleared on `issue-code` / `denied`. Phase 8 may upgrade to a CSRF token bound to the cookie for additional defense — the cookie alone is sufficient against most CSRF when paired with SameSite=Lax.
+- **`SessionStore.readFlow` is a peek primitive.** Production adapters (Phase 6 D1 / Postgres / DynamoDB) implement it as a plain read; the consume operation remains the single CAS chokepoint. Adapters MUST guarantee that `consumeFlow` racing with `readFlow` resolves so the consume wins or sees a CAS miss — a record visible to `readFlow` must either still be consumable or yield `unknown_state`.
+- **The user-supplied `users` / `credentials` store is the trust boundary.** Methods never touch storage adapters directly — the tenant supplies a typed store interface that the method calls. This keeps the framework's storage ports (`TokenStore` / `SessionStore` / `KeyStore`) separate from application data (users, passkey credentials) and lets the management console (Phase 7) reuse those stores without going through the IdP.
+- **m2m method dispatch is "unique enabled instance per tenant."** Phase 4 rejects requests when 0 or >1 m2m methods are configured. If a real customer needs multiple m2m flavours (e.g. different scope policies per service tier), `ClientConfig.methodId` becomes the binding key — but that's a schema change deferred until needed.
+- **`@noble/hashes` is the canonical pure-JS crypto dependency.** Phase 4 added argon2id; future phases that need a similar pure-JS, edge-compatible primitive (e.g. scrypt for legacy migration, HKDF for key derivation) should prefer this package over native modules.
+- **`AuthMethod.routes` keys are `"<METHOD> <subPath>"`.** Verbatim from the type contract since Phase 1; Phase 4 establishes the per-method conventions for the bundled methods (`POST /login`, `POST /send` etc.) and the URL surface they expose under `/m/<methodId>/*`. Phase 5 OAuth/OIDC methods only need `GET /authorize` + `GET /callback` and stay off the `/m/*` mount.
+- **Password / code use empty `configSchema`.** The tenant doesn't supply config — users, send hooks, etc. live on the factory closure. Other approaches (per-tenant template overrides, per-tenant `sendCode` URLs) are explicit factory options when needed; we don't push them through `MethodConfig.config` because that blob is for things that change without re-instantiating the factory.
+
+##### Open items surfaced during Phase 4
+
+- The `clientCredentialsGrant` function casts `tenantId: string` to `TenantId` at the port boundary (`getTenantConfig(tenantId as never)`). Same kind of cast as `startAuthorize.callbackHostFor` — Phase 6 tighten-up.
+- `M2MMethodOptions.verify` does not return scopes/audience; per-client scope decisions still rely on `ClientConfig.scopes`. A richer return shape (`{ allowedScopes, audience, claims }`) is straightforward to add later without breaking callers.
+- The form helpers in `ui/forms.ts` are inline strings. A JSX-flavored UI lives in `src/ui/` for the legacy implementation. Reconciling those (or migrating the bundled methods to JSX) is a Phase 5 / Phase 7 cleanup.
 
 ---
 

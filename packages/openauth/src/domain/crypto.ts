@@ -27,6 +27,13 @@ export function randomHex(bytes: number): string {
   return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("")
 }
 
+/** Cryptographic random `Uint8Array` of `bytes` length. */
+export function randomBytes(bytes: number): Uint8Array {
+  const buf = new Uint8Array(bytes)
+  crypto.getRandomValues(buf)
+  return buf
+}
+
 /** Base64url encode raw bytes (jose alias for downstream consistency). */
 export const base64url = {
   encode: (data: Uint8Array | string): string => joseB64u.encode(data),

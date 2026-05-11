@@ -23,6 +23,7 @@ import {
   makeDiscoveryHandler,
   makeJwksHandler,
 } from "./handlers/metadata"
+import { makeMethodRouteHandler } from "./handlers/method-route"
 import {
   makeIntrospectHandler,
   makeRevokeHandler,
@@ -53,6 +54,10 @@ export function buildRouter(deps: HttpDeps): Hono<HttpEnv> {
 
   app.use("/cb/*", tenantMiddleware(deps))
   app.get("/cb/*", makeCallbackHandler(deps))
+
+  // Credential-flow method routes — POST and GET allowed.
+  app.use("/m/*", tenantMiddleware(deps))
+  app.all("/m/*", makeMethodRouteHandler(deps))
 
   // Token endpoint — tenant resolved from auth-code payload, not middleware.
   app.post("/token", makeTokenHandler(deps))

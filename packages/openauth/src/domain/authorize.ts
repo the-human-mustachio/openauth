@@ -58,11 +58,18 @@ export const DEFAULT_FLOW_TTL_MS = 10 * 60 * 1000
 export const AUTH_CODE_TTL_MS = 60 * 1000
 
 export type AuthorizeOutput =
-  /** Render the method's challenge (UI / redirect). HTTP layer applies cookies. */
+  /**
+   * Render the method's challenge (UI / redirect). HTTP layer applies
+   * cookies. `flowId` is exposed so the HTTP layer can stamp the
+   * framework's `idp.flow` cookie — used by credential POSTs (`/m/...`)
+   * to identify the in-flight flow without trusting form input, and as
+   * defense-in-depth for the OAuth callback path.
+   */
   | {
       kind: "challenge"
       response: Response
       setCookies: SetCookie[]
+      flowId: string
       cache?: CachePolicy
     }
   /**
@@ -295,6 +302,7 @@ async function translateMethodResult(
         kind: "challenge",
         response: result.response,
         setCookies: result.setCookies ?? [],
+        flowId: record.flowId,
         ...(result.cache !== undefined ? { cache: result.cache } : {}),
       })
 

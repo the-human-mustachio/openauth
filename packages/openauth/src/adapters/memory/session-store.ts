@@ -65,6 +65,18 @@ export class MemorySessionStore implements SessionStore {
     return ok(undefined)
   }
 
+  async readFlow(flowId: string): Promise<Result<FlowRecord>> {
+    const stored = this.#flows.get(flowId)
+    if (!stored) {
+      return err(authError.unknownState(`flow "${flowId}" unknown`))
+    }
+    if (this.#clock() >= stored.expiresAt) {
+      this.#flows.delete(flowId)
+      return err(authError.unknownState(`flow "${flowId}" expired`))
+    }
+    return ok(stored.record)
+  }
+
   async consumeFlow(flowId: string): Promise<Result<FlowRecord>> {
     const stored = this.#flows.get(flowId)
     if (!stored) {

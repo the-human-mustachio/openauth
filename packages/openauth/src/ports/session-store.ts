@@ -44,6 +44,20 @@ export type SessionStore = {
   ): Promise<Result<void>>
 
   /**
+   * **Peek** at a flow record without consuming it. Used by the method-route
+   * mount (Phase 4) where credential POSTs may need to dispatch the
+   * method multiple times before the flow is consumed on `success`.
+   *
+   * Consistency: strong (the record must be visible to a `consumeFlow`
+   * called immediately after). Returns `unknown_state` if missing /
+   * expired.
+   *
+   * The framework is the only legitimate caller; methods should never read
+   * the flow directly — they observe via `MethodContext.flow`.
+   */
+  readFlow(flowId: string): Promise<Result<FlowRecord>>
+
+  /**
    * Atomic delete-on-read. Returns the full `FlowRecord` on success — the
    * framework needs every field to snapshot into the auth-code payload
    * before the record is gone. Concurrent calls with the same `flowId`

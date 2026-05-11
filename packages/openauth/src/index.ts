@@ -38,7 +38,7 @@ export {
   issuer,
 }
 
-// ─── New IdP public API (Phase 1 — types + stub) ───
+// ─── New IdP public API (Phase 1+) ───
 
 export type { Result } from "./types/result"
 export { err, isErr, isOk, ok } from "./types/result"
@@ -109,6 +109,41 @@ export type { EncryptionKey, KeyStore, SigningKey } from "./ports/key-store"
 export type { MethodStore } from "./ports/method-store"
 export type { SessionRecord, SessionStore } from "./ports/session-store"
 export type { TokenStore } from "./ports/token-store"
+
+// Phase 4 — credential + WebAuthn method factories.
+export { passwordMethod } from "./methods/password"
+export type {
+  PasswordMethodOptions,
+  PasswordProperties,
+  PasswordUser,
+  PasswordUserStore,
+  PasswordState,
+} from "./methods/password"
+export { codeMethod } from "./methods/code"
+export type {
+  CodeMethodOptions,
+  CodeProperties,
+  CodeState,
+} from "./methods/code"
+export { m2mMethod } from "./methods/m2m"
+export type { M2MMethodOptions, M2MProperties } from "./methods/m2m"
+export { passkeyMethod } from "./methods/passkey"
+export type {
+  PasskeyMethodOptions,
+  PasskeyProperties,
+  PasskeyState,
+  PasskeyCredentialStore,
+  StoredCredential,
+} from "./methods/passkey"
+
+export {
+  argon2idHasher,
+  DEFAULT_ARGON2ID_PARAMS,
+} from "./domain/password-hash"
+export type {
+  PasswordHasher,
+  Argon2idParams,
+} from "./domain/password-hash"
 
 import type { IdP, IdPOptions } from "./types/idp"
 import { MethodCache } from "./domain/method-cache"

@@ -25,9 +25,21 @@ export const refreshTokenGrantSchema = z.object({
   client_secret: z.string().optional(),
 })
 
+export const clientCredentialsGrantSchema = z
+  .object({
+    grant_type: z.literal("client_credentials"),
+    client_id: z.string().min(1, "missing client_id"),
+    client_secret: z.string().min(1, "missing client_secret"),
+    scope: z.string().optional(),
+    audience: z.string().optional(),
+    resource: z.string().optional(),
+  })
+  .passthrough()
+
 export const tokenRequestSchema = z.discriminatedUnion("grant_type", [
   authorizationCodeGrantSchema,
   refreshTokenGrantSchema,
+  clientCredentialsGrantSchema,
 ])
 
 export type TokenRequest = z.infer<typeof tokenRequestSchema>
