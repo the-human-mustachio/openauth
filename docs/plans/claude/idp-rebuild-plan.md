@@ -906,7 +906,7 @@ Each phase has: **Goal**, **Deliverables**, **Acceptance Criteria**, **Risks**. 
 
 ---
 
-### Phase 2 — Domain Logic + In-Memory Adapters
+### Phase 2 — Domain Logic + In-Memory Adapters ✅ **COMPLETE**
 
 **Goal:** Implement the OAuth/OIDC flows as pure functions over typed ports. **No framework imports** (no Hono, no Express). Domain code may accept `Request` and return `Response` since those are Web Fetch standards — the constraint is "no framework," not "no HTTP types." Testable with memory adapters.
 
@@ -936,6 +936,61 @@ Each phase has: **Goal**, **Deliverables**, **Acceptance Criteria**, **Risks**. 
 - Domain leaks framework concerns (e.g., cookies as ports). Mitigation: cookies are HTTP-layer; domain returns `{ setCookies: [...], response: ... }` or similar, HTTP layer applies.
 
 **Estimated effort:** 1.5-2 weeks.
+
+#### Phase 2 — Shipped
+
+- **`adapters/memory/`** — `MemoryConfigStore`, `MemoryTokenStore` (encrypted-at-rest code payloads via JOSE A256GCM; atomic CAS consume; refresh reuse detection auto-revokes the family), `MemoryKeyStore` (auto-generates ES256 signing + A256GCM encryption keys on first read), `MemorySessionStore` (`saveFlow` / `updateFlowMethodState` / atomic `consumeFlow` returning full `FlowRecord`), `MemoryAuditLog` (buffered + `byKind` filter for tests). Shared `Clock` injectable so tests deterministically advance time.
+- **`domain/crypto.ts`** — Web-Crypto-only helpers: `randomToken` / `randomId` / `randomHex`, HMAC-SHA-256 sign+verify (timing-safe via `crypto.subtle.verify`), AES-256-GCM compact-JWE encrypt+decrypt for code-payload at-rest encryption, base64url, SHA-256, byte/string timing-safe compare. No `node:*` imports.
+- **`domain/pkce.ts`** — `s256Challenge` + `validatePkce`. S256 only per OAuth 2.1. Public-shape checks (length, type) before the hash. Timing-safe compare.
+- **`domain/jwt.ts`** — `signAccessToken` (ES256/Ed25519), `verifyAccessToken` (looks up public key from `SigningKey[]` by `kid`, imports via JWK), `buildJwksDocument`.
+- **`domain/state-envelope.ts`** — `mintStateEnvelope` + `verifyStateEnvelope`. Format: `b64u(payloadJson).b64u(hmacSha256)` where payload = `{tenantId, flowId, nonce, kid}`. Verify-against-any-key-in-ring to support rotation overlap. Audits `unknown_state` on malformed / unknown-kid / signature-mismatch.
+- **`domain/method-cache.ts`** — Loads `MethodConfig` → validates `config` against `factory.configSchema` (Zod) → calls `factory.build(...)` → verifies `id`/`kind` round-trip → caches per `(tenantId, MethodConfig.id)`. Audits `unknown_method_kind` / `invalid_method_config` / `factory_id_mismatch`. Negative-cache for known-bad instances.
+- **`domain/method-dispatch.ts`** — Builds `MethodContext` (with the new `dispatch: { state, callbackUrl, issuerUrl }` field at `/authorize` time, `null` on callbacks), invokes the handler, and persists `saveMethodState` to `SessionStore` **before** surfacing the challenge response. Methods cannot ship an upstream redirect ahead of the durably-persisted `methodState`.
+- **`domain/authorize.ts`** — `startAuthorize` orchestrator. Validates client / redirect-URI exact-match / scope subset / PKCE required-when-required (public clients OR `client.pkceRequired`); resolves method (explicit `methodId`, else sole-enabled, else `select-method` UI output); creates + persists `FlowRecord`; mints state envelope; dispatches `GET /authorize`. Returns `challenge` / `issue-code` (synchronous-success short-circuit) / `denied` / `select-method`.
+- **`domain/callback.ts`** — `handleCallback`. Verifies state-envelope MAC, atomic `consumeFlow` (single consume), then the **state-flow consistency check** (tenant + nonce + host + path exact match) before dispatch. Audits `flow_replay_attempt` / `flow_tenant_mismatch` / `flow_callback_mismatch` per the plan. On `success`, snapshots the in-memory `FlowRecord` into the auth-code payload (omitting `methodState`) via `TokenStore.saveCode`.
+- **`domain/token.ts`** — `exchangeCode` for `grant_type=authorization_code` + shared `mintTokens`. Consumes code, client-authenticates (public: no secret; confidential: SHA-256 `secretHash` timing-safe compare — Phase 8 swaps to argon2id), verifies `redirect_uri` + RP→IdP PKCE, invokes the required `success` callback to produce the `SubjectClaim`, runs optional `persistUpstreamTokens` hook, mints JWT access + opaque refresh, saves refresh, audits `token_issued`. Subject id derived as a 22-char SHA-256 hash of canonical-JSON-encoded claim properties.
+- **`domain/refresh.ts`** — `refreshTokens` for `grant_type=refresh_token`. Calls `consumeRefresh` with reuse-window option; on reuse signal (extracted from the adapter's `invalid_grant` description: `family=<id>,tenant=<id>,subject=<id>`) audits `refresh_reuse_detected`. Scope-narrowing supported; cannot exceed original grant. Family preserved across rotation via shared `mintTokens`.
+- **`domain/revoke.ts`** — `revokeToken` (RFC 7009: access-token hint is a no-op; refresh consume + audit). `revokeAllForSubject` for reuse-detection escalation.
+- **`domain/introspect.ts`** — RFC 7662 access-token introspection: verifies JWT against `KeyStore.signingKeys()`, returns standard claims + `tid`/`mid`/`mkind`. Garbage tokens return `active: false` (200 OK per spec).
+- **`domain/userinfo.ts`** — OIDC Core §5.3 — verifies bearer, returns inlined subject `type` + `properties` + `scope`.
+- **`domain/discovery.ts`** — `buildDiscoveryDocument` (with overridable paths) + `buildJwks`. Advertises `response_types: ["code"]`, `code_challenge_methods: ["S256"]` per OAuth 2.1.
+- **Type-system adjustments captured forward to Phase 1 surface:**
+  - Added `MethodDispatchData` field on `MethodContext` (`dispatch: { state, callbackUrl, issuerUrl } | null`). Required so a method's `GET /authorize` handler can build an upstream redirect carrying the framework-minted state envelope. Exported from `index.ts`.
+  - Added `AnyAuthMethodFactory = AuthMethodFactory<any, any, any>` alias for variance-permissive map types (`IdPOptions.methods`, `MethodCacheOptions.factories`). Generic-strict `AuthMethodFactory<P, S, Cfg>` is preserved as the per-factory shape.
+- **Build / tsconfig change:** `module` set to `"Preserve"` + `moduleResolution` to `"bundler"` so new code uses extensionless relative imports (user preference). Legacy code under `src/*.ts` and `src/storage/*.ts` retains `.js` extensions and continues to compile.
+- **Tests (84 new, 18 files total in package):**
+  - `test/domain/{crypto,pkce,state-envelope,jwt}.test.ts` — helper coverage with RFC 7636 test vector, MAC tamper-detection, encryption-at-rest plaintext-canary check.
+  - `test/adapters/memory.test.ts` — encryption-at-rest verified via direct `JSON.stringify` inspection; atomic `consumeCode` / `consumeFlow`; refresh reuse-detection + family revoke; TTL > 60 s rejected.
+  - `test/domain/method-cache.test.ts` — cache hit/miss; unknown-kind + factory-id-mismatch audit emission; `invalidate` drops cached entry.
+  - `test/domain/authorize.test.ts` — validation failures (client / redirect / scope / PKCE), method auto-select + select-method UI branch, synchronous-success + redirect-challenge paths.
+  - `test/domain/callback.test.ts` — state MAC verification (missing / unknown-key / tampered), full authorize→callback happy path, replay rejection on second consume, host-mismatch audit.
+  - `test/domain/token-and-refresh.test.ts` — happy-path mint, every `exchangeCode` failure branch (consumed code / client mismatch / redirect mismatch / PKCE missing / confidential auth), refresh rotation + reuse detection + scope-narrowing constraint.
+  - `test/domain/revoke-introspect-userinfo-discovery.test.ts` — revoke happy + RFC 7009 no-op + revokeAllForSubject; introspect active / inactive; userinfo bearer / garbage; discovery doc shape + JWKS.
+  - `test/integration/full-flow.test.ts` — end-to-end loop: `/authorize` → method redirect → callback → `/token` (code) → introspect → refresh → reuse-detection → revoke. Single test verifying the Phase 2 acceptance criterion in one place.
+- **Verification gates passed:**
+  - `bunx tsc --noEmit -p tsconfig.json` exits 0 under strict.
+  - `bun test` — 151/151 green (67 legacy + 84 new).
+  - `grep` confirms no `hono` / `node:*` imports in `src/types/`, `src/ports/`, `src/domain/`, or `src/adapters/memory/`.
+  - `bun test --coverage` — domain/ averages ~92% line coverage across all 14 files (well above the 85% gate). Individual files: pkce/jwt/introspect/userinfo/discovery/revoke at 100%; crypto 96%; refresh 99%; state-envelope 95%; method-cache 93%; token 88%; authorize 82%; callback 70%; method-dispatch 66% (the lower three are dominated by audit-failure / fallthrough branches that the in-memory adapter never triggers).
+
+#### Phase 2 — Deferred
+
+- **CI lint job** for "no framework imports in `types/`, `ports/`, `domain/`, `adapters/`" — still manual `grep` until Phase 3 adds the GitHub Action; the rule itself is fully defined and verified locally.
+- **Long-lived session methods** — typed on `SessionStore` and the in-memory adapter implements them, but no domain function uses them yet. The framework defaults to refresh-token-backed sessions. Console authentication (Phase 7) will decide whether to wire them up; nothing in Phase 2–6 depends on the decision.
+- **`flowId`-in-URI and partitioned-host recovery mechanisms (#2, #3)** — `domain/callback.ts` implements the `mac-state` recovery only. The other two mechanisms need the HTTP layer's view of `request.host` against `callbackHostFor` and of registered redirect-URI templates, so they wire in Phase 3. The type system (`TenantRecovery`) and the `FlowRecord.callbackHost`/`callbackPath` fields are already shaped to support them.
+- **Discovery doc — `id_token_signing_alg_values_supported`** advertises `["ES256", "EdDSA"]` even though Phase 2 mints ES256 only. Ed25519 keystore support arrives with `MemoryKeyStore({ signingAlg: "EdDSA" })` — wired through but not exercised by tests.
+- **DPoP / PAR / mTLS** scaffolding — Phase 8.
+
+#### Phase 2 — Decisions captured for later phases
+
+- **Method dispatch contract:** the framework persists `saveMethodState` to `SessionStore` **before** returning the challenge response. Methods cannot observe this happening — `dispatchMethod` is the single chokepoint. Phase 3's HTTP-layer dispatch should call into this function rather than re-implementing the persist-then-respond ordering.
+- **Subject-id derivation** uses canonical-JSON SHA-256 over `${claim.type}\0${properties}` (truncated to 22 base64url chars). Stable for identical claims regardless of property key insertion order. Phase 3 may expose `IdPOptions.subjectIdOf?: (claim) => string` as an override if a customer needs alignment with an existing user-id scheme; the framework's default suffices for the management console.
+- **Adapter clocks are injectable.** Tests advance time via shared `clock: () => number`. Phase 6 real adapters should accept the same option so chaos tests can simulate replication lag deterministically.
+- **Refresh reuse-detection wire format.** Adapters surface `invalid_grant` with description `"... (family=<id>,tenant=<id>,subject=<id>)"`. The domain parses this for audit. This is documented as a contract in `ports/CONSISTENCY.md`-adjacent JSDoc; alternative adapters that don't follow it still produce an audit event, but with reduced fidelity (`"unknown"` placeholders). Phase 6 D1 / Postgres / DynamoDB adapters MUST follow the format.
+- **State envelope ordering.** `mintStateEnvelope` serializes `{ tenantId, flowId, nonce, kid }` in that fixed order before HMAC. Same order on verify. The JSON layout is the wire format; adapters that re-serialize or normalize the envelope WILL break the MAC. Out-of-band: any future change to the envelope shape must bump a version byte.
+- **`AnyAuthMethodFactory` is the public-API map type.** The strict `AuthMethodFactory<P, S, Cfg>` is for declaring individual factory exports; the variance-permissive alias is for collection types (`IdPOptions.methods`, `MethodCacheOptions.factories`). Documented in `types/method.ts`.
+- **Client-secret storage is SHA-256 base64url for Phase 2.** Documented in `domain/token.ts` JSDoc. Phase 8 swaps to argon2id without changing the `ClientConfig.secretHash: string` storage shape.
+- **`MethodContext.dispatch`** — populated only at `GET /authorize`. Callbacks see `null`; the flow-record fields they need are already on `ctx.flow`. Phase 4–5 method implementations should treat `dispatch === null` as the standard callback signal.
 
 ---
 

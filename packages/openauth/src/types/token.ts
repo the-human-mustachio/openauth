@@ -6,8 +6,8 @@
  * Per AD9, access tokens are JWTs (ES256 by default, Ed25519 optional per
  * AD11) and refresh tokens are opaque server-side records.
  */
-import type { SubjectClaim } from "./subject.js"
-import type { TenantId } from "./tenant.js"
+import type { SubjectClaim } from "./subject"
+import type { TenantId } from "./tenant"
 
 /**
  * Payload stored under an auth code. Built at callback time from the consumed

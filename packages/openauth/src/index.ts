@@ -17,7 +17,7 @@ export {
    * Use `import { createClient } from "@openauthjs/openauth/client"` instead - it will tree shake better
    */
   createClient,
-} from "./client.js"
+} from "./client"
 
 export {
   /**
@@ -25,9 +25,9 @@ export {
    * Use `import { createSubjects } from "@openauthjs/openauth/subject"` instead - it will tree shake better
    */
   createSubjects,
-} from "./subject.js"
+} from "./subject"
 
-import { issuer } from "./issuer.js"
+import { issuer } from "./issuer"
 
 export {
   /**
@@ -40,11 +40,11 @@ export {
 
 // ─── New IdP public API (Phase 1 — types + stub) ───
 
-export type { Result } from "./types/result.js"
-export { err, isErr, isOk, ok } from "./types/result.js"
+export type { Result } from "./types/result"
+export { err, isErr, isOk, ok } from "./types/result"
 
-export type { AuthError, AuthErrorCode } from "./types/error.js"
-export { authError } from "./types/error.js"
+export type { AuthError, AuthErrorCode } from "./types/error"
+export { authError } from "./types/error"
 
 export type {
   ClientConfig,
@@ -59,10 +59,10 @@ export type {
   TenantId,
   TenantRecovery,
   ThemeConfig,
-} from "./types/tenant.js"
-export { asTenantId } from "./types/tenant.js"
+} from "./types/tenant"
+export { asTenantId } from "./types/tenant"
 
-export type { FlowRecord } from "./types/flow.js"
+export type { FlowRecord } from "./types/flow"
 
 export type {
   AuthMethod,
@@ -70,28 +70,29 @@ export type {
   CachePolicy,
   ClientFn,
   MethodContext,
+  MethodDispatchData,
   MethodHandler,
   MethodResult,
   SetCookie,
-} from "./types/method.js"
+} from "./types/method"
 
 export type {
   AuthorizationRequest,
   AuthorizationState,
-} from "./types/authorization.js"
+} from "./types/authorization"
 
 export type {
   AccessTokenClaims,
   CodePayload,
   RefreshTokenPayload,
   TokenResponse,
-} from "./types/token.js"
+} from "./types/token"
 
 export type {
   SubjectClaim,
   SubjectPayload,
   SubjectSchema,
-} from "./types/subject.js"
+} from "./types/subject"
 
 export type {
   FailureEvent,
@@ -100,16 +101,16 @@ export type {
   PersistUpstreamTokens,
   SuccessEvent,
   SuccessMapInput,
-} from "./types/idp.js"
+} from "./types/idp"
 
-export type { AuditEvent, AuditLog } from "./ports/audit-log.js"
-export type { ConfigStore } from "./ports/config-store.js"
-export type { EncryptionKey, KeyStore, SigningKey } from "./ports/key-store.js"
-export type { MethodStore } from "./ports/method-store.js"
-export type { SessionRecord, SessionStore } from "./ports/session-store.js"
-export type { TokenStore } from "./ports/token-store.js"
+export type { AuditEvent, AuditLog } from "./ports/audit-log"
+export type { ConfigStore } from "./ports/config-store"
+export type { EncryptionKey, KeyStore, SigningKey } from "./ports/key-store"
+export type { MethodStore } from "./ports/method-store"
+export type { SessionRecord, SessionStore } from "./ports/session-store"
+export type { TokenStore } from "./ports/token-store"
 
-import type { IdP, IdPOptions } from "./types/idp.js"
+import type { IdP, IdPOptions } from "./types/idp"
 
 /**
  * Construct a new IdP from the supplied options. **Stub — Phase 1 ships

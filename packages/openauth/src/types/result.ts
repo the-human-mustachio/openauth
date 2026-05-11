@@ -8,7 +8,7 @@
  *
  * AD5 in `docs/plans/claude/idp-rebuild-plan.md`.
  */
-import type { AuthError } from "./error.js"
+import type { AuthError } from "./error"
 
 export type Result<T, E = AuthError> =
   | { ok: true; value: T }

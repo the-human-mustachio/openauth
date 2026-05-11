@@ -13,8 +13,8 @@
  *
  * See `ports/CONSISTENCY.md`.
  */
-import type { FlowRecord } from "../types/flow.js"
-import type { Result } from "../types/result.js"
+import type { FlowRecord } from "../types/flow"
+import type { Result } from "../types/result"
 
 export type SessionStore = {
   /**

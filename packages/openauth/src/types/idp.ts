@@ -3,23 +3,23 @@
  * the returned handle, the `success` callback contract, and observation
  * hook event shapes.
  */
-import type { AuditLog } from "../ports/audit-log.js"
-import type { ConfigStore } from "../ports/config-store.js"
-import type { KeyStore } from "../ports/key-store.js"
-import type { MethodStore } from "../ports/method-store.js"
-import type { SessionStore } from "../ports/session-store.js"
-import type { TokenStore } from "../ports/token-store.js"
+import type { AuditLog } from "../ports/audit-log"
+import type { ConfigStore } from "../ports/config-store"
+import type { KeyStore } from "../ports/key-store"
+import type { MethodStore } from "../ports/method-store"
+import type { SessionStore } from "../ports/session-store"
+import type { TokenStore } from "../ports/token-store"
 
-import type { AuthError } from "./error.js"
-import type { AuthMethodFactory } from "./method.js"
-import type { Result } from "./result.js"
-import type { SubjectClaim, SubjectSchema } from "./subject.js"
+import type { AuthError } from "./error"
+import type { AnyAuthMethodFactory } from "./method"
+import type { Result } from "./result"
+import type { SubjectClaim, SubjectSchema } from "./subject"
 import type {
   StateKeyRing,
   TenantContext,
   TenantId,
   ThemeConfig,
-} from "./tenant.js"
+} from "./tenant"
 
 /**
  * Input handed to the user's `success` callback. The framework provides
@@ -128,7 +128,7 @@ export type IdPOptions = {
    * disagrees with its factory's declared `kind`, with a list of
    * offending keys in the error message.
    */
-  methods: Record<string, AuthMethodFactory>
+  methods: Record<string, AnyAuthMethodFactory>
 
   subjects: SubjectSchema
 

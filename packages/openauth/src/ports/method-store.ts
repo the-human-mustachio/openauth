@@ -11,8 +11,8 @@
  * Consistency: same as `ConfigStore` — eventual + bounded staleness
  * (TTL ≤ 60 s). Invalidation hook fires on update.
  */
-import type { Result } from "../types/result.js"
-import type { MethodConfig, TenantId } from "../types/tenant.js"
+import type { Result } from "../types/result"
+import type { MethodConfig, TenantId } from "../types/tenant"
 
 export type MethodStore = {
   /** All method instances configured for a tenant (enabled and disabled). */

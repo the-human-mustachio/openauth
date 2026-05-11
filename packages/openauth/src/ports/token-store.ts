@@ -8,9 +8,9 @@
  *
  * See `ports/CONSISTENCY.md` §"Per-method consistency contracts".
  */
-import type { CodePayload, RefreshTokenPayload } from "../types/token.js"
-import type { Result } from "../types/result.js"
-import type { TenantId } from "../types/tenant.js"
+import type { CodePayload, RefreshTokenPayload } from "../types/token"
+import type { Result } from "../types/result"
+import type { TenantId } from "../types/tenant"
 
 export type TokenStore = {
   /**

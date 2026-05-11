@@ -3,7 +3,7 @@
  * `/authorize` query into `AuthorizationRequest`; the domain operates on
  * that.
  */
-import type { TenantId } from "./tenant.js"
+import type { TenantId } from "./tenant"
 
 /**
  * Parsed `/authorize` request. The HTTP layer is responsible for schema

@@ -18,7 +18,7 @@
  * tenant resolution. A helper `loadStateKeyRingFromKeyStore` is offered
  * for operators who choose to store the ring inside `KeyStore`.
  */
-import type { Result } from "../types/result.js"
+import type { Result } from "../types/result"
 
 /** Asymmetric signing key. Public material is JWKS-exposed; private is server-only. */
 export type SigningKey = {

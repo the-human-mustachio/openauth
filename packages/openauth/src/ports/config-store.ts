@@ -8,8 +8,8 @@
  *
  * See `ports/CONSISTENCY.md` for the full table.
  */
-import type { Result } from "../types/result.js"
-import type { TenantConfig, TenantId } from "../types/tenant.js"
+import type { Result } from "../types/result"
+import type { TenantConfig, TenantId } from "../types/tenant"
 
 export type ConfigStore = {
   /**

@@ -19,7 +19,7 @@
  *      needed at `/token` into the auth-code payload; `methodState` is
  *      dropped.
  */
-import type { TenantId } from "./tenant.js"
+import type { TenantId } from "./tenant"
 
 export type FlowRecord = {
   flowId: string

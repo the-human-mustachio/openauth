@@ -11,7 +11,7 @@
  * tokens, access tokens, raw cookies, or any other secret. The framework's
  * built-in events follow this rule; custom emitters must too.
  */
-import type { TenantId } from "../types/tenant.js"
+import type { TenantId } from "../types/tenant"
 
 /**
  * Discriminated event union. The framework emits these; user code may emit

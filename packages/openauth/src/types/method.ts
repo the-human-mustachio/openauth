@@ -16,10 +16,10 @@
  */
 import type { z } from "zod"
 
-import type { AuthError } from "./error.js"
-import type { FlowRecord } from "./flow.js"
-import type { Result } from "./result.js"
-import type { MethodType, TenantContext, TenantId } from "./tenant.js"
+import type { AuthError } from "./error"
+import type { FlowRecord } from "./flow"
+import type { Result } from "./result"
+import type { MethodType, TenantContext, TenantId } from "./tenant"
 
 /**
  * A built, ready-to-dispatch auth method instance for a particular tenant.
@@ -88,6 +88,30 @@ export type MethodContext<S = unknown> = {
   methodState: S | null
   /** Parsed cookies from the incoming `Request`. Read-only. */
   cookies: ReadonlyMap<string, string>
+  /**
+   * Framework-supplied dispatch data. Populated for the `GET /authorize`
+   * initiation so the method can build an upstream redirect carrying the
+   * framework-minted state envelope; `null` for callback handlers (the
+   * framework has already verified `state` and the flow record by then,
+   * and the relevant data is on `flow`).
+   */
+  dispatch: MethodDispatchData | null
+}
+
+/** Framework-supplied data available to the method at `/authorize` time. */
+export type MethodDispatchData = {
+  /**
+   * The MAC-signed state envelope the method must include in any upstream
+   * redirect. Opaque to the method.
+   */
+  state: string
+  /**
+   * Fully qualified callback URL the upstream provider should redirect to.
+   * Methods include this as `redirect_uri` (OAuth) or its equivalent.
+   */
+  callbackUrl: string
+  /** The issuer URL of this IdP. Methods may include in upstream OIDC requests. */
+  issuerUrl: string
 }
 
 /**
@@ -192,6 +216,17 @@ export type ClientFn<P> = (input: {
  * match the `input.id` / `input.kind` passed into `build`. Mismatch fails
  * the load with audit `factory_id_mismatch`.
  */
+// `AnyAuthMethodFactory` is the variance-permissive form used by
+// `IdPOptions.methods` and `MethodCache.factories`. Each entry in such a
+// map may be a `AuthMethodFactory<P, S, Cfg>` with concrete generics —
+// the `any` defaults keep the map type assignable without losing strict
+// typing inside individual factories.
+export type AnyAuthMethodFactory = AuthMethodFactory<
+  any, // P — properties emitted to success callback
+  any, // S — method-private state
+  any // Cfg — tenant-supplied config (validated by configSchema)
+>
+
 export type AuthMethodFactory<P = unknown, S = unknown, Cfg = unknown> = {
   /** Matches `MethodConfig.kind`. Multiple `MethodConfig` rows may share the same `kind`. */
   kind: string
