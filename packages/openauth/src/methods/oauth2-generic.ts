@@ -26,7 +26,16 @@
  * `AuthorizationServer` shape.
  */
 import * as oauth from "oauth4webapi"
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose"
+import { createRemoteJWKSet, jwtVerify } from "jose"
+
+/**
+ * Decoded id_token claims surfaced through the public API. Structurally
+ * identical to `jose`'s `JWTPayload`, declared locally so consumers
+ * never depend on this package's specific `jose` version. All claim
+ * names are optional and weakly typed — runtime code should narrow with
+ * `typeof claims.sub === "string"` style checks before use.
+ */
+type IdTokenClaims = Record<string, unknown>
 
 import { authError } from "../types/error"
 import type {
@@ -46,7 +55,7 @@ export type Oauth2Properties = {
     idToken?: string
   }
   /** Claims decoded from the id_token if one was returned. */
-  idTokenClaims?: JWTPayload
+  idTokenClaims?: IdTokenClaims
   /** Raw token-endpoint response. Surfaced for callers that need provider-specific fields. */
   raw: Record<string, unknown>
 }
@@ -100,7 +109,7 @@ export type Oauth2MethodInput = {
    */
   deriveSubject?: (input: {
     raw: Record<string, unknown>
-    idTokenClaims?: JWTPayload
+    idTokenClaims?: IdTokenClaims
   }) => string
 }
 
@@ -258,14 +267,17 @@ async function exchangeAndSucceed(
     }
   }
   const idToken = tokenResponse.id_token as string | undefined
-  let idTokenClaims: JWTPayload | undefined
+  let idTokenClaims: IdTokenClaims | undefined
   if (idToken && jwks) {
     try {
       const { payload } = await jwtVerify(idToken, jwks, {
         audience: opts.clientId,
         ...(opts.expectedIssuer ? { issuer: opts.expectedIssuer } : {}),
       })
-      idTokenClaims = payload
+      // jose returns JWTPayload (a Record<string, unknown> in disguise);
+      // widen to our locally-declared alias so the public surface stays
+      // free of jose-specific types.
+      idTokenClaims = payload as IdTokenClaims
     } catch (e) {
       return {
         kind: "error",
@@ -339,7 +351,7 @@ async function readCallbackParams(
 
 function defaultDeriveSubject(input: {
   raw: Record<string, unknown>
-  idTokenClaims?: JWTPayload
+  idTokenClaims?: IdTokenClaims
 }): string {
   if (input.idTokenClaims && typeof input.idTokenClaims.sub === "string") {
     return input.idTokenClaims.sub

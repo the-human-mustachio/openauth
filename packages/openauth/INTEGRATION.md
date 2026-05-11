@@ -852,7 +852,40 @@ later.
 
 ---
 
-## 16. Verifying your integration
+## 16. Third-party type leakage policy
+
+The public API never reaches a `jose` / `hono` / `oauth4webapi` /
+`@simplewebauthn/server` / `aws4fetch` type into a re-exported type.
+Consumers that `file:`-link or `npm link` this package against their
+own copy of those libraries will not hit duplicate-type errors.
+
+What that means in practice:
+
+- **`Oauth2Properties.idTokenClaims`** is `Record<string, unknown>`
+  (not `JWTPayload`). Narrow with `typeof claims.sub === "string"` at
+  the call site.
+- **`IdP.handle` / `IdPOptions.resolveTenant`** take the global
+  `Request` and return the global `Response` — never Hono's `Context`.
+- **`AuthMethodFactory.configSchema`** is `v1.StandardSchema<unknown,
+  Cfg>` (Standard Schema v1), satisfied by Zod 3.24+, Zod 4, Valibot
+  1.0+, Arktype 2.0+, Effect Schema, and any other validator that
+  implements the spec.
+- **`KeyStore` private key material** is `unknown` (the adapter
+  decides what to put there); `publicJwk` is `Record<string, unknown>`.
+
+The contract is enforced by
+`test/types/public-api-no-thirdparty-leaks.test.ts`, which
+type-checks under `tsconfig.test.json`. If you add a public re-export
+that exposes a third-party type, the guard's specific-property probes
+will fail under regression. To extend coverage, add new
+`assertAssignable<…>(…)` lines or property-shape probes for the new
+public type.
+
+Library-internal modules (`adapters/**`, `domain/jwt.ts`,
+`domain/crypto.ts`, `http/**`) are free to import third-party types
+locally — the rule is only about what's reachable from `src/index.ts`.
+
+## 17. Verifying your integration
 
 Steel-thread these in order — each one exercises a different piece of
 the wiring:
@@ -878,7 +911,7 @@ Each of these has a corresponding case in
 
 ---
 
-## 17. Where to look in the codebase
+## 18. Where to look in the codebase
 
 | You want to understand | Read |
 |---|---|

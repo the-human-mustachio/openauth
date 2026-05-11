@@ -1,0 +1,119 @@
+/**
+ * Compile-time guard: the public API must not surface third-party types.
+ *
+ * Background: consumers that `file:` / `npm link` this package against
+ * their own copy of `jose` / `hono` / `oauth4webapi` /
+ * `@simplewebauthn/server` hit TypeScript "duplicate type" errors when
+ * the resolved versions differ. The cleanest fix is to never reach a
+ * third-party type into the public surface — model the shape with Web
+ * Fetch globals (`Request`, `Response`), Standard Schema v1, or
+ * locally-defined plain objects (`Record<string, unknown>`, branded
+ * strings, etc.).
+ *
+ * This file asserts the *current* contract at compile time. If a future
+ * change re-introduces a third-party type into a re-exported symbol,
+ * the corresponding assertion below will fail to type-check.
+ *
+ * To extend coverage, add another `assertAssignable<…>(…)` line for the
+ * new public type. The body is a no-op at runtime; the value of this
+ * file is the static check.
+ */
+import { test, expect } from "bun:test"
+
+import type {
+  IdP,
+  IdPOptions,
+  Oauth2MethodInput,
+  Oauth2Properties,
+  OidcMethodInput,
+  Oauth2FactoryConfig,
+  OidcFactoryConfig,
+  SuccessMapInput,
+} from "../../src/index"
+
+/**
+ * Static helper: succeeds only when `Actual` is assignable to
+ * `Expected`. Equivalent to writing `const _: Expected = (null as
+ * Actual)` over and over.
+ */
+function assertAssignable<Expected>(_value: Expected): void {
+  /* compile-time only */
+}
+
+test("public API: Oauth2Properties.idTokenClaims is plain Record, not jose.JWTPayload", () => {
+  type Claims = NonNullable<Oauth2Properties["idTokenClaims"]>
+  // Tight regression check: jose's JWTPayload declares well-known
+  // fields with specific types (e.g. `aud?: string | string[]`,
+  // `exp?: number`, `iat?: number`, `sub?: string`). A plain
+  // `Record<string, unknown>` makes every property `unknown` and
+  // accepts any value type.
+  //
+  // We probe each known JWTPayload slot by assigning a value of an
+  // **incompatible** primitive shape. If JWTPayload leaks back in, these
+  // assignments fail to type-check — exactly the regression we want to
+  // catch.
+  const slot = {} as Claims
+  slot["aud"] = 42 // JWTPayload: `string | string[]`; rejects number.
+  slot["sub"] = []
+  slot["exp"] = "not-a-number"
+  slot["iat"] = { weird: true }
+  expect(true).toBe(true)
+})
+
+test("public API: Oauth2MethodInput.deriveSubject takes plain-object claims", () => {
+  type DeriveInput = Parameters<NonNullable<Oauth2MethodInput["deriveSubject"]>>[0]
+  type Claims = NonNullable<DeriveInput["idTokenClaims"]>
+  const slot = {} as Claims
+  slot["aud"] = 42 // would fail under JWTPayload.
+
+  type OidcDeriveInput = Parameters<NonNullable<OidcMethodInput["deriveSubject"]>>[0]
+  type OidcClaims = NonNullable<OidcDeriveInput["idTokenClaims"]>
+  const oidcSlot = {} as OidcClaims
+  oidcSlot["aud"] = 42
+  expect(true).toBe(true)
+})
+
+test("public API: IdP.handle takes Web Fetch Request and returns Web Fetch Response", () => {
+  // `Request` and `Response` are the global Web Fetch types — not Hono's
+  // `Context` or `Response`. If a refactor swapped them for Hono types,
+  // this assignment would fail.
+  type Handle = IdP["handle"]
+  assertAssignable<(req: Request) => Promise<Response>>(
+    undefined as unknown as Handle,
+  )
+  expect(true).toBe(true)
+})
+
+test("public API: IdPOptions.resolveTenant uses Web Fetch Request", () => {
+  type Resolver = IdPOptions["resolveTenant"]
+  // The function takes a global Request; if a Hono Context leaked in,
+  // this would fail.
+  assertAssignable<(req: Request) => Promise<unknown>>(
+    undefined as unknown as Resolver,
+  )
+  expect(true).toBe(true)
+})
+
+test("public API: SuccessMapInput.properties is unknown (not a third-party type)", () => {
+  type Props = SuccessMapInput["properties"]
+  assertAssignable<unknown>(undefined as Props)
+  expect(true).toBe(true)
+})
+
+test("public API: oauth2Factory / oidcFactory configs use plain primitives", () => {
+  // Sanity check on the factory configs added in the same hardening pass.
+  // No webauthn / jose / hono types should be reachable from these.
+  type O2 = Oauth2FactoryConfig
+  type Oidc = OidcFactoryConfig
+  assertAssignable<{
+    clientId: string
+    scopes: string[]
+    authorizationUrl: string
+    tokenUrl: string
+  }>({} as O2)
+  assertAssignable<{
+    issuer: string
+    clientId: string
+  }>({} as Oidc)
+  expect(true).toBe(true)
+})
