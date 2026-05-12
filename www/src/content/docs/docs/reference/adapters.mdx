@@ -1,0 +1,164 @@
+---
+title: Storage adapters
+description: Bundled port adapters — pick by deployment target.
+---
+
+Every storage adapter is opt-in: import only the ones for your
+deployment, and the rest are tree-shaken away. Adapters live under
+`@_mustachio/openauth/adapters/<backend>`.
+
+## Pick by deployment target
+
+| Deployment | Recommended stack |
+|---|---|
+| **Node + Postgres** | All ports from `@_mustachio/openauth/adapters/postgres` |
+| **Cloudflare Workers** | `ConfigStore` + `MethodStore` + `AuditLog` from `/adapters/kv`; `TokenStore` from `/adapters/d1`; `SessionStore` from `/adapters/durable-object`; `KeyStore` from `/adapters/d1` |
+| **AWS Lambda** | All ports from `/adapters/dynamo`; optionally `KeyStore` from `/adapters/kms` for HSM-grade key wrapping |
+| **Dev / Tests** | All ports from `/adapters/memory` |
+
+## Per-port coverage
+
+Every cell is a bundled, conformance-tested adapter; "—" means not
+implemented (the alternatives in the same row cover that backend).
+
+| Port | memory | postgres | d1 | dynamo | kv | durable-object | kms |
+|---|---|---|---|---|---|---|---|
+| `TokenStore` | ✓ | ✓ | ✓ | ✓ | — (eventual) | — | — |
+| `SessionStore` | ✓ | ✓ | ✓ | ✓ | — (eventual) | ✓ | — |
+| `KeyStore` | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
+| `ConfigStore` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `MethodStore` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `AuditLog` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
+| `PasskeyCredentialStore` | ✓ | ✓ | — | ✓ | — | — | — |
+
+**Hard constraint:** `TokenStore` and `SessionStore` require strong CAS.
+Cloudflare KV is **not** acceptable for those two ports. See
+`src/ports/CONSISTENCY.md`. `PasskeyCredentialStore` similarly needs
+strong reads for the signature-counter update path, which rules out KV.
+
+## Postgres
+
+```ts
+import postgres from "postgres"
+import {
+  fromPostgresJs,
+  migrate,
+  PostgresAuditLog,
+  PostgresConfigStore,
+  PostgresKeyStore,
+  PostgresMethodStore,
+  PostgresPasskeyCredentialStore,
+  PostgresSessionStore,
+  PostgresTokenStore,
+} from "@_mustachio/openauth/adapters/postgres"
+
+const sql = postgres(process.env.DATABASE_URL!)
+const exec = fromPostgresJs(sql)
+
+// Idempotent — creates the library's tables on first run.
+await migrate(exec)
+
+const keyStore = new PostgresKeyStore({ exec })
+const stores = {
+  tokenStore:   new PostgresTokenStore({ exec, keyStore }),
+  sessionStore: new PostgresSessionStore({ exec }),
+  configStore:  new PostgresConfigStore({ exec }),
+  methodStore:  new PostgresMethodStore({ exec }),
+  auditLog:     new PostgresAuditLog({ exec }),
+  keyStore,
+}
+```
+
+`migrate(exec)` is the canonical migration entrypoint — re-run it on
+every deploy. PGlite is supported for tests via `fromPGlite`.
+
+## DynamoDB
+
+```ts
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb"
+import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb"
+import {
+  DynamoAuditLog,
+  DynamoConfigStore,
+  DynamoKeyStore,
+  DynamoMethodStore,
+  DynamoPasskeyCredentialStore,
+  DynamoSessionStore,
+  DynamoTokenStore,
+} from "@_mustachio/openauth/adapters/dynamo"
+
+const client = DynamoDBDocumentClient.from(new DynamoDBClient({}))
+```
+
+Each store accepts a `{ client, tableName }` config. Table schemas are
+documented in each adapter file's JSDoc. KMS-wrapped keys via
+`/adapters/kms` are recommended for production.
+
+## Cloudflare D1 / KV / Durable Objects / KMS
+
+D1 covers strong-consistency ports (`TokenStore`, `SessionStore`,
+`KeyStore`); KV covers the eventually-consistent ports
+(`ConfigStore`, `MethodStore`, `AuditLog`); Durable Objects offer a CAS
+backend for `SessionStore` when D1 isn't an option.
+
+```ts
+import {
+  D1KeyStore,
+  D1SessionStore,
+  D1TokenStore,
+} from "@_mustachio/openauth/adapters/d1"
+import {
+  KvAuditLog,
+  KvConfigStore,
+  KvMethodStore,
+} from "@_mustachio/openauth/adapters/kv"
+import { DurableObjectSessionStore } from "@_mustachio/openauth/adapters/durable-object"
+```
+
+`@_mustachio/openauth/adapters/kms` wraps `KeyStore` so the raw signing
+key never leaves the HSM:
+
+```ts
+import { KmsKeyStore } from "@_mustachio/openauth/adapters/kms"
+```
+
+## Memory (dev / tests only)
+
+```ts
+import {
+  MemoryAuditLog,
+  MemoryConfigStore,
+  MemoryKeyStore,
+  MemoryMethodStore,
+  MemoryPasskeyCredentialStore,
+  MemorySessionStore,
+  MemoryTokenStore,
+} from "@_mustachio/openauth/adapters/memory"
+```
+
+In-process, no persistence. Used by the parameterized port-conformance
+suite under `test/ports/`.
+
+## Port consistency contract
+
+See `src/ports/CONSISTENCY.md` for the authoritative table. Summary:
+
+- `TokenStore.{saveCode, consumeCode, saveRefresh, consumeRefresh}` —
+  **strong, atomic.** Cloudflare KV is **not** acceptable.
+- `SessionStore.{saveFlow, updateFlowMethodState, consumeFlow}` — same.
+  `consumeFlow` is atomic delete-on-read and **returns the full
+  `FlowRecord`** so the framework can snapshot fields before disposal.
+- `ConfigStore.getTenantConfig` / `MethodStore.getMethodConfig` —
+  **eventual + bounded staleness (TTL ≤ 60 s).** Cache aggressively;
+  invalidation hook fires on update.
+- `KeyStore.currentSigningKey` — strong. `signingKeys()` (JWKS) —
+  eventual OK.
+- `AuditLog.log` — append-only, durable. Ordering across instances not
+  required.
+
+## Writing your own adapter
+
+Every port is a plain interface in `src/ports/`. The parameterized
+conformance suite at `test/ports/` runs against every bundled adapter;
+point it at your own adapter and you'll know whether it satisfies the
+contract.

@@ -1,0 +1,163 @@
+---
+title: Getting started
+description: Minimum-viable host-application embedding — Node + Postgres + password + Google.
+---
+
+This is the smallest amount of code that gets you a running IdP. It
+serves every OAuth 2.1 / OIDC Core endpoint over Postgres, with password
+and Google sign-in.
+
+A runnable copy of this code lives at
+[`examples/embed-postgres/`](https://github.com/the-human-mustachio/openauth/tree/master/examples/embed-postgres).
+
+## 1. Install
+
+```bash
+bun add @_mustachio/openauth hono jose
+bun add postgres        # the storage backend used below
+bun add zod             # subject schema
+```
+
+`hono` is a peer dependency. Each storage adapter is opt-in: if you
+deploy to AWS Lambda you'd pull `@aws-sdk/client-dynamodb` and
+`@aws-sdk/lib-dynamodb` instead; on Cloudflare Workers you'd use
+`@cloudflare/workers-types`. See
+[**Storage adapters**](/docs/reference/adapters/) for the full coverage
+matrix.
+
+## 2. The four things you must supply
+
+A host has to provide four pieces. Everything else is the library's job.
+
+| You supply | What for |
+|---|---|
+| `resolveTenant(req)` | Map the first request in a flow to your partition key. |
+| `ConfigStore` | Return the resolved `TenantConfig` (clients, methods, theme). |
+| `success(input)` | Map a method result into the subject claim the IdP will issue. |
+| `subjects` schema | Declare what shapes those subject claims can take. |
+
+See [**Embedding pattern**](/docs/concepts/embedding/) for the full
+contract.
+
+## 3. Wire it up
+
+```ts
+import { randomBytes } from "node:crypto"
+import postgres from "postgres"
+import { z } from "zod"
+import {
+  asTenantId,
+  authError,
+  createIdP,
+  err,
+  googleFactory,
+  ok,
+  passwordMethod,
+  type StateKeyRing,
+  type SubjectSchema,
+} from "@_mustachio/openauth"
+import {
+  fromPostgresJs,
+  migrate,
+  PostgresAuditLog,
+  PostgresConfigStore,
+  PostgresKeyStore,
+  PostgresMethodStore,
+  PostgresSessionStore,
+  PostgresTokenStore,
+} from "@_mustachio/openauth/adapters/postgres"
+
+// 1. Storage — one Postgres instance covers every port.
+const sql = postgres(process.env.DATABASE_URL!)
+const exec = fromPostgresJs(sql)
+await migrate(exec) // idempotent: creates tables on first run
+
+const keyStore = new PostgresKeyStore({ exec })
+
+// 2. State-MAC key ring. Rotate monthly; keep ≥ flow TTL of overlap.
+const stateKeys: StateKeyRing = {
+  active: { kid: "2026-05", key: new Uint8Array(randomBytes(32)) },
+  verify: [], // populate `active` + any previous keys still in window
+}
+stateKeys.verify = [stateKeys.active]
+
+// 3. Subject schema — what your tokens carry.
+const subjects = {
+  user: z.object({
+    userId: z.string(),
+    email: z.string().email(),
+  }),
+} satisfies SubjectSchema
+
+// 4. Compose the IdP.
+const idp = createIdP({
+  resolveTenant: async (req) => {
+    const clientId = new URL(req.url).searchParams.get("client_id")
+    if (!clientId) return err(authError.invalidRequest("missing client_id"))
+    return ok(asTenantId(clientId))
+  },
+
+  stateKeys,
+  configStore:  new PostgresConfigStore({ exec }),
+  tokenStore:   new PostgresTokenStore({ exec, keyStore }),
+  sessionStore: new PostgresSessionStore({ exec }),
+  methodStore:  new PostgresMethodStore({ exec }),
+  auditLog:     new PostgresAuditLog({ exec }),
+  keyStore,
+
+  issuerUrl: "https://auth.yourapp.com",
+
+  methods: {
+    password: passwordMethod({
+      users: {
+        async findByEmail(email, _tenantId) {
+          return await db.users.findByEmail(email)
+        },
+      },
+    }),
+    google: googleFactory,
+  },
+
+  subjects,
+
+  success: async ({ providerSubject, properties }) => ({
+    type: "user",
+    properties: {
+      userId: await db.users.upsert({ providerSubject }),
+      email: (properties as { email?: string }).email ?? "",
+    },
+  }),
+})
+
+// 5. Serve.
+Bun.serve({ port: 3000, fetch: idp.handle })
+```
+
+That's a complete IdP.
+
+## 4. Verify it works
+
+Walk these in order — each one exercises a different piece:
+
+1. `GET /.well-known/openid-configuration` returns a valid OIDC
+   discovery doc.
+2. `GET /authorize?response_type=code&client_id=...&redirect_uri=...&code_challenge=...&code_challenge_method=S256`
+   returns 302 with a `state` query param.
+3. Walk a full flow with the password method. `/token` returns
+   `access_token` + `refresh_token`.
+4. Validate the JWT against `/.well-known/jwks.json` from a downstream
+   service. Confirm `iss`, `aud`, `tid`, `sub`.
+5. Refresh once. Old refresh token returns `invalid_grant` on second
+   use.
+6. Revoke the refresh token. `auditLog` records `token_revoked`.
+
+## Where to go next
+
+- [**Embedding pattern**](/docs/concepts/embedding/) — why the four
+  host-side surfaces look the way they do.
+- [**Tenants**](/docs/concepts/tenants/) — how `TenantId`, recovery, and
+  `ConfigStore` fit together.
+- [**Built-in methods**](/docs/reference/methods/) — full options for
+  `passwordMethod`, `codeMethod`, `passkeyMethod`, `m2mMethod`.
+- [**Storage adapters**](/docs/reference/adapters/) — DynamoDB / D1 /
+  Workers KV / Durable Objects / KMS variants.

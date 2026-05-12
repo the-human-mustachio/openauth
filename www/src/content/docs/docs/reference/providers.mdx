@@ -1,0 +1,192 @@
+---
+title: OAuth/OIDC providers
+description: 15 bundled vendor factories plus generic oauth2Factory / oidcFactory.
+---
+
+For "Sign in with X" flows you have three options, in increasing order
+of generality:
+
+1. **Bundled vendor factory** — Google, GitHub, Apple, …. Pre-wired
+   issuer + endpoint URLs. The host supplies `clientId` +
+   `clientSecret` per tenant.
+2. **`oidcFactory` / `oauth2Factory`** — generic, multi-tenant. The
+   host supplies the issuer URL alongside credentials per tenant.
+3. **`buildOidcMethod` / `buildOauth2Method`** — single-tenant
+   primitive. Wrap inside your own factory when the upstream config is
+   compile-time constant.
+
+## Bundled vendor factories
+
+The 15 included factories:
+
+```ts
+import {
+  googleFactory,
+  githubFactory,
+  appleFactory,
+  microsoftFactory,
+  discordFactory,
+  facebookFactory,
+  linkedinFactory,
+  slackFactory,
+  spotifyFactory,
+  twitchFactory,
+  xFactory,
+  yahooFactory,
+  jumpcloudFactory,
+  keycloakFactory,
+  cognitoFactory,
+} from "@_mustachio/openauth"
+```
+
+Register one per `kind` in `IdPOptions.methods`:
+
+```ts
+const idp = createIdP({
+  methods: {
+    google:    googleFactory,
+    github:    githubFactory,
+    microsoft: microsoftFactory,
+    // ...
+  },
+})
+```
+
+Per-tenant `MethodConfig`:
+
+```ts
+{
+  id: "google-workspace",   // becomes /google-workspace/* in URLs
+  kind: "google",
+  type: "oidc",             // or "oauth2"
+  enabled: true,
+  config: {
+    clientId: "...",
+    clientSecret: "...",
+    // Provider-specific fields:
+    hostedDomain: "yourcompany.com",   // google only
+    scopes: ["openid", "email", "profile"],
+  },
+}
+```
+
+A tenant can register many instances of the same factory by using
+distinct `id` values — `google-workspace` and `google-personal` are two
+instances both backed by `kind: "google"`. See
+[Methods](/docs/concepts/methods/) for the full `id` / `kind` story.
+
+## Generic factories
+
+For providers not in the built-in 15 — or the common case where each
+tenant brings its own OIDC issuer (Okta, Auth0, custom) — use the
+generic factories:
+
+```ts
+import { oauth2Factory, oidcFactory } from "@_mustachio/openauth"
+
+const idp = createIdP({
+  methods: {
+    oauth2: oauth2Factory,
+    oidc:   oidcFactory,
+  },
+})
+```
+
+### `oidcFactory`
+
+Per-tenant `MethodConfig`:
+
+```ts
+{
+  id: "okta",
+  kind: "oidc",
+  type: "oidc",
+  enabled: true,
+  config: {
+    issuer: "https://yourtenant.okta.com",
+    clientId: "...",
+    clientSecret: "...",
+    // Optional:
+    scopes: ["openid", "email", "profile"],        // default
+    // endpoints — supply only if discovery is unavailable.
+  },
+}
+```
+
+`oidcFactory` runs OIDC discovery against `issuer` to learn the
+authorize / token / userinfo / JWKS URLs. Supply `endpoints` explicitly
+to skip discovery.
+
+### `oauth2Factory`
+
+For plain OAuth 2.0 (no OIDC). Endpoints are not discoverable, so you
+provide them yourself:
+
+```ts
+{
+  id: "internal-sso",
+  kind: "oauth2",
+  type: "oauth2",
+  enabled: true,
+  config: {
+    clientId: "...",
+    clientSecret: "...",
+    scopes: ["read"],
+    authorizationUrl: "https://internal.example/oauth/authorize",
+    tokenUrl: "https://internal.example/oauth/token",
+    // Optional: userInfoUrl, scopeSeparator, etc. — see factory schema.
+  },
+}
+```
+
+## Single static methods (single-tenant only)
+
+`buildOauth2Method` and `buildOidcMethod` return a single `AuthMethod`
+(not a factory). Use them inside your own factory's `build` when the
+upstream is a compile-time constant:
+
+```ts
+import type { AuthMethodFactory } from "@_mustachio/openauth"
+import { buildOidcMethod } from "@_mustachio/openauth"
+import { z } from "zod"
+
+const myOkta: AuthMethodFactory<Oauth2Properties, Oauth2State, {}> = {
+  kind: "my-okta",
+  configSchema: z.object({}),
+  build: async ({ id, kind }) =>
+    buildOidcMethod({
+      id,
+      kind,
+      issuer: process.env.OKTA_ISSUER!,
+      clientId: process.env.OKTA_CLIENT_ID!,
+      clientSecret: process.env.OKTA_CLIENT_SECRET!,
+      scopes: ["openid", "email", "profile"],
+    }),
+}
+```
+
+Reach for `oauth2Factory` / `oidcFactory` first. Only drop down to the
+builders when the upstream is fixed at the deployment level.
+
+## What `success` receives
+
+The `success` callback gets `providerSubject` (the upstream's stable
+identifier) and `properties` (the typed claims the method emitted):
+
+```ts
+success: async ({ methodKind, providerSubject, properties }) => {
+  if (methodKind === "google") {
+    const { email, emailVerified, name } = properties as {
+      email?: string
+      emailVerified?: boolean
+      name?: string
+    }
+    // ...
+  }
+}
+```
+
+`Oauth2Properties.idTokenClaims` is `Record<string, unknown>` — narrow
+with `typeof claim === "string"` at the call site. The library never
+leaks `JWTPayload` into the public API; see
+[Standards & hardening](/docs/concepts/standards/) for the rationale.

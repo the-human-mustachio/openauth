@@ -37,12 +37,12 @@ if (image) {
         />
         <Image src={lightImage} {...imageAttrs} class="dark:sl-hidden" />
       </div>
-      <h1>Universal, standards-based auth provider.</h1>
+      <h1>The IdP library you embed in your host app.</h1>
     </section>
 
     <section class="cta">
       <div class="col1">
-        <a href="https://www.youtube.com/watch?v=SSjNUuQ06tk" target="_blank">Learn more</a>
+        <a href="/docs/getting-started/">Quick start</a>
       </div>
       <div class="col2">
       <a href="/docs/">View the docs</a>
@@ -54,19 +54,19 @@ if (image) {
 
     <section class="content">
       <ul>
-        <li><b>Universal</b>: You can deploy it as a standalone service or embed it into an existing application. It works with any framework or platform.</li>
-        <li><b>Self-hosted</b>: It runs entirely on your infrastructure and can be deployed on Node.js, Bun, AWS Lambda, or Cloudflare Workers.</li>
-        <li><b>Standards-based</b>: It implements the OAuth 2.0 spec and is based on web standards. So any OAuth client can use it.</li>
-        <li><b>Customizable</b>: It comes with prebuilt themeable UI that you can customize or opt out of.</li>
+        <li><b>Library, not a service</b>: Mounts inside your existing app. Host owns UI / RBAC / data model; the library owns OAuth 2.1 / OIDC endpoints and standards posture.</li>
+        <li><b>Multi-tenant from day one</b>: Opaque <code>TenantId</code> partitions every flow, token, audit event, and method-instance cache.</li>
+        <li><b>15 upstream providers</b>: Google, GitHub, Apple, Microsoft, Discord, Facebook, LinkedIn, Slack, Spotify, Twitch, X, Yahoo, JumpCloud, Keycloak, Cognito — plus generic <code>oauth2Factory</code> / <code>oidcFactory</code>.</li>
+        <li><b>Runs anywhere</b>: Node, Bun, AWS Lambda, Cloudflare Workers. Storage adapters for Postgres, DynamoDB, D1, KV, Durable Objects, KMS, memory.</li>
       </ul>
     </section>
 
     <section class="footer">
       <div class="col1">
-        <span>Version: Beta</span>
+        <span>Status: Beta</span>
       </div>
       <div class="col2">
-        <span>Author: <a href="https://sst.dev">SST</a></span>
+        <span>MIT licensed</span>
       </div>
     </section>
 </div>

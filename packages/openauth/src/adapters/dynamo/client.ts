@@ -1,0 +1,118 @@
+/**
+ * `DynamoExecutor` — the operation surface the adapters depend on.
+ *
+ * Keeps the AWS SDK out of the adapter's import graph. Production users
+ * wire the executor via `fromDynamoDBClient(docClient, tableName)`; tests
+ * supply an in-memory implementation (`test/helpers/dynamo-shim.ts`).
+ *
+ * All operations target a single table (the adapter is single-table by
+ * design — pk + sk + optional GSIs). The executor knows the table name; the
+ * adapter only passes keys + data.
+ */
+
+export type DynamoKey = { pk: string; sk: string }
+
+/**
+ * Strong read by primary key. `consistentRead` MUST be honoured for every
+ * security-critical read (`getCode`, `getRefresh`, `getFlow`) — DynamoDB
+ * defaults to eventually consistent reads which violate the contracts in
+ * `ports/CONSISTENCY.md`.
+ */
+export type DynamoGetInput = {
+  key: DynamoKey
+  consistentRead: boolean
+}
+
+/**
+ * Insert (`condition: "not-exists"`) or unconditional put. The adapter uses:
+ *  - `"not-exists"` for code / refresh / flow inserts so a duplicate token
+ *    never silently overwrites.
+ *  - `"exists"` for read-modify-write paths (e.g. `updateFlowMethodState`)
+ *    so the put fails if a concurrent `consumeFlow` deleted the row between
+ *    the prior `get` and this `put`. The executor surfaces a
+ *    `ConditionalCheckFailedException` that callers translate into a typed
+ *    failure.
+ */
+export type DynamoPutInput = {
+  item: Record<string, unknown> & DynamoKey
+  condition?: "not-exists" | "exists"
+}
+
+/**
+ * Atomic delete-on-read — equivalent to `DeleteItem` with
+ * `ReturnValues=ALL_OLD`. Concurrent calls resolve to exactly one winner
+ * that gets the row back; losers get `undefined`.
+ */
+export type DynamoDeleteInput = {
+  key: DynamoKey
+}
+
+/**
+ * Conditional UPDATE used for the refresh-token rotation. Sets `consumed_at`
+ * iff it is currently absent. Returns the post-update item on success;
+ * resolves with `null` if the condition failed (`ConditionalCheckFailed`).
+ */
+export type DynamoUpdateConsumeRefreshInput = {
+  key: DynamoKey
+  now: number
+}
+
+/**
+ * Query items by partition key (and optionally a sort-key prefix). Strongly
+ * consistent for the refresh-revoke paths.
+ */
+export type DynamoQueryInput = {
+  pk: string
+  /** Sort-key prefix filter — emits `begins_with(sk, prefix)`. */
+  skBeginsWith?: string
+  consistentRead: boolean
+  /** Filter by an attribute (e.g. `family = :v` for `revokeFamily` via GSI). */
+  filter?: {
+    attribute: string
+    equals: string
+  }
+}
+
+export type DynamoQueryByGsiInput = {
+  /**
+   * GSI name configured on the table. Each entry corresponds to a GSI
+   * the bundled adapters need:
+   *   - `family-index`         (refresh-token family revocation)
+   *   - `subject-index`        (revokeBySubject)
+   *   - `passkey-user-index`   (PasskeyCredentialStore.findByUsername)
+   */
+  indexName: "family-index" | "subject-index" | "passkey-user-index"
+  /** Hash key value on the GSI. */
+  hashKey: string
+}
+
+/**
+ * Update a single item's attributes — equivalent to DynamoDB's
+ * `UpdateItem` with a `SET` expression over each provided attribute.
+ *
+ * Used by passkey-counter updates today; future Phase 8 features
+ * (DPoP jti replay, etc.) may reuse it.
+ */
+export type DynamoUpdateItemInput = {
+  key: DynamoKey
+  /** Attribute name → new value. Top-level only, no nested updates. */
+  set: Record<string, unknown>
+}
+
+export type DynamoExecutor = {
+  get(input: DynamoGetInput): Promise<Record<string, unknown> | undefined>
+  put(input: DynamoPutInput): Promise<void>
+  /** Returns the deleted item if one was deleted; `undefined` otherwise. */
+  delete(input: DynamoDeleteInput): Promise<Record<string, unknown> | undefined>
+  /**
+   * Atomic refresh-token claim. Returns the post-update item on success;
+   * `null` if the condition failed (already-consumed race).
+   */
+  consumeRefresh(
+    input: DynamoUpdateConsumeRefreshInput,
+  ): Promise<Record<string, unknown> | null>
+  query(input: DynamoQueryInput): Promise<Record<string, unknown>[]>
+  queryByGsi(input: DynamoQueryByGsiInput): Promise<Record<string, unknown>[]>
+  /** Generic attribute update. No-op if the item does not exist. */
+  updateItem(input: DynamoUpdateItemInput): Promise<void>
+}

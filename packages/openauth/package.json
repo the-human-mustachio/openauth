@@ -9,22 +9,32 @@
   "type": "module",
   "scripts": {
     "build": "bun run script/build.ts",
-    "test": "bun test"
+    "build:watch": "bun run script/build-watch.ts",
+    "test": "bun test",
+    "preview:ui": "bun --hot run script/preview-ui.ts"
   },
   "sideEffects": false,
   "devDependencies": {
+    "@aws-sdk/client-dynamodb": "3.1045.0",
+    "@aws-sdk/client-kms": "3.1045.0",
+    "@aws-sdk/lib-dynamodb": "3.1045.0",
     "@cloudflare/workers-types": "4.20241205.0",
+    "@electric-sql/pglite": "0.4.5",
     "@tsconfig/node22": "22.0.0",
     "@types/node": "22.10.1",
-    "arctic": "2.2.2",
+    "aws-sdk-client-mock": "4.1.0",
     "hono": "4.11.3",
-    "typescript": "5.6.3",
-    "valibot": "1.0.0-beta.15"
+    "postgres": "3.4.9",
+    "typescript": "5.6.3"
   },
   "exports": {
     ".": {
       "import": "./dist/esm/index.js",
       "types": "./dist/types/index.d.ts"
+    },
+    "./adapters/*": {
+      "import": "./dist/esm/adapters/*/index.js",
+      "types": "./dist/types/adapters/*/index.d.ts"
     },
     "./*": {
       "import": "./dist/esm/*.js",
@@ -36,14 +46,38 @@
     }
   },
   "peerDependencies": {
-    "arctic": "^2.2.2",
-    "hono": "^4.0.0"
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/client-kms": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0",
+    "@cloudflare/workers-types": "^4.0.0",
+    "hono": "^4.0.0",
+    "postgres": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@aws-sdk/client-dynamodb": {
+      "optional": true
+    },
+    "@aws-sdk/client-kms": {
+      "optional": true
+    },
+    "@aws-sdk/lib-dynamodb": {
+      "optional": true
+    },
+    "@cloudflare/workers-types": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    }
   },
   "dependencies": {
+    "@noble/hashes": "2.2.0",
     "@simplewebauthn/server": "13.1.1",
     "@standard-schema/spec": "1.0.0-beta.3",
     "aws4fetch": "1.0.20",
-    "jose": "5.9.6"
+    "jose": "5.9.6",
+    "oauth4webapi": "3.8.6",
+    "zod": "^3.24.1"
   },
   "files": [
     "src",

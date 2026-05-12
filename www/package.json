@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "build": "bun generate.ts && astro build",
+    "build": "astro build",
     "preview": "astro preview",
     "astro": "astro"
   },
@@ -18,7 +18,5 @@
     "sharp": "^0.33.4",
     "toolbeam-docs-theme": "^0.0.3"
   },
-  "devDependencies": {
-    "typedoc": "^0.27.5"
-  }
+  "devDependencies": {}
 }

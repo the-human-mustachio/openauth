@@ -45,7 +45,7 @@ import {
   jwtVerify,
   decodeJwt,
 } from "jose"
-import { SubjectSchema } from "./subject.js"
+import type { SubjectSchema } from "./types/subject"
 import type { v1 } from "@standard-schema/spec"
 import {
   InvalidAccessTokenError,
@@ -701,26 +701,60 @@ export function createClient(input: ClientInput): Client {
     ): Promise<VerifyResult<T> | VerifyError> {
       const jwks = await getJWKS()
       try {
+        // Two issuer shapes are supported:
+        //
+        //   1. New `createIdP` — `AccessTokenClaims.claim = { type,
+        //      properties }`. No `mode` claim.
+        //   2. Legacy `issuer({...})` — `payload.type` / `payload.properties`
+        //      at the top level, gated by `payload.mode === "access"` so the
+        //      same key ring couldn't sign a refresh token that verified as
+        //      an access token.
+        //
+        // Prefer the nested shape, fall back to the top-level shape.
         const result = await jwtVerify<{
-          mode: "access"
-          type: keyof T
-          properties: v1.InferInput<T[keyof T]>
+          claim?: {
+            type: keyof T
+            properties: v1.InferInput<T[keyof T]>
+          }
+          mode?: "access" | "refresh"
+          type?: keyof T
+          properties?: v1.InferInput<T[keyof T]>
         }>(token, jwks, {
           issuer,
         })
-        const validated = await subjects[result.payload.type][
-          "~standard"
-        ].validate(result.payload.properties)
-        if (!validated.issues && result.payload.mode === "access")
-          return {
-            aud: result.payload.aud as string,
-            subject: {
-              type: result.payload.type,
-              properties: validated.value,
-            } as any,
-          }
+        const claim = result.payload.claim
+        let subjectType: keyof T | undefined
+        let subjectProperties: v1.InferInput<T[keyof T]> | undefined
+        if (claim && typeof claim.type === "string") {
+          // New shape — `mode` is not emitted; nested claim is authoritative.
+          subjectType = claim.type
+          subjectProperties = claim.properties
+        } else if (
+          result.payload.mode === "access" &&
+          typeof result.payload.type === "string"
+        ) {
+          // Legacy shape — keep the mode gate so a refresh-token payload
+          // signed under the same keys does not verify as an access token.
+          subjectType = result.payload.type
+          subjectProperties = result.payload.properties
+        }
+        if (subjectType === undefined) {
+          return { err: new InvalidSubjectError() }
+        }
+        const schema = subjects[subjectType]
+        if (!schema) {
+          return { err: new InvalidSubjectError() }
+        }
+        const validated = await schema["~standard"].validate(subjectProperties)
+        if (validated.issues) {
+          return { err: new InvalidSubjectError() }
+        }
         return {
-          err: new InvalidSubjectError(),
+          aud: result.payload.aud as string,
+          subject: {
+            type: subjectType,
+            properties: validated.value,
+          } as any,
         }
       } catch (e) {
         if (e instanceof errors.JWTExpired && options?.refresh) {

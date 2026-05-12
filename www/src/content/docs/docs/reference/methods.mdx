@@ -1,0 +1,183 @@
+---
+title: Built-in methods
+description: passwordMethod, codeMethod, passkeyMethod, m2mMethod.
+---
+
+The library ships four credential / WebAuthn / M2M methods. Each is a
+factory — register one entry per `kind` in `IdPOptions.methods`, then
+register per-tenant instances in `TenantConfig.methods[]`.
+
+## `passwordMethod`
+
+Username + password (argon2id by default). Opt-in registration.
+
+```ts
+import { passwordMethod } from "@_mustachio/openauth"
+
+const password = passwordMethod({
+  users: {
+    async findByEmail(email, tenantId) {
+      return await db.users.findByEmail(email, tenantId)
+    },
+    // Optional — required only if `enableRegistration: true`.
+    async create({ email, passwordHash, tenantId }) {
+      return await db.users.create({ email, passwordHash, tenantId })
+    },
+  },
+  hasher: undefined,                  // override the default argon2id hasher
+  enableRegistration: false,
+  title: "Sign in",
+})
+```
+
+**Factory hooks** are how the library calls into your user model.
+**Per-tenant config** lives on `MethodConfig.config` and is empty for
+`passwordMethod` (the factory doesn't currently take per-tenant data
+beyond the title).
+
+`PasswordUser`:
+
+```ts
+type PasswordUser = {
+  id: string                          // stable internal id (provider subject)
+  passwordHash: string                // argon2id-format hash
+  claims?: Record<string, unknown>    // extra claims surfaced to success()
+}
+```
+
+## `codeMethod`
+
+Email or SMS one-time code — magic link by another name.
+
+```ts
+import { codeMethod } from "@_mustachio/openauth"
+
+const code = codeMethod({
+  async sendCode({ destination, code, tenantId }) {
+    await sendgrid.send({ to: destination, code })
+  },
+  // Optional override; default generates a 6-digit code.
+  generateCode: undefined,
+})
+```
+
+**Per-tenant config** (set in `MethodConfig.config`):
+
+```ts
+{
+  id: "code",
+  kind: "code",
+  type: "code",
+  enabled: true,
+  config: {
+    codeLength: 6,                    // 4-10, default 6
+    maxAttempts: 5,                   // default 5
+    destinationKind: "email",         // "email" | "tel" | "any"
+    titles: {
+      request: "Sign in",
+      verify: "Enter your code",
+    },
+  },
+}
+```
+
+## `passkeyMethod`
+
+WebAuthn passkey, multi-tenant.
+
+```ts
+import { passkeyMethod } from "@_mustachio/openauth"
+import { PostgresPasskeyCredentialStore } from "@_mustachio/openauth/adapters/postgres"
+
+const passkey = passkeyMethod({
+  credentials: new PostgresPasskeyCredentialStore({ exec }),
+})
+```
+
+The bundled stores under
+`@_mustachio/openauth/adapters/{memory,postgres,dynamo}` ship a ready-to-use
+credential store. For Postgres, the schema is created by the same
+`migrate()` call you run for the other tables.
+
+**Per-tenant config** — `rpName` / `rpID` / `origins` are required and
+usually differ per tenant (each customer runs on their own domain):
+
+```ts
+{
+  id: "passkey",
+  kind: "passkey",
+  type: "passkey",
+  enabled: true,
+  config: {
+    rpName: "Acme",
+    rpID: "acme.example",
+    origins: "https://acme.example",
+    title: "Sign in with passkey",
+  },
+}
+```
+
+### `PasskeyCredentialStore` interface
+
+The bundled adapters treat `userId` as the username lookup key. If you
+need `username ≠ userId` (e.g. usernames may rebrand without re-issuing
+credentials), implement the four-method interface against your own user
+model:
+
+```ts
+import type { PasskeyCredentialStore } from "@_mustachio/openauth"
+
+class MyPasskeyStore implements PasskeyCredentialStore {
+  async findByUsername(username, tenantId) { /* ... */ }
+  async findById(credentialId, tenantId) { /* ... */ }
+  async updateCounter({ credentialId, counter, tenantId }) { /* ... */ }
+  async create({ userId, credential, tenantId }) { /* ... */ }   // omit to disable registration
+}
+```
+
+See `src/adapters/postgres/passkey-credential-store.ts` as a one-page
+reference for the SQL shape.
+
+## `m2mMethod`
+
+Machine-to-machine `client_credentials` grant. There's no user — the
+client itself is the subject.
+
+```ts
+import { m2mMethod } from "@_mustachio/openauth"
+
+const m2m = m2mMethod({
+  async resolveSubject({ tenantId, clientId, scope, params }) {
+    return {
+      providerSubject: clientId,
+      properties: { tier: "premium" },
+    }
+  },
+})
+```
+
+The `client_credentials` grant authenticates with `client_id` +
+`client_secret` (Basic auth or form body) at `/token`. The matching
+`ClientConfig` MUST be `type: "confidential"` with a `secretHash`, and
+its `grantTypes` MUST include `"client_credentials"`.
+
+## Wiring them into `createIdP`
+
+```ts
+const idp = createIdP({
+  methods: {
+    password,
+    code,
+    passkey,
+    m2m,
+    google: googleFactory,
+    oidc:   oidcFactory,
+  },
+  // ...
+})
+```
+
+Then enable them per-tenant by adding entries to
+`TenantConfig.methods[]`. The `id` is the URL slug; the `kind` is the
+factory lookup key. See [Methods](/docs/concepts/methods/) for the full
+`id` vs `kind` story.

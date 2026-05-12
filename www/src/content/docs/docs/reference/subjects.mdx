@@ -1,0 +1,121 @@
+---
+title: Subjects
+description: Declaring subject types, what success() returns, and verifying tokens in your services.
+---
+
+Subjects are what the IdP issues. Each access token is a JWT whose
+`sub`-derived claims come from a typed `SubjectClaim` produced by your
+`success` callback.
+
+## Declare your subject types
+
+`subjects` is a `Record<string, StandardSchema>`. Each key is a subject
+type the IdP can issue; the schema defines the shape of `properties`.
+Zod is the recommended validator (any Standard Schema v1 validator works
+— Valibot, Arktype, Effect Schema, etc.).
+
+```ts
+import { z } from "zod"
+import type { SubjectSchema } from "@_mustachio/openauth"
+
+const subjects = {
+  user: z.object({
+    userId: z.string(),
+    email: z.string().email(),
+  }),
+  admin: z.object({
+    adminId: z.string(),
+    roles: z.array(z.string()),
+  }),
+} satisfies SubjectSchema
+```
+
+Pass this to `createIdP` under `subjects`. The framework validates every
+`SubjectClaim.properties` against the matching schema before signing.
+
+## Issue subjects in `success`
+
+`success` returns a `SubjectClaim` whose `type` matches one of your
+schema keys:
+
+```ts
+success: async ({ methodId, methodKind, providerSubject, properties }) => {
+  const user = await db.users.upsertByProviderIdentity({
+    methodKind, providerSubject, properties,
+  })
+
+  // Issue different subject types for different cohorts:
+  if (await db.users.isAdmin(user.id)) {
+    return {
+      type: "admin",
+      properties: { adminId: user.id, roles: user.roles },
+    }
+  }
+  return {
+    type: "user",
+    properties: { userId: user.id, email: user.email },
+  }
+}
+```
+
+`methodKind` tells you which provider produced the result;
+`methodId` tells you which tenant-local instance. Use `methodKind` for
+provider-specific logic; use `methodId` for instance-specific routing.
+
+## Verifying tokens downstream
+
+Access tokens are ES256 JWTs. Your downstream services validate them
+against `/.well-known/jwks.json`:
+
+```ts
+import { jwtVerify, createRemoteJWKSet } from "jose"
+
+const JWKS = createRemoteJWKSet(
+  new URL("https://auth.yourapp.com/.well-known/jwks.json"),
+)
+
+async function authMiddleware(req: Request) {
+  const bearer = req.headers.get("authorization")?.replace(/^Bearer /, "")
+  if (!bearer) throw new Error("no bearer")
+
+  const { payload } = await jwtVerify(bearer, JWKS, {
+    issuer: "https://auth.yourapp.com",
+  })
+  return payload
+}
+```
+
+### What's in the payload
+
+| Claim | Meaning |
+|---|---|
+| `payload.tid` | `TenantId` — the partition the subject belongs to. Always partition-scope your DB lookups by this. |
+| `payload.sub` | Stable subject id derived from the `SubjectClaim`. |
+| `payload.aud` | `client_id` (the audience). |
+| `payload.scope` | Space-separated granted scopes. |
+| `payload.mid` | `methodId` that produced the subject. |
+| `payload.mkind` | `methodKind` (e.g. `"google"`, `"password"`). |
+| `payload.claim` | The full `SubjectClaim` (`{ type, properties }`) verbatim. |
+
+## Authorization is your job
+
+The library tells you who the subject is. Deciding whether they can do
+something is the **host's** middleware. There's no built-in RBAC, no
+`isAdmin` field on subjects, no role hierarchy.
+
+In practice:
+
+1. `authMiddleware` validates the JWT and exposes `payload` to your
+   handlers.
+2. Your route handlers look up the subject in your own data model (keyed
+   by `payload.tid` + `payload.claim.properties.userId`, etc.) and
+   check permissions there.
+3. If you want to issue different subject types for different cohorts,
+   do it in `success` — but the RBAC logic still belongs in your
+   handlers.
+
+## Don't share `SubjectClaim` shapes across tenants without checking `tid`
+
+Two tenants may issue `type: "user"` with the same
+`properties.userId` and they are **different subjects**. Always include
+`tid` in your DB joins, cache keys, and authorization decisions.
