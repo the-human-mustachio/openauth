@@ -20,6 +20,7 @@ import type {
   TenantId,
   ThemeConfig,
 } from "./tenant"
+import type { PickerContext, PickerMethod } from "../ui/picker"
 
 /**
  * Input handed to the user's `success` callback. The framework provides
@@ -118,6 +119,20 @@ export type ExchangeAudience = (
   },
 ) => Promise<SubjectClaim | AuthError>
 
+/**
+ * Optional override for the default provider picker shown when an
+ * `/authorize` request has multiple enabled methods and no `method_id`.
+ *
+ * The library ships a minimal styled default (see `src/ui/picker.ts`);
+ * supply this to render a fully custom selection screen. The returned
+ * `Response` is sent as-is; the framework applies `cache-control: no-store`
+ * unless the response already sets a `Cache-Control` header.
+ */
+export type RenderPicker = (
+  methods: PickerMethod[],
+  ctx: PickerContext,
+) => Response | Promise<Response>
+
 export type IdPOptions = {
   /**
    * Tenant resolution for the first request in a flow. Not consulted on
@@ -192,6 +207,11 @@ export type IdPOptions = {
    * `ExchangeAudience` type doc for the contract.
    */
   exchangeAudience?: ExchangeAudience
+
+  /**
+   * Optional override for the default provider picker. See `RenderPicker`.
+   */
+  renderPicker?: RenderPicker
 }
 
 /**

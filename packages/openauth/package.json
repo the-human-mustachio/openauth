@@ -9,7 +9,8 @@
   "type": "module",
   "scripts": {
     "build": "bun run script/build.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "preview:ui": "bun --hot run script/preview-ui.ts"
   },
   "sideEffects": false,
   "devDependencies": {
@@ -20,12 +21,10 @@
     "@electric-sql/pglite": "0.4.5",
     "@tsconfig/node22": "22.0.0",
     "@types/node": "22.10.1",
-    "arctic": "2.2.2",
     "aws-sdk-client-mock": "4.1.0",
     "hono": "4.11.3",
     "postgres": "3.4.9",
-    "typescript": "5.6.3",
-    "valibot": "1.0.0-beta.15"
+    "typescript": "5.6.3"
   },
   "exports": {
     ".": {
@@ -50,7 +49,6 @@
     "@aws-sdk/client-kms": "^3.0.0",
     "@aws-sdk/lib-dynamodb": "^3.0.0",
     "@cloudflare/workers-types": "^4.0.0",
-    "arctic": "^2.2.2",
     "hono": "^4.0.0",
     "postgres": "^3.0.0"
   },

@@ -6,8 +6,8 @@
  *   - `challenge`           → method's response, sanitized + framework cookies.
  *   - `issue-code`          → 302 to `appRedirectUri` with `code` + `state`.
  *   - `denied`              → redirect with OAuth `access_denied`.
- *   - `select-method`       → minimal HTML picker (Phase 4 will fold in the
- *                             themed UI from `ui/`).
+ *   - `select-method`       → host-supplied `renderPicker`, or the bundled
+ *                             default in `ui/picker.ts`.
  *
  * Errors that occur **before** we have a verified RP redirect_uri (unknown
  * client, mismatched redirect, etc.) surface as plain-text 400 — never a
@@ -18,6 +18,11 @@ import { startAuthorize } from "../../domain/authorize"
 import { asTenantId } from "../../types/tenant"
 import { authError } from "../../types/error"
 import type { AuthorizationRequest } from "../../types/authorization"
+import {
+  renderPicker as renderDefaultPicker,
+  type PickerContext,
+  type PickerMethod,
+} from "../../ui/picker"
 
 import { applyResponsePolicy } from "../cookies"
 import type { HttpContext, HttpDeps } from "../context"
@@ -156,8 +161,27 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
             cookieDefaults: deps.cookieDefaults,
           },
         )
-      case "select-method":
-        return renderMethodPicker(out.methods, q)
+      case "select-method": {
+        const pickerCtx: PickerContext = {
+          clientId: q.client_id,
+          redirectUri: q.redirect_uri,
+          state: q.state ?? null,
+          scope: q.scope ? q.scope.join(" ") : null,
+          nonce: q.nonce ?? null,
+          codeChallenge: q.code_challenge ?? null,
+          codeChallengeMethod: q.code_challenge_method ?? null,
+          audience: q.audience ?? null,
+          prompt: q.prompt ? q.prompt.join(" ") : null,
+          uiLocales: q.ui_locales ? q.ui_locales.join(" ") : null,
+        }
+        const methods: PickerMethod[] = out.methods.map((m) => ({
+          id: m.id,
+          kind: m.kind,
+          type: m.type,
+        }))
+        const render = deps.renderPicker ?? renderDefaultPicker
+        return await render(methods, pickerCtx)
+      }
     }
   }
 }
@@ -186,26 +210,3 @@ function cacheControlFor(
   return parts.length ? parts.join(", ") : "no-store"
 }
 
-function renderMethodPicker(
-  methods: Array<{ id: string; kind: string; type: string }>,
-  q: { client_id: string; redirect_uri: string; state?: string },
-): Response {
-  const items = methods
-    .map(
-      (m) =>
-        `<li><a href="?client_id=${encodeURIComponent(q.client_id)}` +
-        `&redirect_uri=${encodeURIComponent(q.redirect_uri)}` +
-        `&response_type=code` +
-        (q.state ? `&state=${encodeURIComponent(q.state)}` : "") +
-        `&method_id=${encodeURIComponent(m.id)}">${m.kind} (${m.id})</a></li>`,
-    )
-    .join("")
-  const body = `<!doctype html><html><body><h1>Sign in</h1><ul>${items}</ul></body></html>`
-  return new Response(body, {
-    status: 200,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  })
-}

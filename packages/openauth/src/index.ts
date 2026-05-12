@@ -1,44 +1,16 @@
 /**
  * `@_mustachio/openauth` — public entry point.
  *
- * During the in-place rebuild (per AD12 in
- * `docs/plans/claude/idp-rebuild-plan.md`), the legacy `issuer` /
- * `createClient` / `createSubjects` exports remain available so existing
- * consumers continue to compile against `master`. The new `createIdP`
- * API and supporting types ship alongside; once Phases 2–5 land they
- * become the recommended path and the legacy entry points are removed.
+ * Library-only IdP surface: domain logic + ports + adapters. Consumers
+ * embed this in a host application that owns UI, RBAC, admin, and tenant
+ * management. See `docs/integration-guide.md` for the embedding pattern.
+ *
+ * `createClient` continues to ship at the dedicated path
+ * `@_mustachio/openauth/client` (better tree-shaking than re-exporting
+ * it from the root).
  */
 
-// ─── Legacy exports (deprecated; kept until Phase 5 ports the providers) ───
-
-export {
-  /**
-   * @deprecated
-   * Use `import { createClient } from "@openauthjs/openauth/client"` instead - it will tree shake better
-   */
-  createClient,
-} from "./client"
-
-export {
-  /**
-   * @deprecated
-   * Use `import { createSubjects } from "@openauthjs/openauth/subject"` instead - it will tree shake better
-   */
-  createSubjects,
-} from "./subject"
-
-import { issuer } from "./issuer"
-
-export {
-  /**
-   * @deprecated
-   * Use `import { issuer } from "@openauthjs/openauth"` instead, it was renamed
-   */
-  issuer as authorizer,
-  issuer,
-}
-
-// ─── New IdP public API (Phase 1+) ───
+// ─── New IdP public API ───
 
 export type { Result } from "./types/result"
 export { err, isErr, isOk, ok } from "./types/result"
@@ -246,6 +218,7 @@ export function createIdP(opts: IdPOptions): IdP {
     ...(opts.exchangeAudience
       ? { exchangeAudience: opts.exchangeAudience }
       : {}),
+    ...(opts.renderPicker ? { renderPicker: opts.renderPicker } : {}),
     clock,
     cookieDefaults: { secure: true },
   }

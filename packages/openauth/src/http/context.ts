@@ -18,6 +18,7 @@ import type { AuthError } from "../types/error"
 import type {
   ExchangeAudience,
   PersistUpstreamTokens,
+  RenderPicker,
   SuccessMapInput,
 } from "../types/idp"
 import type { Result } from "../types/result"
@@ -49,6 +50,7 @@ export type HttpDeps = {
   success: (input: SuccessMapInput) => Promise<SubjectClaim>
   persistUpstreamTokens?: PersistUpstreamTokens
   exchangeAudience?: ExchangeAudience
+  renderPicker?: RenderPicker
   clock: () => number
   cookieDefaults: CookieDefaults
 }

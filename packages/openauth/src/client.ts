@@ -45,7 +45,7 @@ import {
   jwtVerify,
   decodeJwt,
 } from "jose"
-import { SubjectSchema } from "./subject.js"
+import type { SubjectSchema } from "./types/subject"
 import type { v1 } from "@standard-schema/spec"
 import {
   InvalidAccessTokenError,
