@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 8 | 4 | 12 |
+| High | 7 | 5 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **25** | **6** | **31** |
+| **Total** | **24** | **7** | **31** |
 
 ---
 
@@ -91,7 +91,7 @@ output.
 
 ### H5 — Add a tenant-resolution path that works for `client_credentials`
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** M
 - **Files:** `packages/openauth/src/http/handlers/token.ts:96-101` → `packages/openauth/src/domain/client-credentials.ts:65`
 - **Problem:** `POST /token` with `grant_type=client_credentials` calls `deps.resolveTenant(c.req.raw)` against a raw `Request` whose body hasn't been parsed onto the URL. INTEGRATION.md §5.1 / §7 tells hosts to read `client_id` from the URL query string, which doesn't exist for m2m (it's in the form body or Basic-auth header). Hosts following the documented pattern fail tenant resolution for every m2m token request.

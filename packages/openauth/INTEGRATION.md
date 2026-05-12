@@ -245,6 +245,8 @@ async function resolveTenant(req: Request): Promise<Result<TenantId, AuthError>>
 }
 ```
 
+**`client_credentials` grant note.** A `POST /token` for `grant_type=client_credentials` carries `client_id` in the form body / Basic-auth header, not the URL. The framework parses the body and *injects* the resolved `client_id` into the request's URL search params before calling `resolveTenant`, so the canonical pattern above works identically for m2m — no separate hook is needed. (If the request already has a `client_id` query param, the framework leaves it alone.)
+
 ### 5.2 `ConfigStore` — return the resolved `TenantConfig`
 
 This is where you merge App defaults with App-Tenant overrides. The

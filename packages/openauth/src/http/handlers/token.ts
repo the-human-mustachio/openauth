@@ -94,8 +94,15 @@ export function makeTokenHandler(deps: HttpDeps) {
 
     if (req.grant_type === "client_credentials") {
       // Resolve tenant — client_credentials carries no auth code, so we
-      // call the user-supplied resolver against the /token request.
-      const tenantRes = await deps.resolveTenant(c.req.raw)
+      // call the user-supplied resolver against the /token request. The
+      // canonical resolver pattern (INTEGRATION.md §5.1) reads `client_id`
+      // from URL search params, but the m2m grant carries client_id in the
+      // form body / Basic auth — never the URL. Inject the parsed
+      // `client_id` into a synthesized request so resolvers using the
+      // canonical pattern work for m2m without an extra hook.
+      const tenantRes = await deps.resolveTenant(
+        injectResolverHints(c.req.raw, { client_id: req.client_id }),
+      )
       if (isErr(tenantRes)) {
         return tokenEndpointErrorResponse(tenantRes.error)
       }
@@ -211,6 +218,28 @@ async function readFormBody(req: Request): Promise<URLSearchParams | null> {
   }
   const text = await req.text()
   return new URLSearchParams(text)
+}
+
+/**
+ * Build a new `Request` whose URL search params carry the supplied
+ * resolver hints. Existing query params win — hosts can still override
+ * via the URL. Headers are copied so Basic-auth-based resolvers still
+ * see the original `Authorization`. The body is intentionally dropped:
+ * the original is already consumed by `readFormBody` and resolvers should
+ * not depend on body state.
+ */
+function injectResolverHints(
+  original: Request,
+  hints: Record<string, string>,
+): Request {
+  const url = new URL(original.url)
+  for (const [k, v] of Object.entries(hints)) {
+    if (!url.searchParams.has(k)) url.searchParams.set(k, v)
+  }
+  return new Request(url.toString(), {
+    method: original.method,
+    headers: original.headers,
+  })
 }
 
 function parseBasicAuth(header: string | null): { id: string; secret: string } | null {

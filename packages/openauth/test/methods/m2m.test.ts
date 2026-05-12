@@ -105,6 +105,79 @@ describe("m2mMethod / client_credentials grant", () => {
     expect(body.scope).toBe("read")
   })
 
+  test("client_id is injected into the URL so a search-param resolver works (H5)", async () => {
+    const secret = "lookup-from-url-secret"
+    const secretHash = await hashClientSecret(secret)
+    const tenant: TenantConfig = {
+      id: asTenantId("acme"),
+      displayName: "Acme",
+      clients: [
+        {
+          id: "svc-1",
+          name: "Service",
+          type: "confidential",
+          secretHash,
+          redirectUris: [],
+          grantTypes: ["client_credentials"],
+          scopes: ["read"],
+          pkceRequired: false,
+        },
+      ],
+      methods: [
+        { id: "m2m", kind: "m2m", type: "m2m", enabled: true, config: {} },
+      ],
+    }
+
+    const configStore = new MemoryConfigStore({ seed: [tenant] })
+    const keyStore = new MemoryKeyStore({ clock: () => Date.now() })
+    const tokenStore = new MemoryTokenStore({ keyStore, clock: () => Date.now() })
+    const sessionStore = new MemorySessionStore({ clock: () => Date.now() })
+
+    // Resolver mirrors INTEGRATION.md §5.1's canonical pattern: read
+    // `client_id` from the URL. Pre-fix this would have failed for m2m
+    // because POST /token carries client_id in the body.
+    const resolved: string[] = []
+    const idp = createIdP({
+      resolveTenant: async (req) => {
+        const url = new URL(req.url)
+        const clientId = url.searchParams.get("client_id")
+        resolved.push(clientId ?? "")
+        if (clientId === "svc-1") return ok(tenant.id)
+        return ok(asTenantId("__missing__"))
+      },
+      stateKeys: buildStateKeys(),
+      configStore,
+      tokenStore,
+      sessionStore,
+      keyStore,
+      issuerUrl: "https://idp.example",
+      methods: {
+        m2m: m2mMethod({
+          verify: async ({ clientID }) => ({
+            claims: { svc: clientID },
+          }),
+        }) as never,
+      },
+      subjects: {} as never,
+      success: async ({ providerSubject }) =>
+        ({ type: "service", properties: { id: providerSubject } }) as never,
+    })
+
+    const res = await idp.handle(
+      tokenRequest("https://idp.example", {
+        grant_type: "client_credentials",
+        client_id: "svc-1",
+        client_secret: secret,
+        scope: "read",
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(typeof body.access_token).toBe("string")
+    // Resolver actually saw client_id.
+    expect(resolved).toEqual(["svc-1"])
+  })
+
   test("rejects when client lacks client_credentials grant", async () => {
     const secret = "another-secret-2024"
     const secretHash = await hashClientSecret(secret)
