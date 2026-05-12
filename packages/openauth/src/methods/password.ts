@@ -19,10 +19,7 @@
  */
 import { z } from "zod"
 
-import {
-  argon2idHasher,
-  type PasswordHasher,
-} from "./password-hash"
+import { argon2idHasher, type PasswordHasher } from "./password-hash"
 import type {
   AuthMethod,
   AuthMethodFactory,
@@ -54,10 +51,7 @@ export type PasswordUser = {
 
 export type PasswordUserStore = {
   /** Look up a user by email; `null` if unknown. */
-  findByEmail(
-    email: string,
-    tenantId: string,
-  ): Promise<PasswordUser | null>
+  findByEmail(email: string, tenantId: string): Promise<PasswordUser | null>
   /**
    * Optional — only required if `enableRegistration: true`. Should create
    * the row and return the persisted user. Implementations decide how to
@@ -185,7 +179,11 @@ async function handleLogin(
   const form = await safeForm(ctx.request)
   const parsed = loginBodySchema.safeParse(form)
   if (!parsed.success) {
-    return reLoginWithError(methodId, title, "Please enter your email and password.")
+    return reLoginWithError(
+      methodId,
+      title,
+      "Please enter your email and password.",
+    )
   }
 
   const user = await users.findByEmail(parsed.data.email, ctx.tenant.id)

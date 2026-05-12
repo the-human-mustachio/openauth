@@ -33,7 +33,9 @@ export function makeTokenHandler(deps: HttpDeps) {
     const body = await readFormBody(c.req.raw)
     if (!body) {
       return tokenEndpointErrorResponse(
-        authError.invalidRequest("body must be application/x-www-form-urlencoded"),
+        authError.invalidRequest(
+          "body must be application/x-www-form-urlencoded",
+        ),
       )
     }
 
@@ -158,7 +160,8 @@ export function makeTokenHandler(deps: HttpDeps) {
           clock: deps.clock,
         },
       )
-      if (isErr(refreshResult)) return tokenEndpointErrorResponse(refreshResult.error)
+      if (isErr(refreshResult))
+        return tokenEndpointErrorResponse(refreshResult.error)
       return jsonResponse(refreshResult.value)
     }
 
@@ -221,7 +224,9 @@ async function readFormBody(req: Request): Promise<URLSearchParams | null> {
   return new URLSearchParams(text)
 }
 
-function parseBasicAuth(header: string | null): { id: string; secret: string } | null {
+function parseBasicAuth(
+  header: string | null,
+): { id: string; secret: string } | null {
   if (!header) return null
   const m = /^Basic\s+(.+)$/i.exec(header)
   if (!m || !m[1]) return null

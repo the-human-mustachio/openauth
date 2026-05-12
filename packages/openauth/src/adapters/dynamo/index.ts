@@ -49,9 +49,15 @@
  *     Projection: ALL
  */
 export { DynamoAuditLog, type DynamoAuditLogOptions } from "./audit-log"
-export { DynamoConfigStore, type DynamoConfigStoreOptions } from "./config-store"
+export {
+  DynamoConfigStore,
+  type DynamoConfigStoreOptions,
+} from "./config-store"
 export { DynamoKeyStore, type DynamoKeyStoreOptions } from "./key-store"
-export { DynamoMethodStore, type DynamoMethodStoreOptions } from "./method-store"
+export {
+  DynamoMethodStore,
+  type DynamoMethodStoreOptions,
+} from "./method-store"
 export {
   DynamoSessionStore,
   type DynamoSessionStoreOptions,

@@ -397,7 +397,8 @@ async function resolveTenant(req: Request): Promise<Result<TenantId>> {
 async function getTenantConfig(id: TenantId): Promise<Result<TenantConfig>> {
   const [appId, subId] = (id as string).split(":")
   const app = await db.apps.get(appId)
-  const appTenant = subId === "__default__" ? null : await db.appTenants.get(subId)
+  const appTenant =
+    subId === "__default__" ? null : await db.appTenants.get(subId)
 
   return ok({
     id,
@@ -450,13 +451,13 @@ are host-application concerns:
 
 ## Phase status
 
-| Phase                                | Status         | Notes                                                                                                                                                                          |
-| ------------------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1 — Domain types + project skeleton  | **done**       | All `types/` and `ports/` files populated; `ports/CONSISTENCY.md` written; `createIdP` stub throws.                                                                            |
-| 2 — Domain logic + memory adapters   | **done**       | Pure functions over typed ports; in-memory adapter set; full unit suite.                                                                                                       |
-| 3 — HTTP adapter (Hono)              | **done**       | Thin Hono layer; tenant middleware; Zod schemas; 17-case hand-built OAuth 2.1 / OIDC conformance matrix green.                                                                 |
-| 4 — Credential + WebAuthn methods    | **done**       | `password` (argon2id), `code`, `m2m`, `passkey` on the new `AuthMethod` interface.                                                                                             |
-| 5 — OAuth / OIDC provider family     | **done**       | 15 OAuth/OIDC providers via `buildOauth2Method` / `buildOidcMethod`; matrix test covers each end-to-end.                                                                       |
-| 6 — Real storage adapters            | **done**       | Postgres, D1, Durable Objects, KV (read-eventual paths), DynamoDB, KMS; parameterized port-conformance suite under `test/ports/`.                                              |
-| 7 — Library-only scoping             | **done**       | Phase 7 rescoped from "build a console" to "make the embedding contract explicit." See "Embedding pattern" above. Open Question #1 closed.                                     |
-| 8 — Standards + production hardening | in progress    | Session 1 shipped: PKCE type-system enforcement, RFC 7009 revoke + RFC 7662 introspect client-auth + audience checks, refresh-grant RFC 6749 §6 client-auth, new `TokenStore.peekRefresh` port, 27/27 conformance cases. Remaining: DPoP, PAR, mTLS hook, DCR helper, rate-limiter port, Logger/Tracer ports. |
+| Phase                                | Status      | Notes                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — Domain types + project skeleton  | **done**    | All `types/` and `ports/` files populated; `ports/CONSISTENCY.md` written; `createIdP` stub throws.                                                                                                                                                                                                           |
+| 2 — Domain logic + memory adapters   | **done**    | Pure functions over typed ports; in-memory adapter set; full unit suite.                                                                                                                                                                                                                                      |
+| 3 — HTTP adapter (Hono)              | **done**    | Thin Hono layer; tenant middleware; Zod schemas; 17-case hand-built OAuth 2.1 / OIDC conformance matrix green.                                                                                                                                                                                                |
+| 4 — Credential + WebAuthn methods    | **done**    | `password` (argon2id), `code`, `m2m`, `passkey` on the new `AuthMethod` interface.                                                                                                                                                                                                                            |
+| 5 — OAuth / OIDC provider family     | **done**    | 15 OAuth/OIDC providers via `buildOauth2Method` / `buildOidcMethod`; matrix test covers each end-to-end.                                                                                                                                                                                                      |
+| 6 — Real storage adapters            | **done**    | Postgres, D1, Durable Objects, KV (read-eventual paths), DynamoDB, KMS; parameterized port-conformance suite under `test/ports/`.                                                                                                                                                                             |
+| 7 — Library-only scoping             | **done**    | Phase 7 rescoped from "build a console" to "make the embedding contract explicit." See "Embedding pattern" above. Open Question #1 closed.                                                                                                                                                                    |
+| 8 — Standards + production hardening | in progress | Session 1 shipped: PKCE type-system enforcement, RFC 7009 revoke + RFC 7662 introspect client-auth + audience checks, refresh-grant RFC 6749 §6 client-auth, new `TokenStore.peekRefresh` port, 27/27 conformance cases. Remaining: DPoP, PAR, mTLS hook, DCR helper, rate-limiter port, Logger/Tracer ports. |

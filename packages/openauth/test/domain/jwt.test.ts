@@ -71,7 +71,9 @@ describe("jwt: sign + verify", () => {
         .replaceAll("+", "-")
         .replaceAll("/", "_")
         .replace(/=+$/, "")
-    const header = b64(JSON.stringify({ alg: "none", typ: "JWT", kid: signing.kid }))
+    const header = b64(
+      JSON.stringify({ alg: "none", typ: "JWT", kid: signing.kid }),
+    )
     const payload = b64(JSON.stringify(sampleClaims()))
     const noneToken = `${header}.${payload}.`
     await expect(verifyAccessToken(noneToken, [signing])).rejects.toThrow()
@@ -90,7 +92,9 @@ describe("jwt: sign + verify", () => {
         .replaceAll("+", "-")
         .replaceAll("/", "_")
         .replace(/=+$/, "")
-    const header = b64(JSON.stringify({ alg: "HS256", typ: "JWT", kid: signing.kid }))
+    const header = b64(
+      JSON.stringify({ alg: "HS256", typ: "JWT", kid: signing.kid }),
+    )
     const payload = b64(JSON.stringify(sampleClaims()))
     const forged = `${header}.${payload}.AAAA`
     await expect(verifyAccessToken(forged, [signing])).rejects.toThrow()

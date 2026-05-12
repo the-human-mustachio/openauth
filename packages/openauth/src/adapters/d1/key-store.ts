@@ -44,7 +44,9 @@ export class D1KeyStore implements KeyStore {
       .first<SigningRow>()
     if (!row) {
       return err(
-        authError.internalError("no active signing key (should be unreachable)"),
+        authError.internalError(
+          "no active signing key (should be unreachable)",
+        ),
       )
     }
     return ok(await this.#hydrateSigning(row))

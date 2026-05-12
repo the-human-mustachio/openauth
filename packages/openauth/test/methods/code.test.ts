@@ -93,7 +93,9 @@ describe("codeMethod", () => {
           "content-type": "application/x-www-form-urlencoded",
           cookie: `idp.flow=${flowId}`,
         },
-        body: new URLSearchParams({ destination: "ada@example.com" }).toString(),
+        body: new URLSearchParams({
+          destination: "ada@example.com",
+        }).toString(),
       }),
     )
     expect(send.status).toBe(200)

@@ -19,22 +19,13 @@ import { Hono } from "hono"
 
 import { makeAuthorizeHandler } from "./handlers/authorize"
 import { makeCallbackHandler } from "./handlers/callback"
-import {
-  makeDiscoveryHandler,
-  makeJwksHandler,
-} from "./handlers/metadata"
+import { makeDiscoveryHandler, makeJwksHandler } from "./handlers/metadata"
 import { makeMethodRouteHandler } from "./handlers/method-route"
-import {
-  makeIntrospectHandler,
-  makeRevokeHandler,
-} from "./handlers/revocation"
+import { makeIntrospectHandler, makeRevokeHandler } from "./handlers/revocation"
 import { makeTokenHandler } from "./handlers/token"
 import { makeUserinfoHandler } from "./handlers/userinfo"
 import { errorMiddleware } from "./middleware/error"
-import {
-  bootstrapMiddleware,
-  tenantMiddleware,
-} from "./middleware/tenant"
+import { bootstrapMiddleware, tenantMiddleware } from "./middleware/tenant"
 import type { HttpDeps, HttpEnv } from "./context"
 
 export function buildRouter(deps: HttpDeps): Hono<HttpEnv> {

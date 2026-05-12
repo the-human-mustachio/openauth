@@ -20,12 +20,12 @@ in `packages/openauth/ARCHITECTURE.md`.
 
 ## Authoritative docs (read these before non-trivial work)
 
-| Document | What it covers |
-|---|---|
-| `packages/openauth/ARCHITECTURE.md` | Mental model, type layout, tenant recovery, flow lifecycle, embedding pattern, phase status. |
-| `packages/openauth/INTEGRATION.md` | End-to-end embedding guide for hosts: install, public API, adapters, the four host contracts, hardening rules. |
-| `packages/openauth/src/ports/CONSISTENCY.md` | Consistency contracts for every port. |
-| `docs/plans/claude/idp-rebuild-plan.md` | Phased rebuild plan — sequencing + decisions. |
+| Document                                     | What it covers                                                                                                 |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `packages/openauth/ARCHITECTURE.md`          | Mental model, type layout, tenant recovery, flow lifecycle, embedding pattern, phase status.                   |
+| `packages/openauth/INTEGRATION.md`           | End-to-end embedding guide for hosts: install, public API, adapters, the four host contracts, hardening rules. |
+| `packages/openauth/src/ports/CONSISTENCY.md` | Consistency contracts for every port.                                                                          |
+| `docs/plans/claude/idp-rebuild-plan.md`      | Phased rebuild plan — sequencing + decisions.                                                                  |
 
 ## Source tree
 

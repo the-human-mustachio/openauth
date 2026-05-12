@@ -94,7 +94,9 @@ export class D1MethodStore implements MethodStore {
         .bind(tenantId, methodId)
         .run()
     } catch (e) {
-      return err(authError.internalError("deleteMethodConfig: delete failed", e))
+      return err(
+        authError.internalError("deleteMethodConfig: delete failed", e),
+      )
     }
     return ok(undefined)
   }

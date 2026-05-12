@@ -153,7 +153,9 @@ export class MethodCache {
           .map((issue) =>
             (issue.path ?? [])
               .map((segment) =>
-                typeof segment === "object" ? String(segment.key) : String(segment),
+                typeof segment === "object"
+                  ? String(segment.key)
+                  : String(segment),
               )
               .join("."),
           )

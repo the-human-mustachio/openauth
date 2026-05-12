@@ -51,9 +51,7 @@ export async function verifyClientCredentials(
     return null
   }
   if (!presentedSecret) {
-    return authError.invalidClient(
-      "confidential client requires client_secret",
-    )
+    return authError.invalidClient("confidential client requires client_secret")
   }
   const supplied = await hashClientSecret(presentedSecret)
   if (!timingSafeEqualStr(supplied, client.secretHash)) {

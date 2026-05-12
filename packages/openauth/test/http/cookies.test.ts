@@ -9,36 +9,36 @@ describe("serializeSetCookie — name validation", () => {
   })
 
   test("rejects empty name", () => {
-    expect(() =>
-      serializeSetCookie({ name: "", value: "x" }),
-    ).toThrow(/invalid cookie name/)
+    expect(() => serializeSetCookie({ name: "", value: "x" })).toThrow(
+      /invalid cookie name/,
+    )
   })
 
   test("rejects names containing '='", () => {
-    expect(() =>
-      serializeSetCookie({ name: "foo=bar", value: "x" }),
-    ).toThrow(/invalid cookie name/)
+    expect(() => serializeSetCookie({ name: "foo=bar", value: "x" })).toThrow(
+      /invalid cookie name/,
+    )
   })
 
   test("rejects names containing ';'", () => {
-    expect(() =>
-      serializeSetCookie({ name: "foo;bar", value: "x" }),
-    ).toThrow(/invalid cookie name/)
+    expect(() => serializeSetCookie({ name: "foo;bar", value: "x" })).toThrow(
+      /invalid cookie name/,
+    )
   })
 
   test("rejects names containing ','", () => {
-    expect(() =>
-      serializeSetCookie({ name: "foo,bar", value: "x" }),
-    ).toThrow(/invalid cookie name/)
+    expect(() => serializeSetCookie({ name: "foo,bar", value: "x" })).toThrow(
+      /invalid cookie name/,
+    )
   })
 
   test("rejects names containing whitespace", () => {
-    expect(() =>
-      serializeSetCookie({ name: "foo bar", value: "x" }),
-    ).toThrow(/invalid cookie name/)
-    expect(() =>
-      serializeSetCookie({ name: "foo\tbar", value: "x" }),
-    ).toThrow(/invalid cookie name/)
+    expect(() => serializeSetCookie({ name: "foo bar", value: "x" })).toThrow(
+      /invalid cookie name/,
+    )
+    expect(() => serializeSetCookie({ name: "foo\tbar", value: "x" })).toThrow(
+      /invalid cookie name/,
+    )
   })
 })
 
@@ -82,7 +82,9 @@ describe("applyResponsePolicy — strip warnings", () => {
   })
 
   test("warns when method overrides Cache-Control", () => {
-    const res = new Response("ok", { headers: { "Cache-Control": "max-age=3600" } })
+    const res = new Response("ok", {
+      headers: { "Cache-Control": "max-age=3600" },
+    })
     const out = applyResponsePolicy(res)
     expect(warnSpy).toHaveBeenCalledTimes(1)
     // Framework default wins.

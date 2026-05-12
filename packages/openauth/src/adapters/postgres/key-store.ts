@@ -28,7 +28,12 @@
 import type { JWK } from "jose"
 import { exportJWK, generateKeyPair, importJWK } from "jose"
 
-import { base64url, generateSymmetricKey, randomId, utf8 } from "../../domain/crypto"
+import {
+  base64url,
+  generateSymmetricKey,
+  randomId,
+  utf8,
+} from "../../domain/crypto"
 import type {
   EncryptionKey,
   KeyStore,
@@ -73,7 +78,9 @@ export class PostgresKeyStore implements KeyStore {
     const rows = await this.#selectSigningRows(`status = 'active'`)
     if (rows.length === 0) {
       return err(
-        authError.internalError("no active signing key (should be unreachable)"),
+        authError.internalError(
+          "no active signing key (should be unreachable)",
+        ),
       )
     }
     const key = await this.#hydrateSigningKey(rows[0]!)
@@ -82,7 +89,9 @@ export class PostgresKeyStore implements KeyStore {
 
   async signingKeys(): Promise<Result<SigningKey[]>> {
     await this.#ensureSigningKey()
-    const rows = await this.#selectSigningRows(`status IN ('active','next','retired')`)
+    const rows = await this.#selectSigningRows(
+      `status IN ('active','next','retired')`,
+    )
     const keys = await Promise.all(rows.map((r) => this.#hydrateSigningKey(r)))
     return ok(keys)
   }
@@ -183,10 +192,7 @@ export class PostgresKeyStore implements KeyStore {
     }
   }
 
-  async #decodePrivateJwk(
-    raw: unknown,
-    wrapped: boolean,
-  ): Promise<JWK> {
+  async #decodePrivateJwk(raw: unknown, wrapped: boolean): Promise<JWK> {
     const parsed =
       typeof raw === "string"
         ? (JSON.parse(raw) as Record<string, unknown>)

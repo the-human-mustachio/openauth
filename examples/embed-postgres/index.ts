@@ -106,7 +106,8 @@ const idp = createIdP({
         // Wire to your real user store. Signature is positional:
         // (email, tenantId) → PasswordUser | null.
         async findByEmail(email, _tenantId) {
-          for (const u of users.values()) if (u.email === email) return u as never
+          for (const u of users.values())
+            if (u.email === email) return u as never
           return null
         },
       },

@@ -49,7 +49,10 @@ describe("buildCustomContext hook (H12)", () => {
     }
     const configStore = new MemoryConfigStore({ seed: [tenant] })
     const keyStore = new MemoryKeyStore({ clock: () => Date.now() })
-    const tokenStore = new MemoryTokenStore({ keyStore, clock: () => Date.now() })
+    const tokenStore = new MemoryTokenStore({
+      keyStore,
+      clock: () => Date.now(),
+    })
     const sessionStore = new MemorySessionStore({ clock: () => Date.now() })
 
     const successCalls: SuccessMapInput[] = []
@@ -149,7 +152,10 @@ describe("buildCustomContext hook (H12)", () => {
     }
     const configStore = new MemoryConfigStore({ seed: [tenant] })
     const keyStore = new MemoryKeyStore({ clock: () => Date.now() })
-    const tokenStore = new MemoryTokenStore({ keyStore, clock: () => Date.now() })
+    const tokenStore = new MemoryTokenStore({
+      keyStore,
+      clock: () => Date.now(),
+    })
     const sessionStore = new MemorySessionStore({ clock: () => Date.now() })
 
     const successCalls: SuccessMapInput[] = []

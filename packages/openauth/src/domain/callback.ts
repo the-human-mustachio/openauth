@@ -261,4 +261,3 @@ async function translate(
 function normalizePath(p: string): string {
   return p.replace(/\/+$/, "")
 }
-

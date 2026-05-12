@@ -82,17 +82,24 @@ export function describeSessionStore(opts: SessionStoreSuiteOptions): void {
         const peek = await store.readFlow(flow.flowId)
         expect(peek.ok).toBe(true)
         if (peek.ok) {
-          expect(peek.value.methodState).toEqual({ upstreamPkceVerifier: "v-1" })
+          expect(peek.value.methodState).toEqual({
+            upstreamPkceVerifier: "v-1",
+          })
         }
         const consumed = await store.consumeFlow(flow.flowId)
         expect(consumed.ok).toBe(true)
         if (consumed.ok) {
-          expect(consumed.value.methodState).toEqual({ upstreamPkceVerifier: "v-1" })
+          expect(consumed.value.methodState).toEqual({
+            upstreamPkceVerifier: "v-1",
+          })
         }
       })
 
       test("updateFlowMethodState on unknown flow returns unknown_state", async () => {
-        const result = await store.updateFlowMethodState(uniqueSuffix("missing"), {})
+        const result = await store.updateFlowMethodState(
+          uniqueSuffix("missing"),
+          {},
+        )
         expect(result.ok).toBe(false)
         if (!result.ok) expect(result.error.code).toBe("unknown_state")
       })
@@ -121,11 +128,7 @@ export function describeSessionStore(opts: SessionStoreSuiteOptions): void {
       })
 
       test("saveFlow rejects ttl <= 0", async () => {
-        const result = await store.saveFlow(
-          uniqueSuffix("f"),
-          makeFlow(),
-          0,
-        )
+        const result = await store.saveFlow(uniqueSuffix("f"), makeFlow(), 0)
         expect(result.ok).toBe(false)
       })
     })
@@ -143,7 +146,11 @@ export function describeSessionStore(opts: SessionStoreSuiteOptions): void {
             expiresAt: clock.now() + 24 * 60 * 60 * 1000,
             metadata: { ua: "test" },
           }
-          const saved = await store.createSession(id, record, 24 * 60 * 60 * 1000)
+          const saved = await store.createSession(
+            id,
+            record,
+            24 * 60 * 60 * 1000,
+          )
           expect(saved.ok).toBe(true)
           const read = await store.readSession(id)
           expect(read.ok).toBe(true)
@@ -153,7 +160,12 @@ export function describeSessionStore(opts: SessionStoreSuiteOptions): void {
         })
 
         test("revokeSession removes the session", async () => {
-          if (!store.createSession || !store.readSession || !store.revokeSession) return
+          if (
+            !store.createSession ||
+            !store.readSession ||
+            !store.revokeSession
+          )
+            return
           const id = uniqueSuffix("s")
           const record: SessionRecord = {
             sessionId: id,

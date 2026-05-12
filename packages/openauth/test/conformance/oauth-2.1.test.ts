@@ -346,7 +346,8 @@ describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
         code,
         client_id: "rp-1",
         redirect_uri: "https://app.example/callback",
-        code_verifier: "wrong-verifier-of-sufficient-length-to-be-syntactically-valid",
+        code_verifier:
+          "wrong-verifier-of-sufficient-length-to-be-syntactically-valid",
       }),
     )
     expect(tokenRes.status).toBe(400)
@@ -555,7 +556,10 @@ describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
     const auditLog = new MemoryAuditLog()
     const configStore = new MemoryConfigStore({ seed: [tenantA, tenantB] })
     const keyStore = new MemoryKeyStore({ clock: () => Date.now() })
-    const tokenStore = new MemoryTokenStore({ keyStore, clock: () => Date.now() })
+    const tokenStore = new MemoryTokenStore({
+      keyStore,
+      clock: () => Date.now(),
+    })
     const sessionStore = new MemorySessionStore({ clock: () => Date.now() })
     const stateKeys = buildStateKeys()
 
@@ -602,7 +606,10 @@ describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
 
     // Decode the envelope, swap tenantId, re-mint with the same key ring.
     const stateEnvelope = await import("../../src/domain/state-envelope")
-    const verified = await stateEnvelope.verifyStateEnvelope(realState, stateKeys)
+    const verified = await stateEnvelope.verifyStateEnvelope(
+      realState,
+      stateKeys,
+    )
     if (!verified.ok) throw new Error("expected real envelope to verify")
     const forged = await stateEnvelope.mintStateEnvelope(
       {
@@ -634,7 +641,10 @@ describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
     const configStore = new MemoryConfigStore({ seed: [tenantA, tenantB] })
     const auditLog = new MemoryAuditLog()
     const keyStore = new MemoryKeyStore({ clock: () => Date.now() })
-    const tokenStore = new MemoryTokenStore({ keyStore, clock: () => Date.now() })
+    const tokenStore = new MemoryTokenStore({
+      keyStore,
+      clock: () => Date.now(),
+    })
     const sessionStore = new MemorySessionStore({ clock: () => Date.now() })
 
     const idp = createIdP({
@@ -696,10 +706,7 @@ describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
     )
     expect(tokenRes.status).toBe(400)
     const body = await tokenRes.json()
-    expect([
-      "invalid_grant",
-      "invalid_client",
-    ]).toContain(body.error)
+    expect(["invalid_grant", "invalid_client"]).toContain(body.error)
   })
 })
 
@@ -736,7 +743,11 @@ describe("Phase 8 — revoke / introspect / client-auth hardening", () => {
     }
   }
 
-  function formRequest(base: string, path: string, body: Record<string, string>) {
+  function formRequest(
+    base: string,
+    path: string,
+    body: Record<string, string>,
+  ) {
     return new Request(base + path, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -859,7 +870,9 @@ describe("Phase 8 — revoke / introspect / client-auth hardening", () => {
       scopes: ["openid"],
       pkceRequired: true,
     })
-    tenant.methods = [{ id: "stub", kind: "stub", type: "custom", enabled: true, config: {} }]
+    tenant.methods = [
+      { id: "stub", kind: "stub", type: "custom", enabled: true, config: {} },
+    ]
 
     const h = await buildHarness({ tenant })
     const tokens = await issueTokensFor(h)

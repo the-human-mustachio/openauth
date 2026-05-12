@@ -86,10 +86,9 @@ export class PostgresSessionStore implements SessionStore {
       const result = await this.#exec.query<{
         payload: unknown
         expires_at: string | number
-      }>(
-        `SELECT payload, expires_at FROM openauth_flows WHERE flow_id = $1`,
-        [flowId],
-      )
+      }>(`SELECT payload, expires_at FROM openauth_flows WHERE flow_id = $1`, [
+        flowId,
+      ])
       row = result.rows[0]
     } catch (e) {
       return err(authError.internalError("readFlow: query failed", e))
@@ -100,9 +99,10 @@ export class PostgresSessionStore implements SessionStore {
     if (this.#clock() >= Number(row.expires_at)) {
       // Lazy GC — best-effort delete, don't fail the read if the delete races.
       try {
-        await this.#exec.query(`DELETE FROM openauth_flows WHERE flow_id = $1`, [
-          flowId,
-        ])
+        await this.#exec.query(
+          `DELETE FROM openauth_flows WHERE flow_id = $1`,
+          [flowId],
+        )
       } catch {}
       return err(authError.unknownState(`flow "${flowId}" expired`))
     }

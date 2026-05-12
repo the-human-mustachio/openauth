@@ -31,11 +31,7 @@ type Endpoints = {
 
 export type OidcMethodInput = Omit<
   Oauth2MethodInput,
-  | "authorizationUrl"
-  | "tokenUrl"
-  | "jwksUri"
-  | "expectedIssuer"
-  | "type"
+  "authorizationUrl" | "tokenUrl" | "jwksUri" | "expectedIssuer" | "type"
 > & {
   /** Issuer URL — the framework appends `/.well-known/openid-configuration`. */
   issuer: string
@@ -93,7 +89,9 @@ async function fetchDiscovery(issuer: string): Promise<Endpoints> {
     "issuer",
   ] as const) {
     if (typeof json[k] !== "string") {
-      throw oidcConfigError(`OIDC discovery doc missing "${k}" (issuer=${issuer})`)
+      throw oidcConfigError(
+        `OIDC discovery doc missing "${k}" (issuer=${issuer})`,
+      )
     }
   }
   return {

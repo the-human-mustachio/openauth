@@ -69,7 +69,9 @@ export class DynamoSessionStore implements SessionStore {
         consistentRead: true,
       })
     } catch (e) {
-      return err(authError.internalError("updateFlowMethodState: get failed", e))
+      return err(
+        authError.internalError("updateFlowMethodState: get failed", e),
+      )
     }
     if (!row) {
       return err(authError.unknownState(`flow "${flowId}" unknown`))
@@ -103,7 +105,9 @@ export class DynamoSessionStore implements SessionStore {
           ),
         )
       }
-      return err(authError.internalError("updateFlowMethodState: put failed", e))
+      return err(
+        authError.internalError("updateFlowMethodState: put failed", e),
+      )
     }
     return ok(undefined)
   }

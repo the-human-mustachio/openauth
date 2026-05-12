@@ -7,9 +7,15 @@
  * (and gets eventual-consistency reads — documented in the adapter's
  * top-level JSDoc).
  */
-import type { AnyD1Database, D1DatabaseSession, D1DatabaseWithSessions } from "./types"
+import type {
+  AnyD1Database,
+  D1DatabaseSession,
+  D1DatabaseWithSessions,
+} from "./types"
 
-export function isSessionsCapable(db: AnyD1Database): db is D1DatabaseWithSessions {
+export function isSessionsCapable(
+  db: AnyD1Database,
+): db is D1DatabaseWithSessions {
   return typeof (db as D1DatabaseWithSessions).withSession === "function"
 }
 

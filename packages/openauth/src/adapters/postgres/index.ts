@@ -50,7 +50,10 @@ export {
   PostgresSessionStore,
   type PostgresSessionStoreOptions,
 } from "./session-store"
-export { PostgresTokenStore, type PostgresTokenStoreOptions } from "./token-store"
+export {
+  PostgresTokenStore,
+  type PostgresTokenStoreOptions,
+} from "./token-store"
 export {
   PostgresPasskeyCredentialStore,
   type PostgresPasskeyCredentialStoreOptions,

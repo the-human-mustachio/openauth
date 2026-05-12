@@ -160,7 +160,10 @@ async function handleSend(
 ): Promise<MethodResult<CodeProperties, CodeState>> {
   const form = await safeForm(ctx.request)
   const parsed = sendBody.safeParse(form)
-  if (!parsed.success || !validateDestination(parsed.data?.destination, destinationKind)) {
+  if (
+    !parsed.success ||
+    !validateDestination(parsed.data?.destination, destinationKind)
+  ) {
     return {
       kind: "challenge",
       response: htmlResponse(
@@ -311,7 +314,12 @@ function destinationField(kind: "email" | "tel" | "any") {
     ]
   }
   return [
-    { name: "destination", label: "Destination", type: "text" as const, required: true },
+    {
+      name: "destination",
+      label: "Destination",
+      type: "text" as const,
+      required: true,
+    },
   ]
 }
 

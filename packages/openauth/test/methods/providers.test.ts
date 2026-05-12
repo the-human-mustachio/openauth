@@ -26,10 +26,7 @@ import {
 import { createIdP } from "../../src/index"
 import { s256Challenge } from "../../src/domain/pkce"
 import * as providers from "../../src/methods/providers"
-import {
-  oauth2Factory,
-  oidcFactory,
-} from "../../src/methods/oauth2-factory"
+import { oauth2Factory, oidcFactory } from "../../src/methods/oauth2-factory"
 import { asTenantId, type TenantConfig } from "../../src/types/tenant"
 import { ok } from "../../src/types/result"
 import type { AnyAuthMethodFactory } from "../../src/types/method"
@@ -207,7 +204,12 @@ const realFetch = globalThis.fetch
 
 function installMockFetch() {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : "url" in input ? input.url : input.toString()
+    const url =
+      typeof input === "string"
+        ? input
+        : "url" in input
+          ? input.url
+          : input.toString()
     if (url.includes("/.well-known/openid-configuration")) {
       const origin = new URL(url).origin
       const host = new URL(url).host
@@ -227,7 +229,12 @@ function installMockFetch() {
         { status: 200, headers: { "content-type": "application/json" } },
       )
     }
-    if (url.endsWith("/jwks") || url.endsWith("/keys") || url.includes("jwks") || url.includes("keys")) {
+    if (
+      url.endsWith("/jwks") ||
+      url.endsWith("/keys") ||
+      url.includes("jwks") ||
+      url.includes("keys")
+    ) {
       return new Response(JSON.stringify({ keys: [] }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -237,7 +244,7 @@ function installMockFetch() {
     const method =
       typeof input !== "string" && "method" in input
         ? (input as Request).method
-        : init?.method ?? "GET"
+        : (init?.method ?? "GET")
     if (method.toUpperCase() === "POST") {
       return new Response(
         JSON.stringify({

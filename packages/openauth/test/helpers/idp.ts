@@ -47,7 +47,9 @@ export type Harness = {
   challengePair: { verifier: string; challenge: string }
 }
 
-export async function buildHarness(opts: HarnessOptions = {}): Promise<Harness> {
+export async function buildHarness(
+  opts: HarnessOptions = {},
+): Promise<Harness> {
   const tenant =
     opts.tenant ??
     (await buildTenant({
@@ -117,7 +119,10 @@ export function authorizeUrl(
 }
 
 /** Convenience: form-encoded request to `/token`. */
-export function tokenRequest(base: string, body: Record<string, string>): Request {
+export function tokenRequest(
+  base: string,
+  body: Record<string, string>,
+): Request {
   return new Request(base + "/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },

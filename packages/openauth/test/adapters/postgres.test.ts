@@ -149,7 +149,11 @@ describeAuditLog({
           const raw = r.payload
           if (typeof raw === "string") return JSON.parse(raw)
           return raw
-        }) as Awaited<ReturnType<NonNullable<Parameters<typeof describeAuditLog>[0]["makeLog"]>>>["readEvents"] extends () => Promise<infer R>
+        }) as Awaited<
+          ReturnType<
+            NonNullable<Parameters<typeof describeAuditLog>[0]["makeLog"]>
+          >
+        >["readEvents"] extends () => Promise<infer R>
           ? R
           : never
       },

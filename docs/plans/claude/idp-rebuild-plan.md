@@ -594,7 +594,6 @@ Recovery mechanisms, in order of preference:
 2. **Tenant-partitioned callback host (tenant-resolution aid only).** Some operators prefer tenant-per-subdomain (`acme.idp.example/callback`, `beta.idp.example/callback`). Configure with `callbackHostFor: (tenantId) => string`. **The host alone is never sufficient to authorize a callback — it only tells the framework which tenant config to load. The authorization transaction must still be identified by `flowId`** obtained via mechanism #1 (MACed state) or #3 (`flowId` in URI). A callback host with no recoverable `flowId` is rejected with `invalid_request`. This mechanism reduces global key dependency for tenant resolution; it does not replace flow identification.
 
 3. **`flowId`-in-URI fallback (hardened, narrow).** If `state` is unreachable (legacy upstreams that strip `state`, certain POST-binding cases), `flowId` travels via the **registered redirect URI**:
-
    - Path-embedded: `https://idp.example/cb/<methodId>/<flowId>` (preferred — providers preserve full path).
    - Query-embedded: `https://idp.example/cb/<methodId>?flowId=<flowId>` (if provider tolerates query strings in pre-registered redirect URIs).
    - **Defense in depth:** an HttpOnly/Secure/SameSite=Lax cookie named `idp.flow` containing the same `flowId` is set at `/authorize` time. On callback, if the cookie is present it must match the URI's `flowId`. If the cookie is missing (cross-site POST-binding cases), the framework requires an explicit `prompt=consent` re-auth before issuing tokens.
@@ -1274,6 +1273,7 @@ Each phase has: **Goal**, **Deliverables**, **Acceptance Criteria**, **Risks**. 
   4. Exchange the auth code at `/token` and assert tokens are issued.
 
   Global `fetch` is monkey-patched for the test file so discovery docs + token endpoints return deterministic JSON; `afterAll` restores the original. The mock does NOT issue real id_tokens — full id_token-verification coverage needs a real signed JWT + matching JWKS, deferred to integration tests against real upstreams (or fixture-based tests in Phase 8 hardening).
+
 - **Verification gates passed:**
   - `bunx tsc --noEmit -p tsconfig.json` exits 0 under `strict`.
   - `bun test` — **195/195** green (180 prior + 15 provider matrix).
@@ -1291,10 +1291,10 @@ Each phase has: **Goal**, **Deliverables**, **Acceptance Criteria**, **Risks**. 
 #### Phase 5 — Decisions captured for later phases
 
 - **`buildOauth2Method` is the public API for custom providers.** Users with a provider we haven't pre-wrapped (legacy ADFS, OneLogin, in-house OAuth server, etc.) can wire their own `AuthMethodFactory` whose `build` calls `buildOauth2Method` or `buildOidcMethod`. No internal-only escape hatch; the same path the bundled providers use is the customer-facing one.
-- **Provider wrappers stay tiny by contract.** Each wrapper is *only* a `kind` constant, a `configSchema`, and a `build` that calls the generic with the right URLs. Provider-specific custom logic (overriding `deriveSubject`, fetching userinfo, mapping claims) is allowed but rare; if a wrapper grows past ~50 lines it's a signal that the generic should learn a new hook.
+- **Provider wrappers stay tiny by contract.** Each wrapper is _only_ a `kind` constant, a `configSchema`, and a `build` that calls the generic with the right URLs. Provider-specific custom logic (overriding `deriveSubject`, fetching userinfo, mapping claims) is allowed but rare; if a wrapper grows past ~50 lines it's a signal that the generic should learn a new hook.
 - **The `idp.flow` cookie is set on every challenge** — including upstream-redirect challenges. This means the cookie is in flight while the user is at the upstream provider; on callback the framework recovers via the state envelope (primary) and the cookie is available as defense-in-depth for the `flowId`-in-URI recovery path when it lands.
 - **`POST /cb/*` requires body cloning in the tenant middleware.** The middleware uses `req.clone().text()` for `form_post` callbacks so the handler can still read the body. Adapter authors building bespoke routers must preserve this — cloning is cheap (the body's bytes haven't been read yet) and indispensable for Apple support.
-- **`expectedIssuer` on the OAuth2 generic is the wire-format issuer**, not the configured `issuer` parameter. For Microsoft this matters: the user passes `tenant: "common"` and the framework builds `issuer = https://login.microsoftonline.com/common/v2.0`, but Microsoft's id_tokens carry a *tenant-specific* `iss` claim (the resolved tenant). `buildOidcMethod` uses `endpoints.issuer` (from discovery) as `expectedIssuer`, which Microsoft's discovery doc fills in correctly.
+- **`expectedIssuer` on the OAuth2 generic is the wire-format issuer**, not the configured `issuer` parameter. For Microsoft this matters: the user passes `tenant: "common"` and the framework builds `issuer = https://login.microsoftonline.com/common/v2.0`, but Microsoft's id_tokens carry a _tenant-specific_ `iss` claim (the resolved tenant). `buildOidcMethod` uses `endpoints.issuer` (from discovery) as `expectedIssuer`, which Microsoft's discovery doc fills in correctly.
 - **OIDC method state has no upstream-nonce.** Phase 2's plan §"Two PKCEs, never confuse them" mentions OIDC providers stashing `upstreamNonce`. Phase 5 doesn't currently use `nonce` for OIDC providers; relying on PKCE + state-MAC is sufficient for the auth-code flow against the existing 15 providers. Adding `nonce` is a one-line addition to `buildOauth2Method` if a future provider requires it.
 
 ##### Open items surfaced during Phase 5
@@ -1407,7 +1407,7 @@ library.
   default), #3 (Audit log backend), #4 (Tenant onboarding flow) all
   closed; Phase 7 entry rewritten; DoD checklist updated.
 - Memory: persistent project-role note (`.claude/projects/.../memory/
-  project_role.md`) so future sessions don't reintroduce console / admin
+project_role.md`) so future sessions don't reintroduce console / admin
   / RBAC scope into the library.
 
 **Acceptance criteria:**
@@ -1430,7 +1430,7 @@ library.
   library authenticates a subject and emits a JWT; the host's middleware
   reads the JWT, looks the user up in its own model, and decides what
   they can do.
-- **Reserved "system" tenant semantics** — it's a *configuration pattern*
+- **Reserved "system" tenant semantics** — it's a _configuration pattern_
   the host may choose (run a dedicated partition for admin auth), not a
   framework primitive. The host writes the rows; the framework doesn't
   need a `systemTenantId` config field.
@@ -1460,7 +1460,7 @@ library.
   authentication or authorization?" — authentication belongs here;
   authorization (admin RBAC, billing, org hierarchy) belongs to the host.
 - **The `App × App-Tenant` encoding** (`tenantId = "${appId}:${appTenantId
-  ?? "__default__"}"`) is the canonical pattern documented in
+?? "__default__"}"`) is the canonical pattern documented in
   ARCHITECTURE.md. Hosts implementing their own `resolveTenant` /
   `ConfigStore` should mirror it unless they have a specific reason to
   diverge.

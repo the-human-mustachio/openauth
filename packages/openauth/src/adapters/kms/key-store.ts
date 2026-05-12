@@ -64,7 +64,9 @@ export class KmsKeyStore implements KeyStore {
     const active = all.find((k) => k.status === "active")
     if (!active) {
       return err(
-        authError.internalError("no active signing key (should be unreachable)"),
+        authError.internalError(
+          "no active signing key (should be unreachable)",
+        ),
       )
     }
     return ok(await this.#hydrateSigning(active))

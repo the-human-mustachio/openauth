@@ -15,10 +15,7 @@ import { DecryptCommand, EncryptCommand } from "@aws-sdk/client-kms"
 
 import type { KmsClientLike } from "./types"
 
-export function fromKmsClient(
-  client: KMSClient,
-  keyId: string,
-): KmsClientLike {
+export function fromKmsClient(client: KMSClient, keyId: string): KmsClientLike {
   return {
     async encrypt(plaintext: Uint8Array): Promise<Uint8Array> {
       const result = await client.send(

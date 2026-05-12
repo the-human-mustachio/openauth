@@ -13,7 +13,10 @@ import { err, ok } from "../../types/result"
 import type { MethodConfig, TenantId } from "../../types/tenant"
 
 export type MemoryMethodStoreOptions = {
-  seed?: ReadonlyArray<{ tenantId: TenantId; methods: ReadonlyArray<MethodConfig> }>
+  seed?: ReadonlyArray<{
+    tenantId: TenantId
+    methods: ReadonlyArray<MethodConfig>
+  }>
 }
 
 export class MemoryMethodStore implements MethodStore {

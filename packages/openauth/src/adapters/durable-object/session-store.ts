@@ -36,7 +36,10 @@ import type { SessionRecord, SessionStore } from "../../ports/session-store"
 import type { Result } from "../../types/result"
 import { err, ok } from "../../types/result"
 
-import type { DurableObjectStorageLike, DurableObjectTransactionLike } from "./types"
+import type {
+  DurableObjectStorageLike,
+  DurableObjectTransactionLike,
+} from "./types"
 
 type StoredFlow = {
   record: FlowRecord

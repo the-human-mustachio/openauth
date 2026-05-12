@@ -15,10 +15,7 @@
  */
 import { describe, expect, test } from "bun:test"
 
-import {
-  MemoryConfigStore,
-  MemoryKeyStore,
-} from "../../src/adapters/memory"
+import { MemoryConfigStore, MemoryKeyStore } from "../../src/adapters/memory"
 import { introspect } from "../../src/domain/introspect"
 import { signAccessToken } from "../../src/domain/jwt"
 import { hashClientSecret } from "../../src/domain/token"
@@ -46,7 +43,9 @@ async function buildFixture() {
         pkceRequired: true,
       },
     ],
-    methods: [{ id: "stub", kind: "stub", type: "custom", enabled: true, config: {} }],
+    methods: [
+      { id: "stub", kind: "stub", type: "custom", enabled: true, config: {} },
+    ],
   }
   const tenantB: TenantConfig = {
     id: asTenantId("tenant-b"),
@@ -63,7 +62,9 @@ async function buildFixture() {
         pkceRequired: true,
       },
     ],
-    methods: [{ id: "stub", kind: "stub", type: "custom", enabled: true, config: {} }],
+    methods: [
+      { id: "stub", kind: "stub", type: "custom", enabled: true, config: {} },
+    ],
   }
   const configStore = new MemoryConfigStore({ seed: [tenantA, tenantB] })
 

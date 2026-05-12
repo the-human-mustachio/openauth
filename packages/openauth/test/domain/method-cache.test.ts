@@ -15,10 +15,7 @@ import { authError } from "../../src/types/error"
 import type { ConfigStore } from "../../src/ports/config-store"
 import type { TenantId } from "../../src/types/tenant"
 import { buildStateKeys } from "../helpers/state-keys"
-import type {
-  AuthMethod,
-  AuthMethodFactory,
-} from "../../src/types/method"
+import type { AuthMethod, AuthMethodFactory } from "../../src/types/method"
 import { brokenIdFactory, inlineSuccessFactory } from "../helpers/method"
 import { buildTenant } from "../helpers/tenant"
 
@@ -26,11 +23,9 @@ import { buildTenant } from "../helpers/tenant"
  * Factory that records every build's `tag` on a shared `builds` array so
  * tests can assert which config a cached method was last rebuilt from.
  */
-function taggedFactory(builds: string[]): AuthMethodFactory<
-  { tag: string },
-  unknown,
-  { tag: string }
-> {
+function taggedFactory(
+  builds: string[],
+): AuthMethodFactory<{ tag: string }, unknown, { tag: string }> {
   return {
     kind: "tagged",
     configSchema: z.object({ tag: z.string() }),
@@ -120,7 +115,9 @@ describe("MethodCache", () => {
   })
 
   test("createIdP registers an onInvalidate listener on the ConfigStore (H7)", async () => {
-    const tenant = await buildTenant({ methods: [{ id: "stub", kind: "stub" }] })
+    const tenant = await buildTenant({
+      methods: [{ id: "stub", kind: "stub" }],
+    })
     const listeners: Array<(id: TenantId) => void> = []
     const wrappedConfigStore: ConfigStore = {
       async getTenantConfig(id) {
@@ -181,9 +178,7 @@ describe("MethodCache", () => {
     // upstream client_secret rotation is silently ignored.
     const rotated = {
       ...tenant,
-      methods: [
-        { ...tenant.methods[0]!, config: { tag: "v2" } },
-      ],
+      methods: [{ ...tenant.methods[0]!, config: { tag: "v2" } }],
     }
     await configStore.putTenantConfig(rotated)
 

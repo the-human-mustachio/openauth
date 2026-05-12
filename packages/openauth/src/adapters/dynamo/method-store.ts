@@ -91,7 +91,9 @@ export class DynamoMethodStore implements MethodStore {
         key: { pk: partitionKey(tenantId), sk: methodId },
       })
     } catch (e) {
-      return err(authError.internalError("deleteMethodConfig: delete failed", e))
+      return err(
+        authError.internalError("deleteMethodConfig: delete failed", e),
+      )
     }
     return ok(undefined)
   }

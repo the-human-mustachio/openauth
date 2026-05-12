@@ -290,10 +290,22 @@ export function describeTokenStore(opts: TokenStoreSuiteOptions): void {
         const ra = uniqueSuffix("r")
         const rb = uniqueSuffix("r")
         const rc = uniqueSuffix("r")
-        await tokenStore.saveRefresh(ra, makeRefreshPayload({ subjectId: "alice" }))
-        await tokenStore.saveRefresh(rb, makeRefreshPayload({ subjectId: "alice" }))
-        await tokenStore.saveRefresh(rc, makeRefreshPayload({ subjectId: "bob" }))
-        const result = await tokenStore.revokeBySubject(fixtureTenantId, "alice")
+        await tokenStore.saveRefresh(
+          ra,
+          makeRefreshPayload({ subjectId: "alice" }),
+        )
+        await tokenStore.saveRefresh(
+          rb,
+          makeRefreshPayload({ subjectId: "alice" }),
+        )
+        await tokenStore.saveRefresh(
+          rc,
+          makeRefreshPayload({ subjectId: "bob" }),
+        )
+        const result = await tokenStore.revokeBySubject(
+          fixtureTenantId,
+          "alice",
+        )
         expect(result.ok).toBe(true)
         expect((await tokenStore.consumeRefresh(ra)).ok).toBe(false)
         expect((await tokenStore.consumeRefresh(rb)).ok).toBe(false)

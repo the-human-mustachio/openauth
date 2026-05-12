@@ -128,9 +128,7 @@ export class MemoryTokenStore implements TokenStore {
     return ok(stored.payload)
   }
 
-  async peekRefresh(
-    refresh: string,
-  ): Promise<Result<RefreshTokenPayload>> {
+  async peekRefresh(refresh: string): Promise<Result<RefreshTokenPayload>> {
     const stored = this.#refresh.get(refresh)
     if (!stored) {
       return err(authError.invalidGrant("refresh token unknown"))

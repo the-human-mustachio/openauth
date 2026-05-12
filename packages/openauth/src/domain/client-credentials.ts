@@ -70,7 +70,9 @@ export async function clientCredentialsGrant(
   }
   if (client.type !== "confidential") {
     return err(
-      authError.invalidClient("client_credentials requires confidential client"),
+      authError.invalidClient(
+        "client_credentials requires confidential client",
+      ),
     )
   }
   if (!client.grantTypes.includes("client_credentials")) {
@@ -98,9 +100,7 @@ export async function clientCredentialsGrant(
     (m) => m.type === "m2m" && m.enabled,
   )
   if (m2mCfgs.length === 0) {
-    return err(
-      authError.methodNotFound("no enabled m2m method on tenant", {}),
-    )
+    return err(authError.methodNotFound("no enabled m2m method on tenant", {}))
   }
   if (m2mCfgs.length > 1) {
     return err(

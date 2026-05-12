@@ -150,7 +150,11 @@ export class PostgresTokenStore implements TokenStore {
     }
     // No row claimed. Find out why — unknown, expired, or already consumed.
     let existing:
-      | { consumed_at: string | number | null; expires_at: string | number; payload: unknown }
+      | {
+          consumed_at: string | number | null
+          expires_at: string | number
+          payload: unknown
+        }
       | undefined
     try {
       const result = await this.#exec.query<{
@@ -197,12 +201,8 @@ export class PostgresTokenStore implements TokenStore {
     return err(authError.internalError("consumeRefresh: unexplained miss"))
   }
 
-  async peekRefresh(
-    refresh: string,
-  ): Promise<Result<RefreshTokenPayload>> {
-    let row:
-      | { expires_at: string | number; payload: unknown }
-      | undefined
+  async peekRefresh(refresh: string): Promise<Result<RefreshTokenPayload>> {
+    let row: { expires_at: string | number; payload: unknown } | undefined
     try {
       const result = await this.#exec.query<{
         expires_at: string | number

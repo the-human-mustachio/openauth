@@ -89,7 +89,9 @@ export class KvMethodStore implements MethodStore {
     try {
       await this.#kv.delete(methodKey(tenantId, methodId))
     } catch (e) {
-      return err(authError.internalError("deleteMethodConfig: kv.delete failed", e))
+      return err(
+        authError.internalError("deleteMethodConfig: kv.delete failed", e),
+      )
     }
     return ok(undefined)
   }

@@ -54,11 +54,21 @@
     "postgres": "^3.0.0"
   },
   "peerDependenciesMeta": {
-    "@aws-sdk/client-dynamodb": { "optional": true },
-    "@aws-sdk/client-kms": { "optional": true },
-    "@aws-sdk/lib-dynamodb": { "optional": true },
-    "@cloudflare/workers-types": { "optional": true },
-    "postgres": { "optional": true }
+    "@aws-sdk/client-dynamodb": {
+      "optional": true
+    },
+    "@aws-sdk/client-kms": {
+      "optional": true
+    },
+    "@aws-sdk/lib-dynamodb": {
+      "optional": true
+    },
+    "@cloudflare/workers-types": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    }
   },
   "dependencies": {
     "@noble/hashes": "2.2.0",

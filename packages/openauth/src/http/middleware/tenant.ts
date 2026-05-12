@@ -59,9 +59,7 @@ export function bootstrapMiddleware(
  * tenant in scope (`/authorize`, method dispatch, `/cb/*`). Token endpoints
  * derive tenant from the auth code's snapshot — they skip this middleware.
  */
-export function tenantMiddleware(
-  deps: HttpDeps,
-): MiddlewareHandler<HttpEnv> {
+export function tenantMiddleware(deps: HttpDeps): MiddlewareHandler<HttpEnv> {
   return async (c, next) => {
     const url = new URL(c.req.url)
 

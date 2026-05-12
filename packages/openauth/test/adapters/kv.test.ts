@@ -6,11 +6,7 @@
  * an in-process KV shim — strict on contract, lax on consistency-window
  * simulation.
  */
-import {
-  KvAuditLog,
-  KvConfigStore,
-  KvMethodStore,
-} from "../../src/adapters/kv"
+import { KvAuditLog, KvConfigStore, KvMethodStore } from "../../src/adapters/kv"
 
 import { createKvShim } from "../helpers/kv-shim"
 import {

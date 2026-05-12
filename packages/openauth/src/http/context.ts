@@ -78,6 +78,9 @@ export type HttpEnv = {
 export type HttpContext = Context<HttpEnv>
 
 /** Convenience: build the initial `HttpVars` value for a request. */
-export function initialVars(issuerUrl: string, cookies: Map<string, string>): HttpVars {
+export function initialVars(
+  issuerUrl: string,
+  cookies: Map<string, string>,
+): HttpVars {
   return { cookies, tenant: null, recovery: null, issuerUrl }
 }

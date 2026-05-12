@@ -21,10 +21,7 @@ import { z } from "zod"
 
 import { buildOauth2Method } from "./oauth2-generic"
 import { buildOidcMethod } from "./oidc-generic"
-import type {
-  Oauth2Properties,
-  Oauth2State,
-} from "./oauth2-generic"
+import type { Oauth2Properties, Oauth2State } from "./oauth2-generic"
 import type { AuthMethod, AuthMethodFactory } from "../types/method"
 
 const oauth2ConfigSchema = z.object({

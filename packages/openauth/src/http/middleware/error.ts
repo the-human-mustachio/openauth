@@ -10,9 +10,7 @@ import { authError } from "../../types/error"
 import type { HttpDeps, HttpEnv } from "../context"
 import { tokenEndpointErrorResponse } from "../errors"
 
-export function errorMiddleware(
-  _deps: HttpDeps,
-): MiddlewareHandler<HttpEnv> {
+export function errorMiddleware(_deps: HttpDeps): MiddlewareHandler<HttpEnv> {
   return async (_c, next) => {
     try {
       await next()

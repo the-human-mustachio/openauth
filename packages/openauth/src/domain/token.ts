@@ -239,12 +239,14 @@ export async function mintTokens(args: {
   }
 }): Promise<Result<TokenResponse, AuthError>> {
   const { tenant, claim, payload, deps, family, skipRefresh } = args
-  const accessTtl = tenant.config.accessTtl !== undefined
-    ? tenant.config.accessTtl * 1000
-    : DEFAULT_ACCESS_TTL_MS
-  const refreshTtl = tenant.config.refreshTtl !== undefined
-    ? tenant.config.refreshTtl * 1000
-    : DEFAULT_REFRESH_TTL_MS
+  const accessTtl =
+    tenant.config.accessTtl !== undefined
+      ? tenant.config.accessTtl * 1000
+      : DEFAULT_ACCESS_TTL_MS
+  const refreshTtl =
+    tenant.config.refreshTtl !== undefined
+      ? tenant.config.refreshTtl * 1000
+      : DEFAULT_REFRESH_TTL_MS
   const now = deps.clock()
   const subjectId = await deriveSubjectId(claim)
 
@@ -353,4 +355,3 @@ function canonicalize(value: unknown): string {
 async function hashTokenForAudit(token: string): Promise<string> {
   return base64url.encode(await sha256(utf8.encode(token))).slice(0, 16)
 }
-

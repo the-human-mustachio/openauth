@@ -84,7 +84,8 @@ export function describeMethodStore(opts: MethodStoreSuiteOptions): void {
       await store.putMethodConfig(t1, methodConfig({ id: "only-in-t1" }))
       const list2 = await store.listMethods(t2)
       expect(list2.ok).toBe(true)
-      if (list2.ok) expect(list2.value.map((m) => m.id)).not.toContain("only-in-t1")
+      if (list2.ok)
+        expect(list2.value.map((m) => m.id)).not.toContain("only-in-t1")
     })
 
     test("deleteMethodConfig removes the entry", async () => {
@@ -101,7 +102,10 @@ export function describeMethodStore(opts: MethodStoreSuiteOptions): void {
       const tenantId = asTenantId(uniqueSuffix("t"))
       const id = uniqueSuffix("m")
       await store.putMethodConfig(tenantId, methodConfig({ id, enabled: true }))
-      await store.putMethodConfig(tenantId, methodConfig({ id, enabled: false }))
+      await store.putMethodConfig(
+        tenantId,
+        methodConfig({ id, enabled: false }),
+      )
       const got = await store.getMethodConfig(tenantId, id)
       expect(got.ok).toBe(true)
       if (got.ok) expect(got.value.enabled).toBe(false)

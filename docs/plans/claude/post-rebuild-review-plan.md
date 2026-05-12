@@ -19,12 +19,12 @@ output.
 
 ## Progress
 
-| Tier | Open | Done | Total |
-|---|---|---|---|
-| Critical | 0 | 2 | 2 |
-| High | 0 | 12 | 12 |
-| Medium | 0 | 11 | 11 |
-| Low | 0 | 6 | 6 |
+| Tier      | Open  | Done   | Total  |
+| --------- | ----- | ------ | ------ |
+| Critical  | 0     | 2      | 2      |
+| High      | 0     | 12     | 12     |
+| Medium    | 0     | 11     | 11     |
+| Low       | 0     | 6      | 6      |
 | **Total** | **0** | **31** | **31** |
 
 ---
@@ -80,7 +80,7 @@ output.
 - **Fix:** Treat wrong-client revoke as a successful no-op (200, empty body). Audit internally as a wrong-client attempt.
 - **Verification note:** Confirmed. Branch returns `invalid_grant` at line 94-98.
 
-### H4 — Authenticate client *before* the client-mismatch check on refresh-grant
+### H4 — Authenticate client _before_ the client-mismatch check on refresh-grant
 
 - [x] **Status:** done
 - **Severity:** High · **Effort:** S
@@ -98,12 +98,12 @@ output.
 - **Fix:** After parsing the body, synthesize a URL with `client_id` injected as a query param before calling `resolveTenant`, OR expose a separate `resolveTenantForClient(clientId)` hook on `IdPOptions`. Add an integration test covering m2m on a host whose resolver depends on `client_id`. Update INTEGRATION.md §5.1.
 - **Verification note:** Confirmed at code.
 
-### H6 — Authenticate against presenting client's tenant *before* loading the token's tenant in `/introspect`
+### H6 — Authenticate against presenting client's tenant _before_ loading the token's tenant in `/introspect`
 
 - [x] **Status:** done
 - **Severity:** High · **Effort:** S
 - **Files:** `packages/openauth/src/domain/introspect.ts:82-93`
-- **Problem:** Current order: (1) verify JWT → if unverifiable return `{active: false}`; (2) `getTenantConfig(claims.tid)`; (3) find client by `req.clientId` in *that* tenant → if absent `invalid_client`; (4) verify creds. A caller presenting a valid foreign token + their own valid creds in a different tenant gets a distinguishable `invalid_client` response — confirms whether their client exists in the foreign token's tenant. Narrower than the agent framed, but still a leak.
+- **Problem:** Current order: (1) verify JWT → if unverifiable return `{active: false}`; (2) `getTenantConfig(claims.tid)`; (3) find client by `req.clientId` in _that_ tenant → if absent `invalid_client`; (4) verify creds. A caller presenting a valid foreign token + their own valid creds in a different tenant gets a distinguishable `invalid_client` response — confirms whether their client exists in the foreign token's tenant. Narrower than the agent framed, but still a leak.
 - **Fix:** Authenticate against the **presenting client's tenant** (e.g., via a separate tenant resolution from the request) first. Only then attempt to verify the token. If the presenter's tenant ≠ token's tenant, return `{active: false}`.
 - **Verification note:** Confirmed. Severity reduced from agent's framing because weaponization requires already possessing a valid foreign token.
 

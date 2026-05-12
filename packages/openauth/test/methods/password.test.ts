@@ -64,9 +64,7 @@ describe("passwordMethod", () => {
       },
     ])
     const tenant = await buildTenant({
-      methods: [
-        { id: "password", kind: "password", config: {} },
-      ],
+      methods: [{ id: "password", kind: "password", config: {} }],
     })
     // The buildTenant helper defaults method.type to "custom" — patch.
     tenant.methods[0]!.type = "password"

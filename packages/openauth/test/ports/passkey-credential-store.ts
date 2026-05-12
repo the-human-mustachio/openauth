@@ -30,7 +30,9 @@ export type PasskeyCredentialStoreSuiteOptions = {
   }>
 }
 
-function makeCredential(overrides: Partial<StoredCredential> = {}): StoredCredential {
+function makeCredential(
+  overrides: Partial<StoredCredential> = {},
+): StoredCredential {
   return {
     credentialId: uniqueSuffix("cred"),
     publicKey: "AAAA",
@@ -112,10 +114,7 @@ export function describePasskeyCredentialStore(
         credential,
         tenantId: tenantA,
       })
-      const wrongTenant = await store.findByUsername(
-        credential.userId,
-        tenantB,
-      )
+      const wrongTenant = await store.findByUsername(credential.userId, tenantB)
       expect(wrongTenant).toBeNull()
       // And findById is also tenant-scoped.
       const wrongTenantById = await store.findById(

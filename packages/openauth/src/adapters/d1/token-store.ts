@@ -156,7 +156,11 @@ export class D1TokenStore implements TokenStore {
             WHERE token = ?1`,
         )
         .bind(refresh)
-        .first<{ consumed_at: number | null; expires_at: number; payload: string }>()
+        .first<{
+          consumed_at: number | null
+          expires_at: number
+          payload: string
+        }>()
     } catch (e) {
       return err(authError.internalError("consumeRefresh: lookup failed", e))
     }
@@ -188,9 +192,7 @@ export class D1TokenStore implements TokenStore {
     return err(authError.internalError("consumeRefresh: unexplained miss"))
   }
 
-  async peekRefresh(
-    refresh: string,
-  ): Promise<Result<RefreshTokenPayload>> {
+  async peekRefresh(refresh: string): Promise<Result<RefreshTokenPayload>> {
     let row: { expires_at: number; payload: string } | null
     try {
       row = await primarySession(this.#db)

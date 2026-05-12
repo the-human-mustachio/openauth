@@ -15,10 +15,7 @@ export type { PickerContext, PickerMethod }
  * Build an `/authorize` URL that pre-selects a specific `method_id` while
  * carrying every other OAuth param through unchanged.
  */
-export function buildMethodLink(
-  methodId: string,
-  ctx: PickerContext,
-): string {
+export function buildMethodLink(methodId: string, ctx: PickerContext): string {
   const params = new URLSearchParams()
   params.set("client_id", ctx.clientId)
   params.set("redirect_uri", ctx.redirectUri)

@@ -23,7 +23,8 @@ export function parseCookieHeader(header: string | null): Map<string, string> {
     }
     const name = trimmed.slice(0, eq).trim()
     const raw = trimmed.slice(eq + 1).trim()
-    const value = raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw
+    const value =
+      raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw
     try {
       out.set(name, decodeURIComponent(value))
     } catch {

@@ -6,9 +6,7 @@
  * single-winner guarantee under concurrent `consumeFlow` calls is exactly
  * the guarantee a real DO instance provides.
  */
-import {
-  DurableObjectSessionStore,
-} from "../../src/adapters/durable-object"
+import { DurableObjectSessionStore } from "../../src/adapters/durable-object"
 
 import { createDOStorageShim } from "../helpers/do-storage-shim"
 import { describeSessionStore } from "../ports"

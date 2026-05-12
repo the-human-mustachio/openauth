@@ -28,10 +28,13 @@ export class MemoryPasskeyCredentialStore implements PasskeyCredentialStore {
 
   constructor(opts: MemoryPasskeyCredentialStoreOptions = {}) {
     for (const entry of opts.seed ?? []) {
-      this.#items.set(this.#key(entry.tenantId, entry.credential.credentialId), {
-        ...entry.credential,
-        tenantId: entry.tenantId,
-      })
+      this.#items.set(
+        this.#key(entry.tenantId, entry.credential.credentialId),
+        {
+          ...entry.credential,
+          tenantId: entry.tenantId,
+        },
+      )
     }
   }
 
@@ -77,14 +80,11 @@ export class MemoryPasskeyCredentialStore implements PasskeyCredentialStore {
     credential: StoredCredential
     tenantId: string
   }): Promise<void> {
-    this.#items.set(
-      this.#key(input.tenantId, input.credential.credentialId),
-      {
-        ...input.credential,
-        userId: input.userId,
-        tenantId: input.tenantId,
-      },
-    )
+    this.#items.set(this.#key(input.tenantId, input.credential.credentialId), {
+      ...input.credential,
+      userId: input.userId,
+      tenantId: input.tenantId,
+    })
   }
 }
 

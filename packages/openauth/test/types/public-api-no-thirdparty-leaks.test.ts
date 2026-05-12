@@ -65,12 +65,16 @@ test("public API: Oauth2Properties.idTokenClaims is plain Record, not jose.JWTPa
 })
 
 test("public API: Oauth2MethodInput.deriveSubject takes plain-object claims", () => {
-  type DeriveInput = Parameters<NonNullable<Oauth2MethodInput["deriveSubject"]>>[0]
+  type DeriveInput = Parameters<
+    NonNullable<Oauth2MethodInput["deriveSubject"]>
+  >[0]
   type Claims = NonNullable<DeriveInput["idTokenClaims"]>
   const slot = {} as Claims
   slot["aud"] = 42 // would fail under JWTPayload.
 
-  type OidcDeriveInput = Parameters<NonNullable<OidcMethodInput["deriveSubject"]>>[0]
+  type OidcDeriveInput = Parameters<
+    NonNullable<OidcMethodInput["deriveSubject"]>
+  >[0]
   type OidcClaims = NonNullable<OidcDeriveInput["idTokenClaims"]>
   const oidcSlot = {} as OidcClaims
   oidcSlot["aud"] = 42

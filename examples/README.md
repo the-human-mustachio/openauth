@@ -1,7 +1,7 @@
 # Examples
 
-| Example | What it shows |
-|---|---|
+| Example                              | What it shows                                                                                |
+| ------------------------------------ | -------------------------------------------------------------------------------------------- |
 | [`embed-postgres/`](embed-postgres/) | Minimum-viable host embedding — Node/Bun + Postgres adapter set + password + Google sign-in. |
 
 If you want a different deployment target (Cloudflare Workers,

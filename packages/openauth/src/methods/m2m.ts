@@ -15,11 +15,7 @@ import { z } from "zod"
 
 import { authError } from "../types/error"
 import { err, ok, type Result } from "../types/result"
-import type {
-  AuthMethod,
-  AuthMethodFactory,
-  ClientFn,
-} from "../types/method"
+import type { AuthMethod, AuthMethodFactory, ClientFn } from "../types/method"
 
 export type M2MProperties = {
   /** The client's stable id (echoed back from the request). */
@@ -51,8 +47,14 @@ export function m2mMethod(
   return {
     kind: "m2m",
     configSchema,
-    build: async ({ id, kind, tenantId }): Promise<AuthMethod<M2MProperties, never>> => {
-      const clientFn: ClientFn<M2MProperties> = async (input): Promise<
+    build: async ({
+      id,
+      kind,
+      tenantId,
+    }): Promise<AuthMethod<M2MProperties, never>> => {
+      const clientFn: ClientFn<M2MProperties> = async (
+        input,
+      ): Promise<
         Result<M2MProperties, ReturnType<typeof authError.invalidClient>>
       > => {
         const verified = await opts.verify({

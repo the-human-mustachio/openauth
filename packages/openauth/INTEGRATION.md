@@ -68,7 +68,7 @@ import {
   type TenantId,
   type TenantConfig,
   type TenantContext,
-  type ClientConfig,                // discriminated union
+  type ClientConfig, // discriminated union
   type PublicClientConfig,
   type ConfidentialClientConfig,
   type GrantType,
@@ -134,26 +134,26 @@ import type {
 
 ## 4. Storage adapters — pick by deployment target
 
-| Deployment | Recommended stack |
-|---|---|
-| **Node + Postgres** | All ports from `@_mustachio/openauth/adapters/postgres` |
+| Deployment             | Recommended stack                                                                                                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Node + Postgres**    | All ports from `@_mustachio/openauth/adapters/postgres`                                                                                                                          |
 | **Cloudflare Workers** | `ConfigStore` + `MethodStore` + `AuditLog` from `/adapters/kv`; `TokenStore` from `/adapters/d1`; `SessionStore` from `/adapters/durable-object`; `KeyStore` from `/adapters/d1` |
-| **AWS Lambda** | All ports from `/adapters/dynamo`; optionally `KeyStore` from `/adapters/kms` for HSM-grade key wrapping |
-| **Dev / Tests** | All ports from `/adapters/memory` |
+| **AWS Lambda**         | All ports from `/adapters/dynamo`; optionally `KeyStore` from `/adapters/kms` for HSM-grade key wrapping                                                                         |
+| **Dev / Tests**        | All ports from `/adapters/memory`                                                                                                                                                |
 
 Per-port adapter coverage (every cell is a bundled, conformance-tested
 adapter; "—" means not implemented and the alternatives in the same
 row cover that backend):
 
-| Port | memory | postgres | d1 | dynamo | kv | durable-object | kms |
-|---|---|---|---|---|---|---|---|
-| `TokenStore` | ✓ | ✓ | ✓ | ✓ | — (eventual) | — | — |
-| `SessionStore` | ✓ | ✓ | ✓ | ✓ | — (eventual) | ✓ | — |
-| `KeyStore` | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
-| `ConfigStore` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `MethodStore` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `AuditLog` | ✓ | ✓ | ✓ | ✓ | ✓ | — | — |
-| `PasskeyCredentialStore` | ✓ | ✓ | — | ✓ | — | — | — |
+| Port                     | memory | postgres | d1  | dynamo | kv           | durable-object | kms |
+| ------------------------ | ------ | -------- | --- | ------ | ------------ | -------------- | --- |
+| `TokenStore`             | ✓      | ✓        | ✓   | ✓      | — (eventual) | —              | —   |
+| `SessionStore`           | ✓      | ✓        | ✓   | ✓      | — (eventual) | ✓              | —   |
+| `KeyStore`               | ✓      | ✓        | ✓   | ✓      | —            | —              | ✓   |
+| `ConfigStore`            | ✓      | ✓        | ✓   | ✓      | ✓            | —              | —   |
+| `MethodStore`            | ✓      | ✓        | ✓   | ✓      | ✓            | —              | —   |
+| `AuditLog`               | ✓      | ✓        | ✓   | ✓      | ✓            | —              | —   |
+| `PasskeyCredentialStore` | ✓      | ✓        | —   | ✓      | —            | —              | —   |
 
 **Hard constraint:** `TokenStore` and `SessionStore` require strong CAS.
 Cloudflare KV is **not** acceptable for those two ports. See
@@ -182,7 +182,9 @@ const KeyId = process.env.OPENAUTH_KMS_KEY_ARN!
 
 const wrapper: KeyWrapper = {
   async wrap(plaintext) {
-    const r = await kms.send(new EncryptCommand({ KeyId, Plaintext: plaintext }))
+    const r = await kms.send(
+      new EncryptCommand({ KeyId, Plaintext: plaintext }),
+    )
     return new Uint8Array(r.CiphertextBlob!)
   },
   async unwrap(ciphertext) {
@@ -224,7 +226,9 @@ MAC-bound state envelope.
 `App-Tenant`):** encode the tuple into the key.
 
 ```ts
-async function resolveTenant(req: Request): Promise<Result<TenantId, AuthError>> {
+async function resolveTenant(
+  req: Request,
+): Promise<Result<TenantId, AuthError>> {
   const url = new URL(req.url)
   const clientId = url.searchParams.get("client_id")
   if (!clientId) {
@@ -245,7 +249,7 @@ async function resolveTenant(req: Request): Promise<Result<TenantId, AuthError>>
 }
 ```
 
-**`client_credentials` grant note.** A `POST /token` for `grant_type=client_credentials` carries `client_id` in the form body / Basic-auth header, not the URL. The framework parses the body and *injects* the resolved `client_id` into the request's URL search params before calling `resolveTenant`, so the canonical pattern above works identically for m2m — no separate hook is needed. (If the request already has a `client_id` query param, the framework leaves it alone.)
+**`client_credentials` grant note.** A `POST /token` for `grant_type=client_credentials` carries `client_id` in the form body / Basic-auth header, not the URL. The framework parses the body and _injects_ the resolved `client_id` into the request's URL search params before calling `resolveTenant`, so the canonical pattern above works identically for m2m — no separate hook is needed. (If the request already has a `client_id` query param, the framework leaves it alone.)
 
 ### 5.2 `ConfigStore` — return the resolved `TenantConfig`
 
@@ -273,7 +277,7 @@ const configStore: ConfigStore = {
         {
           id: app.oauthClientId,
           name: app.name,
-          type: "confidential",             // or "public" for SPA / mobile
+          type: "confidential", // or "public" for SPA / mobile
           secretHash: app.oauthClientSecretHash, // sha256+base64url (see §10)
           redirectUris: app.allowedRedirectUris,
           grantTypes: ["authorization_code", "refresh_token"],
@@ -336,9 +340,9 @@ const success = async (input: SuccessMapInput): Promise<SubjectClaim> => {
   // a "user" is — you decide.
   const user = await db.users.upsertByProviderIdentity({
     tenantId: tenant.id,
-    methodKind,                  // "google" | "password" | "passkey" | ...
-    providerSubject,             // Google's `sub`, password row's user_id, etc.
-    properties,                  // typed per method
+    methodKind, // "google" | "password" | "passkey" | ...
+    providerSubject, // Google's `sub`, password row's user_id, etc.
+    properties, // typed per method
   })
 
   // Decide what subject type to issue. You can issue different types
@@ -379,12 +383,12 @@ Optional. Build whatever per-request data the host wants downstream
 code to see (request id, decoded edge JWT claims, mTLS cert info, geo
 hints). The returned record becomes:
 
-  - `TenantContext.request.custom` for the same-request entrypoints
-    (`/authorize`, `/token`, `/userinfo`, `/revoke`, `/introspect`).
-  - `FlowRecord.context` on the saved flow (so it survives the upstream
-    redirect chain).
-  - `SuccessMapInput.context` when the `success` callback runs at
-    `/token` time.
+- `TenantContext.request.custom` for the same-request entrypoints
+  (`/authorize`, `/token`, `/userinfo`, `/revoke`, `/introspect`).
+- `FlowRecord.context` on the saved flow (so it survives the upstream
+  redirect chain).
+- `SuccessMapInput.context` when the `success` callback runs at
+  `/token` time.
 
 ```ts
 const idp = createIdP({
@@ -464,7 +468,7 @@ import { z } from "zod"
 // 1. Storage setup
 const sql = postgres(process.env.DATABASE_URL!)
 const exec = fromPostgresJs(sql)
-await migrate(exec)   // idempotent; creates tables on first run
+await migrate(exec) // idempotent; creates tables on first run
 
 const keyStore = new PostgresKeyStore({ exec })
 const tokenStore = new PostgresTokenStore({ exec, keyStore })
@@ -524,7 +528,7 @@ const idp = createIdP({
 // 5. Serve
 Bun.serve({
   port: 3000,
-  fetch: idp.handle,    // export default { fetch: idp.handle } for Workers
+  fetch: idp.handle, // export default { fetch: idp.handle } for Workers
 })
 ```
 
@@ -540,7 +544,7 @@ The library returns an `IdP` handle with per-endpoint accessors:
 
 ```ts
 type IdP = {
-  handle: (req: Request) => Promise<Response>   // single fetch entrypoint
+  handle: (req: Request) => Promise<Response> // single fetch entrypoint
   authorize: (req: Request) => Promise<Response>
   token: (req: Request) => Promise<Response>
   userinfo: (req: Request) => Promise<Response>
@@ -559,8 +563,8 @@ import { Hono } from "hono"
 const app = new Hono()
 
 app.get("/health", (c) => c.text("ok"))
-app.route("/auth", honoWrap(idp.handle))   // see below
-app.get("/console/*", consoleHandler)       // your own UI
+app.route("/auth", honoWrap(idp.handle)) // see below
+app.get("/console/*", consoleHandler) // your own UI
 ```
 
 Where `honoWrap` strips the `/auth` prefix before delegating:
@@ -579,7 +583,9 @@ function honoWrap(fn: (req: Request) => Promise<Response>) {
 `/tenant/:tenantId/authorize`, do the mapping in `resolveTenant`:
 
 ```ts
-async function resolveTenant(req: Request): Promise<Result<TenantId, AuthError>> {
+async function resolveTenant(
+  req: Request,
+): Promise<Result<TenantId, AuthError>> {
   const m = /^\/tenant\/([^/]+)\//.exec(new URL(req.url).pathname)
   if (!m) return err(authError.invalidRequest("missing tenant path"))
   return ok(asTenantId(m[1]!))
@@ -602,8 +608,12 @@ validated against the factory's Zod `configSchema` at request time.
 // Password — argon2id; opt-in registration. Hook: where users live.
 passwordMethod({
   users: {
-    async findByEmail({ tenantId, email }) { /* ... */ },
-    async create?({ tenantId, email, passwordHash }) { /* ... */ },
+    async findByEmail({ tenantId, email }) {
+      /* ... */
+    },
+    async create?({ tenantId, email, passwordHash }) {
+      /* ... */
+    },
   },
   enableRegistration: false,
   title: "Sign in",
@@ -681,7 +691,10 @@ class MyPasskeyStore implements PasskeyCredentialStore {
   }
 
   async findById(credentialId, tenantId) {
-    const row = await this.db.passkeys.byCredentialId({ credentialId, tenantId })
+    const row = await this.db.passkeys.byCredentialId({
+      credentialId,
+      tenantId,
+    })
     return row ? toStoredCredential(row) : null
   }
 
@@ -691,7 +704,8 @@ class MyPasskeyStore implements PasskeyCredentialStore {
 
   async create({ userId, credential, tenantId }) {
     await this.db.passkeys.insert({
-      tenantId, userId,
+      tenantId,
+      userId,
       credentialId: credential.credentialId,
       publicKey: credential.publicKey,
       counter: credential.counter,
@@ -764,9 +778,19 @@ success: async ({ methodId, methodKind, providerSubject }) => {
   // methodKind === "google" for both instances.
   // methodId === "google-workspace" or "google-personal".
   if (methodId === "google-workspace") {
-    return { type: "admin", properties: { /* ... */ } }
+    return {
+      type: "admin",
+      properties: {
+        /* ... */
+      },
+    }
   }
-  return { type: "user", properties: { /* ... */ } }
+  return {
+    type: "user",
+    properties: {
+      /* ... */
+    },
+  }
 }
 ```
 
@@ -859,7 +883,9 @@ against `/.well-known/jwks.json`:
 ```ts
 import { jwtVerify, createRemoteJWKSet } from "jose"
 
-const JWKS = createRemoteJWKSet(new URL("https://auth.yourapp.com/.well-known/jwks.json"))
+const JWKS = createRemoteJWKSet(
+  new URL("https://auth.yourapp.com/.well-known/jwks.json"),
+)
 
 async function authMiddleware(req: Request) {
   const bearer = req.headers.get("authorization")?.replace(/^Bearer /, "")
@@ -920,8 +946,9 @@ SHA-256 + base64url:
 // Match exactly what the library does at verification time:
 function hashClientSecret(plain: string): string {
   const bytes = new TextEncoder().encode(plain)
-  return Buffer.from(crypto.createHash("sha256").update(bytes).digest())
-    .toString("base64url")
+  return Buffer.from(
+    crypto.createHash("sha256").update(bytes).digest(),
+  ).toString("base64url")
 }
 ```
 
@@ -981,7 +1008,7 @@ introduce security bugs:
 - **Don't try to parse `TenantId`.** It's opaque. The framework never
   splits it; neither should anything that reads it back from a JWT.
 - **Don't store the state-MAC key inside `TenantConfig`.** The MAC has
-  to verify *before* the tenant is loaded; per-tenant keys create a
+  to verify _before_ the tenant is loaded; per-tenant keys create a
   bootstrap problem.
 - **Don't issue tokens outside `createIdP`.** If you need an
   impersonation token for support tools, sign one manually with
@@ -1048,7 +1075,7 @@ What that means in practice:
 - **`IdP.handle` / `IdPOptions.resolveTenant`** take the global
   `Request` and return the global `Response` — never Hono's `Context`.
 - **`AuthMethodFactory.configSchema`** is `v1.StandardSchema<unknown,
-  Cfg>` (Standard Schema v1), satisfied by Zod 3.24+, Zod 4, Valibot
+Cfg>` (Standard Schema v1), satisfied by Zod 3.24+, Zod 4, Valibot
   1.0+, Arktype 2.0+, Effect Schema, and any other validator that
   implements the spec.
 - **`KeyStore` private key material** is `unknown` (the adapter
@@ -1094,12 +1121,12 @@ Each of these has a corresponding case in
 
 ## 18. Where to look in the codebase
 
-| You want to understand | Read |
-|---|---|
-| The embedding contract | `ARCHITECTURE.md` § "Embedding pattern" |
-| Port consistency requirements | `src/ports/CONSISTENCY.md` |
-| The phased build history + decisions | `docs/plans/claude/idp-rebuild-plan.md` |
-| Public type shapes | `src/types/*.ts` |
-| What's expected of each port impl | `test/ports/*.ts` (parameterized conformance suite) |
-| Example end-to-end flow under memory adapters | `test/integration/full-flow.test.ts` |
-| Conformance behavior the library guarantees | `test/conformance/oauth-2.1.test.ts` |
+| You want to understand                        | Read                                                |
+| --------------------------------------------- | --------------------------------------------------- |
+| The embedding contract                        | `ARCHITECTURE.md` § "Embedding pattern"             |
+| Port consistency requirements                 | `src/ports/CONSISTENCY.md`                          |
+| The phased build history + decisions          | `docs/plans/claude/idp-rebuild-plan.md`             |
+| Public type shapes                            | `src/types/*.ts`                                    |
+| What's expected of each port impl             | `test/ports/*.ts` (parameterized conformance suite) |
+| Example end-to-end flow under memory adapters | `test/integration/full-flow.test.ts`                |
+| Conformance behavior the library guarantees   | `test/conformance/oauth-2.1.test.ts`                |

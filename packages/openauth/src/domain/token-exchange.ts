@@ -41,10 +41,7 @@ import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { SubjectClaim } from "../types/subject"
 import type { ClientConfig, TenantContext, TenantId } from "../types/tenant"
-import type {
-  AccessTokenClaims,
-  TokenResponse,
-} from "../types/token"
+import type { AccessTokenClaims, TokenResponse } from "../types/token"
 
 import { safeAudit } from "./audit"
 import { verifyClientCredentials } from "./client-auth"
@@ -128,9 +125,7 @@ export async function exchangeToken(
     (c: ClientConfig) => c.id === callerClientId,
   )
   if (!callerClient) {
-    return err(
-      authError.invalidClient(`unknown client "${callerClientId}"`),
-    )
+    return err(authError.invalidClient(`unknown client "${callerClientId}"`))
   }
   // Same client-auth rules as auth_code / refresh: confidential clients
   // MUST authenticate; public clients MUST NOT present a secret.
@@ -155,15 +150,12 @@ export async function exchangeToken(
   }
 
   // 5. Host decision — does the subject get to access `audience`?
-  const audienceClaim = await deps.exchangeAudience(
-    subjectClaims.claim,
-    {
-      audience: req.audience,
-      ...(req.scope !== undefined ? { requestedScopes } : {}),
-      clientId: callerClient.id,
-      fromTenantId,
-    },
-  )
+  const audienceClaim = await deps.exchangeAudience(subjectClaims.claim, {
+    audience: req.audience,
+    ...(req.scope !== undefined ? { requestedScopes } : {}),
+    clientId: callerClient.id,
+    fromTenantId,
+  })
   // The hook may return either a SubjectClaim (success) or an
   // AuthError (rejection). Distinguish by checking for the `code`
   // discriminator — AuthError is a closed taxonomy, all variants have
@@ -211,7 +203,8 @@ export async function exchangeToken(
       methodId: subjectClaims.mid ?? "token_exchange",
       methodKind: subjectClaims.mkind ?? "token_exchange",
       scopes: requestedScopes,
-      ...(subjectClaims.aud !== undefined && subjectClaims.aud !== callerClient.id
+      ...(subjectClaims.aud !== undefined &&
+      subjectClaims.aud !== callerClient.id
         ? { audience: subjectClaims.aud }
         : {}),
     },

@@ -48,7 +48,9 @@ export function describeConfigStore(opts: ConfigStoreSuiteOptions): void {
     })
 
     test("getTenantConfig(unknown) returns tenant_not_found", async () => {
-      const got = await store.getTenantConfig(asTenantId(uniqueSuffix("missing")))
+      const got = await store.getTenantConfig(
+        asTenantId(uniqueSuffix("missing")),
+      )
       expect(got.ok).toBe(false)
       if (!got.ok) expect(got.error.code).toBe("tenant_not_found")
     })

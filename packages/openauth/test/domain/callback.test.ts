@@ -210,7 +210,7 @@ describe("handleCallback: full authorize → callback", () => {
       configStore: f.configStore,
       sessionStore: f.sessionStore,
       tokenStore: f.tokenStore,
-        keyStore: f.keyStore,
+      keyStore: f.keyStore,
       auditLog: f.auditLog,
       methodCache: f.methodCache,
       stateKeys: f.stateKeys,

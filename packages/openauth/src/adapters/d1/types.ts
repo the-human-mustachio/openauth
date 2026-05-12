@@ -9,7 +9,11 @@
  * type-safe today and forward-compatible when the workers-types release
  * catches up.
  */
-import type { D1Database, D1PreparedStatement, D1Result } from "@cloudflare/workers-types"
+import type {
+  D1Database,
+  D1PreparedStatement,
+  D1Result,
+} from "@cloudflare/workers-types"
 
 /**
  * D1 Sessions API constraints. Documented at

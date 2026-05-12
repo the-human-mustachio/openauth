@@ -166,12 +166,10 @@ export function passkeyMethod(
           }),
           "POST /authenticate-options": async (ctx) =>
             authOptions(ctx, settings),
-          "POST /authenticate-verify": async (ctx) =>
-            authVerify(ctx, settings),
+          "POST /authenticate-verify": async (ctx) => authVerify(ctx, settings),
           "POST /register-options": async (ctx) =>
             registerOptions(ctx, id, settings),
-          "POST /register-verify": async (ctx) =>
-            registerVerify(ctx, settings),
+          "POST /register-verify": async (ctx) => registerVerify(ctx, settings),
         },
       }
     },
@@ -233,7 +231,10 @@ async function authVerify(
   }
   const credentialId = assertion?.id as string | undefined
   if (!credentialId) return errorResult("missing credential id")
-  const stored = await settings.credentials.findById(credentialId, ctx.tenant.id)
+  const stored = await settings.credentials.findById(
+    credentialId,
+    ctx.tenant.id,
+  )
   if (!stored) return errorResult("unknown credential")
 
   let verification
@@ -253,9 +254,7 @@ async function authVerify(
       },
     })
   } catch (e) {
-    return errorResult(
-      e instanceof Error ? e.message : "verification threw",
-    )
+    return errorResult(e instanceof Error ? e.message : "verification threw")
   }
   if (!verification.verified) {
     return errorResult("verification rejected")
@@ -340,9 +339,7 @@ async function registerVerify(
       requireUserVerification: false,
     })
   } catch (e) {
-    return errorResult(
-      e instanceof Error ? e.message : "verification threw",
-    )
+    return errorResult(e instanceof Error ? e.message : "verification threw")
   }
   if (!verification.verified || !verification.registrationInfo) {
     return errorResult("registration rejected")
@@ -380,9 +377,7 @@ function errorResult(
 async function safeForm(req: Request): Promise<Record<string, string>> {
   const ct = req.headers.get("content-type") ?? ""
   if (ct.toLowerCase().startsWith("application/x-www-form-urlencoded")) {
-    return Object.fromEntries(
-      new URLSearchParams(await req.text()).entries(),
-    )
+    return Object.fromEntries(new URLSearchParams(await req.text()).entries())
   }
   if (ct.toLowerCase().startsWith("application/json")) {
     try {

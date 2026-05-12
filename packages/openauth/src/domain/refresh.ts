@@ -58,7 +58,9 @@ export async function refreshTokens(
   if (isErr(peek)) return err(peek.error)
   const peekedPayload = peek.value
 
-  const tenantCfg = await deps.configStore.getTenantConfig(peekedPayload.tenantId)
+  const tenantCfg = await deps.configStore.getTenantConfig(
+    peekedPayload.tenantId,
+  )
   if (isErr(tenantCfg)) return err(tenantCfg.error)
 
   // Authenticate the *presenting* client first, then check ownership.
@@ -95,10 +97,7 @@ export async function refreshTokens(
     reuseWindowMs: deps.reuseWindowMs,
   })
   if (isErr(consumed)) {
-    if (
-      consumed.error.code === "invalid_grant" &&
-      consumed.error.reuseSignal
-    ) {
+    if (consumed.error.code === "invalid_grant" && consumed.error.reuseSignal) {
       // Reuse-detection signal arrives typed on the AuthError. tenantId /
       // subjectId come from the signal when the adapter emits it; we fall
       // back to the peeked payload's fields for adapters that don't
@@ -168,4 +167,3 @@ export async function refreshTokens(
     return result
   })
 }
-

@@ -177,9 +177,7 @@ export class DynamoTokenStore implements TokenStore {
     return err(authError.internalError("consumeRefresh: unexplained miss"))
   }
 
-  async peekRefresh(
-    refresh: string,
-  ): Promise<Result<RefreshTokenPayload>> {
+  async peekRefresh(refresh: string): Promise<Result<RefreshTokenPayload>> {
     let existing: Record<string, unknown> | undefined
     try {
       existing = await this.#exec.get({

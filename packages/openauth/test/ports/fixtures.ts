@@ -37,7 +37,9 @@ export function testClock(start = 1_700_000_000_000): TestClock {
   }
 }
 
-export function makeCodePayload(overrides: Partial<CodePayload> = {}): CodePayload {
+export function makeCodePayload(
+  overrides: Partial<CodePayload> = {},
+): CodePayload {
   return {
     tenantId: fixtureTenantId,
     clientId: "rp-1",

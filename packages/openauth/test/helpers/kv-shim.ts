@@ -21,7 +21,9 @@ export function createKvShim(): KVNamespaceLike {
     async delete(key: string) {
       map.delete(key)
     },
-    async list(options: { prefix?: string; cursor?: string | null; limit?: number } = {}) {
+    async list(
+      options: { prefix?: string; cursor?: string | null; limit?: number } = {},
+    ) {
       const all = [...map.keys()].sort()
       const prefix = options.prefix ?? ""
       const filtered = all.filter((k) => k.startsWith(prefix))

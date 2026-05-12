@@ -142,10 +142,7 @@ async function issueSubjectToken(
   return body.access_token
 }
 
-function exchangeRequest(
-  base: string,
-  body: Record<string, string>,
-): Request {
+function exchangeRequest(base: string, body: Record<string, string>): Request {
   return new Request(base + "/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -159,7 +156,7 @@ describe("RFC 8693 token-exchange at /token", () => {
     const exchangeAudience: ExchangeAudience = async (currentClaim) => ({
       type: (currentClaim as { type: string }).type as never,
       properties: {
-        ...((currentClaim as { properties: object }).properties),
+        ...(currentClaim as { properties: object }).properties,
         // Host upgrades the role on the new tenant.
         role: "admin",
       } as never,

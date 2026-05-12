@@ -7,10 +7,7 @@
 import { z } from "zod"
 
 import { buildOidcMethod } from "../oidc-generic"
-import type {
-  Oauth2Properties,
-  Oauth2State,
-} from "../oauth2-generic"
+import type { Oauth2Properties, Oauth2State } from "../oauth2-generic"
 import type { AuthMethod, AuthMethodFactory } from "../../types/method"
 
 const schema = z.object({

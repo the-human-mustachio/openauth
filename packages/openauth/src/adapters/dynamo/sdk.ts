@@ -75,7 +75,9 @@ export function fromDynamoDBClient(
           ReturnValues: "ALL_OLD",
         }),
       )
-      return (result.Attributes as Record<string, unknown> | undefined) ?? undefined
+      return (
+        (result.Attributes as Record<string, unknown> | undefined) ?? undefined
+      )
     },
     async consumeRefresh(input: DynamoUpdateConsumeRefreshInput) {
       try {
@@ -90,7 +92,9 @@ export function fromDynamoDBClient(
             ReturnValues: "ALL_NEW",
           }),
         )
-        return (result.Attributes as Record<string, unknown> | undefined) ?? null
+        return (
+          (result.Attributes as Record<string, unknown> | undefined) ?? null
+        )
       } catch (e) {
         if (isConditionalCheckFailed(e)) return null
         throw e

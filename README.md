@@ -74,17 +74,24 @@ const idp = createIdP({
     if (!clientId) return err(authError.invalidRequest("missing client_id"))
     return ok(asTenantId(clientId))
   },
-  stateKeys: loadStateKeyRing(),       // 32-byte HMAC key ring
-  configStore:  new PostgresConfigStore({ exec }),
-  tokenStore:   new PostgresTokenStore({ exec, keyStore: new PostgresKeyStore({ exec }) }),
+  stateKeys: loadStateKeyRing(), // 32-byte HMAC key ring
+  configStore: new PostgresConfigStore({ exec }),
+  tokenStore: new PostgresTokenStore({
+    exec,
+    keyStore: new PostgresKeyStore({ exec }),
+  }),
   sessionStore: new PostgresSessionStore({ exec }),
-  keyStore:     new PostgresKeyStore({ exec }),
-  methodStore:  new PostgresMethodStore({ exec }),
-  auditLog:     new PostgresAuditLog({ exec }),
+  keyStore: new PostgresKeyStore({ exec }),
+  methodStore: new PostgresMethodStore({ exec }),
+  auditLog: new PostgresAuditLog({ exec }),
   issuerUrl: "https://auth.yourapp.com",
   methods: {
-    password: passwordMethod({ users: { /* findByEmail, create? */ } }),
-    google:   googleFactory,
+    password: passwordMethod({
+      users: {
+        /* findByEmail, create? */
+      },
+    }),
+    google: googleFactory,
   },
   subjects: {
     user: z.object({ userId: z.string(), email: z.string().email() }),
@@ -135,7 +142,9 @@ const verified = await client.verify(subjects, tokens.access, {
 })
 
 // SPA / mobile (PKCE):
-const { challenge, url } = await client.authorize(redirectUri, "code", { pkce: true })
+const { challenge, url } = await client.authorize(redirectUri, "code", {
+  pkce: true,
+})
 const exchanged = await client.exchange(code, redirectUri, challenge.verifier)
 ```
 

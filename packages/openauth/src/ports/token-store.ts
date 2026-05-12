@@ -28,11 +28,7 @@ export type TokenStore = {
    *  - `ttl` must be ≤ the framework's auth-code TTL (60 s).
    *    Implementations that receive a larger value must reject.
    */
-  saveCode(
-    code: string,
-    ciphertext: string,
-    ttl: number,
-  ): Promise<Result<void>>
+  saveCode(code: string, ciphertext: string, ttl: number): Promise<Result<void>>
 
   /**
    * Single-use, atomic compare-and-swap: return and delete the

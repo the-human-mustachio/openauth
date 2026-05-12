@@ -46,30 +46,33 @@ const valibotConfigSchema = v.object({
   loud: v.optional(v.boolean()),
 })
 
-const valibotFactory: AuthMethodFactory<ValibotProps, unknown, ValibotConfig> = {
-  kind: "valibot-stub",
-  configSchema: valibotConfigSchema,
-  build: async ({
-    id,
-    kind,
-    config,
-  }): Promise<AuthMethod<ValibotProps, unknown>> => ({
-    id,
-    kind,
-    type: "custom",
-    routes: {
-      "GET /authorize": async (
-        _ctx: MethodContext<unknown>,
-      ): Promise<MethodResult<ValibotProps, unknown>> => ({
-        kind: "success",
-        providerSubject: "valibot-subject",
-        properties: {
-          greeting: config.loud ? config.greeting.toUpperCase() : config.greeting,
-        },
-      }),
-    },
-  }),
-}
+const valibotFactory: AuthMethodFactory<ValibotProps, unknown, ValibotConfig> =
+  {
+    kind: "valibot-stub",
+    configSchema: valibotConfigSchema,
+    build: async ({
+      id,
+      kind,
+      config,
+    }): Promise<AuthMethod<ValibotProps, unknown>> => ({
+      id,
+      kind,
+      type: "custom",
+      routes: {
+        "GET /authorize": async (
+          _ctx: MethodContext<unknown>,
+        ): Promise<MethodResult<ValibotProps, unknown>> => ({
+          kind: "success",
+          providerSubject: "valibot-subject",
+          properties: {
+            greeting: config.loud
+              ? config.greeting.toUpperCase()
+              : config.greeting,
+          },
+        }),
+      },
+    }),
+  }
 
 function tenant(config: Record<string, unknown>): TenantConfig {
   return {

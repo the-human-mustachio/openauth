@@ -69,7 +69,9 @@ export class DynamoKeyStore implements KeyStore {
     const row = items[0]
     if (!row) {
       return err(
-        authError.internalError("no active signing key (should be unreachable)"),
+        authError.internalError(
+          "no active signing key (should be unreachable)",
+        ),
       )
     }
     return ok(await this.#hydrateSigning(row))
@@ -190,7 +192,10 @@ export class DynamoKeyStore implements KeyStore {
       imported = await importJWK(privateJwk, String(row.alg))
       this.#privateKeyCache.set(kid, imported)
     }
-    const publicJwk = JSON.parse(String(row.public_jwk)) as Record<string, unknown>
+    const publicJwk = JSON.parse(String(row.public_jwk)) as Record<
+      string,
+      unknown
+    >
     return {
       kid,
       alg: String(row.alg),
@@ -205,7 +210,9 @@ export class DynamoKeyStore implements KeyStore {
     }
   }
 
-  async #hydrateEncryption(row: Record<string, unknown>): Promise<EncryptionKey> {
+  async #hydrateEncryption(
+    row: Record<string, unknown>,
+  ): Promise<EncryptionKey> {
     const stored = base64url.decode(String(row.key_material))
     let keyRef = stored
     if (row.key_material_wrapped === true) {
@@ -242,10 +249,7 @@ export class DynamoKeyStore implements KeyStore {
     return JSON.stringify({ ct: base64url.encode(ciphertext) })
   }
 
-  async #decodePrivateJwk(
-    raw: string,
-    wrapped: boolean,
-  ): Promise<JWK> {
+  async #decodePrivateJwk(raw: string, wrapped: boolean): Promise<JWK> {
     const parsed = JSON.parse(raw) as Record<string, unknown>
     if (!wrapped) return parsed as unknown as JWK
     if (!this.#wrapper) {

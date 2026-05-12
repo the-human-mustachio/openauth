@@ -38,11 +38,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose"
 type IdTokenClaims = Record<string, unknown>
 
 import { authError } from "../types/error"
-import type {
-  AuthMethod,
-  MethodContext,
-  MethodResult,
-} from "../types/method"
+import type { AuthMethod, MethodContext, MethodResult } from "../types/method"
 import type { MethodType } from "../types/tenant"
 
 /** The payload every OAuth/OIDC method emits to the framework's `success` callback. */
@@ -132,7 +128,8 @@ export async function buildOauth2Method(
     kind: opts.kind,
     type: opts.type ?? "oauth2",
     routes: {
-      "GET /authorize": async (ctx) => buildAuthorizeRedirect(ctx, opts, pkceMode),
+      "GET /authorize": async (ctx) =>
+        buildAuthorizeRedirect(ctx, opts, pkceMode),
       "GET /callback": async (ctx) =>
         exchangeAndSucceed(ctx, opts, jwks, deriveSubject),
       ...(responseMode === "form_post"
@@ -191,9 +188,7 @@ async function buildAuthorizeRedirect(
 async function exchangeAndSucceed(
   ctx: MethodContext<Oauth2State>,
   opts: Oauth2MethodInput,
-  jwks:
-    | ReturnType<typeof createRemoteJWKSet>
-    | undefined,
+  jwks: ReturnType<typeof createRemoteJWKSet> | undefined,
   deriveSubject: NonNullable<Oauth2MethodInput["deriveSubject"]>,
 ): Promise<MethodResult<Oauth2Properties, Oauth2State>> {
   // Pull the auth code from query (GET callback) or form body (form_post).
@@ -334,8 +329,7 @@ async function readCallbackParams(
       const params = new URLSearchParams(await req.clone().text())
       return {
         code: params.get("code"),
-        error:
-          params.get("error_description") ?? params.get("error") ?? null,
+        error: params.get("error_description") ?? params.get("error") ?? null,
       }
     }
   }

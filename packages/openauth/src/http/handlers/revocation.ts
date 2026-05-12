@@ -28,10 +28,14 @@ export function makeRevokeHandler(deps: HttpDeps) {
     const body = await readForm(c.req.raw)
     if (!body) {
       return tokenEndpointErrorResponse(
-        authError.invalidRequest("body must be application/x-www-form-urlencoded"),
+        authError.invalidRequest(
+          "body must be application/x-www-form-urlencoded",
+        ),
       )
     }
-    const parsed = revokeBodySchema.safeParse(Object.fromEntries(body.entries()))
+    const parsed = revokeBodySchema.safeParse(
+      Object.fromEntries(body.entries()),
+    )
     if (!parsed.success) {
       return tokenEndpointErrorResponse(
         authError.invalidRequest(parsed.error.issues[0]?.message ?? "invalid"),
@@ -74,7 +78,9 @@ export function makeIntrospectHandler(deps: HttpDeps) {
     const body = await readForm(c.req.raw)
     if (!body) {
       return tokenEndpointErrorResponse(
-        authError.invalidRequest("body must be application/x-www-form-urlencoded"),
+        authError.invalidRequest(
+          "body must be application/x-www-form-urlencoded",
+        ),
       )
     }
     const parsed = introspectBodySchema.safeParse(
@@ -93,9 +99,7 @@ export function makeIntrospectHandler(deps: HttpDeps) {
     if (!creds) {
       // RFC 7662 §2.1 — endpoint MUST require some form of auth.
       return tokenEndpointErrorResponse(
-        authError.invalidClient(
-          "introspection requires client authentication",
-        ),
+        authError.invalidClient("introspection requires client authentication"),
       )
     }
     // Resolve the presenter's tenant from the request the same way the

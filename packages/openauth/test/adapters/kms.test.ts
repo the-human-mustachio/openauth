@@ -5,10 +5,7 @@
  */
 import { describe, expect, test } from "bun:test"
 
-import {
-  inMemoryKmsBackingStore,
-  KmsKeyStore,
-} from "../../src/adapters/kms"
+import { inMemoryKmsBackingStore, KmsKeyStore } from "../../src/adapters/kms"
 
 import { createMockKmsClient } from "../helpers/kms-mock"
 import { describeKeyStore } from "../ports"

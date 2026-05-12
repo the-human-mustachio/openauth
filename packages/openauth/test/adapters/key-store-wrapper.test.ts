@@ -7,7 +7,14 @@
  * a read-only DB compromise must not yield token-forging power.
  */
 import { PGlite } from "@electric-sql/pglite"
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test"
 
 import { DynamoKeyStore } from "../../src/adapters/dynamo"
 import {

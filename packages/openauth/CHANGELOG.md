@@ -1,4 +1,4 @@
-# @_mustachio/openauth
+# @\_mustachio/openauth
 
 ## 0.8.1
 

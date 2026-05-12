@@ -42,7 +42,10 @@ describe("createIdP → createClient.verify round-trip", () => {
     const issuerUrl = "https://idp.example"
     const configStore = new MemoryConfigStore({ seed: [tenant] })
     const keyStore = new MemoryKeyStore({ clock: () => Date.now() })
-    const tokenStore = new MemoryTokenStore({ keyStore, clock: () => Date.now() })
+    const tokenStore = new MemoryTokenStore({
+      keyStore,
+      clock: () => Date.now(),
+    })
     const sessionStore = new MemorySessionStore({ clock: () => Date.now() })
     const auditLog = new MemoryAuditLog()
 
@@ -127,9 +130,7 @@ describe("createIdP → createClient.verify round-trip", () => {
 
     const verified = await client.verify(subjects, access_token)
     if ("err" in verified) {
-      throw new Error(
-        `verify returned err: ${verified.err.constructor.name}`,
-      )
+      throw new Error(`verify returned err: ${verified.err.constructor.name}`)
     }
     expect(verified.aud).toBe("rp-1")
     expect(verified.subject.type).toBe("orgMember")
@@ -146,7 +147,10 @@ describe("createIdP → createClient.verify round-trip", () => {
     const issuerUrl = "https://idp.example"
     const configStore = new MemoryConfigStore({ seed: [tenant] })
     const keyStore = new MemoryKeyStore({ clock: () => Date.now() })
-    const tokenStore = new MemoryTokenStore({ keyStore, clock: () => Date.now() })
+    const tokenStore = new MemoryTokenStore({
+      keyStore,
+      clock: () => Date.now(),
+    })
     const sessionStore = new MemorySessionStore({ clock: () => Date.now() })
 
     const idp = createIdP({

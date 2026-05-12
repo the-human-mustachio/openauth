@@ -13,7 +13,9 @@ describe("argon2idHasher", () => {
   test("hash + verify round-trip", async () => {
     const stored = await hasher.hash("correct horse battery staple")
     expect(stored.startsWith("$argon2id$")).toBe(true)
-    expect(await hasher.verify("correct horse battery staple", stored)).toBe(true)
+    expect(await hasher.verify("correct horse battery staple", stored)).toBe(
+      true,
+    )
   })
 
   test("verify rejects wrong password", async () => {

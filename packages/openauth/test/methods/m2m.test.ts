@@ -200,7 +200,10 @@ describe("m2mMethod / client_credentials grant", () => {
 
     const configStore = new MemoryConfigStore({ seed: [tenant] })
     const keyStore = new MemoryKeyStore({ clock: () => Date.now() })
-    const tokenStore = new MemoryTokenStore({ keyStore, clock: () => Date.now() })
+    const tokenStore = new MemoryTokenStore({
+      keyStore,
+      clock: () => Date.now(),
+    })
     const sessionStore = new MemorySessionStore({ clock: () => Date.now() })
 
     // Resolver mirrors INTEGRATION.md §5.1's canonical pattern: read

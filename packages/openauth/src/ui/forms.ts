@@ -226,10 +226,7 @@ button:focus-visible { box-shadow: 0 0 0 3px var(--focus-ring); outline: none; }
 }
 `
 
-export function htmlPage(opts: {
-  title: string
-  body: string
-}): string {
+export function htmlPage(opts: { title: string; body: string }): string {
   return `<!doctype html>
 <html lang="en">
 <head>

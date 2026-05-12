@@ -132,10 +132,7 @@ export {
   argon2idHasher,
   DEFAULT_ARGON2ID_PARAMS,
 } from "./methods/password-hash"
-export type {
-  PasswordHasher,
-  Argon2idParams,
-} from "./methods/password-hash"
+export type { PasswordHasher, Argon2idParams } from "./methods/password-hash"
 
 // Phase 5 — OAuth / OIDC provider factories.
 export { buildOauth2Method } from "./methods/oauth2-generic"
@@ -252,14 +249,15 @@ export function createIdP(opts: IdPOptions): IdP {
     clock,
     cookieDefaults: {
       secure: opts.cookies?.secure ?? true,
-      ...(opts.cookies?.domain !== undefined ? { domain: opts.cookies.domain } : {}),
+      ...(opts.cookies?.domain !== undefined
+        ? { domain: opts.cookies.domain }
+        : {}),
       ...(opts.cookies?.path !== undefined ? { path: opts.cookies.path } : {}),
     },
   }
 
   const app = buildRouter(deps)
-  const fetch = async (req: Request): Promise<Response> =>
-    await app.fetch(req)
+  const fetch = async (req: Request): Promise<Response> => await app.fetch(req)
 
   return {
     handle: fetch,

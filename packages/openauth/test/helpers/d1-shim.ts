@@ -25,7 +25,11 @@ export function createD1Shim(): D1Database {
 class BunD1Database {
   constructor(public readonly db: Database) {}
   prepare(query: string): D1PreparedStatement {
-    return new BunD1PreparedStatement(this.db, query, []) as unknown as D1PreparedStatement
+    return new BunD1PreparedStatement(
+      this.db,
+      query,
+      [],
+    ) as unknown as D1PreparedStatement
   }
   async batch<T = unknown>(
     statements: D1PreparedStatement[],
@@ -65,7 +69,10 @@ class BunD1PreparedStatement {
   }
   async first<T = unknown>(colName?: string): Promise<T | null> {
     const stmt = this.#ensureStmt()
-    const row = stmt.get(...(this.bindings as never[])) as Record<string, unknown> | null
+    const row = stmt.get(...(this.bindings as never[])) as Record<
+      string,
+      unknown
+    > | null
     if (!row) return null
     if (colName) return (row[colName] as T) ?? null
     return row as unknown as T
@@ -73,7 +80,7 @@ class BunD1PreparedStatement {
   async run<T = Record<string, unknown>>(): Promise<D1Result<T>> {
     const stmt = this.#ensureStmt()
     // `all` for SELECT / RETURNING; bun:sqlite's `all` also handles INSERT etc.
-    const rows = (stmt.all(...(this.bindings as never[])) as unknown) as T[]
+    const rows = stmt.all(...(this.bindings as never[])) as unknown as T[]
     return {
       success: true,
       results: rows,
@@ -83,16 +90,18 @@ class BunD1PreparedStatement {
   async all<T = Record<string, unknown>>(): Promise<D1Result<T>> {
     return this.run<T>()
   }
-  async raw<T = unknown[]>(opts?: { columnNames?: boolean }): Promise<
-    T[] | [string[], ...T[]]
-  > {
+  async raw<T = unknown[]>(opts?: {
+    columnNames?: boolean
+  }): Promise<T[] | [string[], ...T[]]> {
     const stmt = this.#ensureStmt()
     const rows = stmt.values(...(this.bindings as never[])) as T[]
     if (opts?.columnNames) {
       // bun:sqlite doesn't expose column names from `values()`; punt by
       // reading from the first row of `all()` if needed. Our adapter
       // doesn't call this, so a stub is fine.
-      const all = stmt.all(...(this.bindings as never[])) as Array<Record<string, unknown>>
+      const all = stmt.all(...(this.bindings as never[])) as Array<
+        Record<string, unknown>
+      >
       const cols = all[0] ? Object.keys(all[0]) : []
       return [cols, ...rows] as [string[], ...T[]]
     }

@@ -110,7 +110,11 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
       if (isNonRecoverable(err)) {
         return authorizeDirectErrorResponse(err)
       }
-      return authorizeRedirectErrorResponse(err, q.redirect_uri, q.state ?? null)
+      return authorizeRedirectErrorResponse(
+        err,
+        q.redirect_uri,
+        q.state ?? null,
+      )
     }
 
     const out = result.value
@@ -135,7 +139,8 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
       case "issue-code": {
         const redirect = new URL(out.appRedirectUri)
         redirect.searchParams.set("code", out.code)
-        if (out.appState !== null) redirect.searchParams.set("state", out.appState)
+        if (out.appState !== null)
+          redirect.searchParams.set("state", out.appState)
         return applyResponsePolicy(
           new Response(null, {
             status: 302,
@@ -196,7 +201,14 @@ function clearFlowCookie() {
 }
 
 function cacheControlFor(
-  cache: { maxAge?: number; sMaxAge?: number; isPrivate?: boolean; immutable?: boolean } | undefined,
+  cache:
+    | {
+        maxAge?: number
+        sMaxAge?: number
+        isPrivate?: boolean
+        immutable?: boolean
+      }
+    | undefined,
 ): string {
   if (!cache) return "no-store"
   if ((cache.maxAge ?? -1) === 0) return "no-store"
@@ -207,4 +219,3 @@ function cacheControlFor(
   if (cache.immutable) parts.push("immutable")
   return parts.length ? parts.join(", ") : "no-store"
 }
-

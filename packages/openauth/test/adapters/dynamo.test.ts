@@ -41,7 +41,11 @@ describeTokenStore({
   adapterName: "dynamo (in-memory)",
   async makeStore(clock) {
     const keyStore = new DynamoKeyStore({ exec, clock: clock.now })
-    const tokenStore = new DynamoTokenStore({ exec, keyStore, clock: clock.now })
+    const tokenStore = new DynamoTokenStore({
+      exec,
+      keyStore,
+      clock: clock.now,
+    })
     return {
       tokenStore,
       keyStore,
