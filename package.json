@@ -8,7 +8,8 @@
     "examples/client/*"
   ],
   "scripts": {
-    "release": "bun run --filter=\"@_mustachio/openauth\" build && changeset publish"
+    "release": "bun run --filter=\"@_mustachio/openauth\" build && changeset publish",
+    "build:watch": "bun run --filter=\"@_mustachio/openauth\" build:watch"
   },
   "devDependencies": {
     "@tsconfig/node22": "22.0.0",

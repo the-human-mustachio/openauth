@@ -9,6 +9,7 @@
   "type": "module",
   "scripts": {
     "build": "bun run script/build.ts",
+    "build:watch": "bun run script/build-watch.ts",
     "test": "bun test",
     "preview:ui": "bun --hot run script/preview-ui.ts"
   },
