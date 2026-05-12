@@ -1,0 +1,198 @@
+---
+title: Embedding pattern
+description: The host/library boundary and the four host-side contracts.
+---
+
+This page describes what the host owns vs. what the library owns, and the
+four functions / records the host has to supply. Read this before
+non-trivial work.
+
+## What the host owns
+
+- Console UI for managing partitions, registered applications, audit log
+  display, invite flows, billing.
+- The data model — Users, Workspaces, Apps, App-Tenants, whatever else
+  the product needs.
+- **Authorization (RBAC)** — "is this subject allowed to do X?" The
+  library only authenticates; the host decides what an authenticated
+  subject is permitted to do.
+- Mutations to per-partition config — the host writes through the
+  library's `ConfigStore` / `MethodStore` adapters via plain function
+  calls, no HTTP API between.
+- Inheritance logic — e.g. an App's default providers overridden by an
+  App-Tenant's own providers. The library only sees the final
+  `TenantConfig`; the merge happens in the host's `ConfigStore`.
+
+## What the library owns
+
+- OAuth 2.1 / OIDC Core endpoints (`/authorize`, `/token`, `/cb/*`,
+  `/m/*`, `/userinfo`, `/revoke`, `/introspect`, `/.well-known/*`).
+- Per-partition isolation — tokens minted for partition A cannot be
+  consumed at partition B's `/token`; refresh-token rotation honours
+  family scoping; audit events carry the partition id.
+- The auth-method registry and per-partition instance cache.
+- Port interfaces (`ConfigStore`, `MethodStore`, `TokenStore`,
+  `SessionStore`, `KeyStore`, `AuditLog`) and concrete adapters.
+- Standards posture — PKCE enforcement, refresh-token reuse detection,
+  encryption-at-rest of code payloads, MAC-bound state envelope.
+
+## The four host-side contracts
+
+### 1. `resolveTenant(req): Promise<Result<TenantId>>`
+
+Maps an incoming `Request` to your partition key. This runs only for the
+**first** request in a flow — callbacks recover the tenant from the
+MAC-bound state envelope or other recovery mechanisms (see
+[Flow lifecycle](/docs/concepts/flow/)).
+
+Canonical pattern for an App × App-Tenant tuple:
+
+```ts
+async function resolveTenant(req: Request): Promise<Result<TenantId, AuthError>> {
+  const url = new URL(req.url)
+  const clientId = url.searchParams.get("client_id")
+  if (!clientId) {
+    return err(authError.invalidRequest("missing client_id"))
+  }
+
+  const app = await db.apps.findByOAuthClientId(clientId)
+  if (!app) return err(authError.tenantNotFound("unknown client", ""))
+
+  const subdomain = url.hostname.split(".")[0]
+  const appTenant = await db.appTenants.findBySubdomain(app.id, subdomain)
+
+  return ok(asTenantId(`${app.id}:${appTenant?.id ?? "__default__"}`))
+}
+```
+
+The framework never parses the `TenantId` you return — it's opaque.
+
+### 2. `ConfigStore` — return the resolved `TenantConfig`
+
+Where you merge App defaults with App-Tenant overrides. The framework
+gets one final `TenantConfig`.
+
+```ts
+const configStore: ConfigStore = {
+  async getTenantConfig(id) {
+    const [appId, subId] = (id as string).split(":")
+    const app = await db.apps.get(appId)
+    if (!app) return err(authError.tenantNotFound("unknown app", id))
+
+    const appTenant = subId === "__default__"
+      ? null
+      : await db.appTenants.get(subId)
+
+    return ok({
+      id,
+      displayName: appTenant?.displayName ?? app.name,
+      clients: [
+        {
+          id: app.oauthClientId,
+          name: app.name,
+          type: "confidential",
+          secretHash: app.oauthClientSecretHash, // sha256+base64url
+          redirectUris: app.allowedRedirectUris,
+          grantTypes: ["authorization_code", "refresh_token"],
+          scopes: app.allowedScopes,
+          pkceRequired: true,
+        },
+      ],
+      methods: appTenant?.providers ?? app.defaultProviders,
+      theme: app.theme,
+      cookieDomain: app.cookieDomain ?? undefined,
+    })
+  },
+}
+```
+
+`ClientConfig` is a discriminated union — see
+[`createIdP` reference](/docs/reference/idp/) for the full shape.
+
+### 3. `success(input): Promise<SubjectClaim>` — required
+
+Maps an auth-method result into the typed subject your IdP will issue.
+Runs at `/token` time after PKCE verification, before tokens are minted.
+
+```ts
+const success: IdPOptions["success"] = async (input) => {
+  const { tenant, methodId, methodKind, providerSubject, properties } = input
+
+  const user = await db.users.upsertByProviderIdentity({
+    tenantId: tenant.id,
+    methodKind,         // "google" | "password" | "passkey" | ...
+    providerSubject,    // Google's `sub`, password row's user_id, etc.
+    properties,         // typed per method
+  })
+
+  return {
+    type: "user",
+    properties: {
+      userId: user.id,
+      email: user.email,
+    },
+  }
+}
+```
+
+Use `methodKind` for provider-specific logic, `methodId` for
+instance-specific routing (a tenant can run multiple instances of the
+same factory — see [Methods](/docs/concepts/methods/)).
+
+### 4. `subjects: SubjectSchema` — declare your subject types
+
+A `Record<string, StandardSchema>` (Zod recommended) that defines the
+shape of each subject type the IdP can issue.
+
+```ts
+const subjects = {
+  user: z.object({
+    userId: z.string(),
+    email: z.string().email(),
+  }),
+  admin: z.object({
+    adminId: z.string(),
+    roles: z.array(z.string()),
+  }),
+} satisfies SubjectSchema
+```
+
+`success` returns a `SubjectClaim` whose `type` matches one of these
+keys; the framework validates `properties` against the matching schema
+before signing the JWT.
+
+## Things you must NOT do
+
+- **Don't add an admin HTTP surface to the library.** The host imports
+  port adapters in-process; there's no boundary to protect with
+  `/admin/*` routes.
+- **Don't parse `TenantId`.** It's opaque. The framework never splits
+  it; neither should anything reading it back from a JWT.
+- **Don't store the state-MAC key inside `TenantConfig`.** The MAC has
+  to verify *before* the tenant is loaded; per-tenant keys create a
+  bootstrap problem.
+- **Don't issue tokens outside `createIdP`.** If you need an
+  impersonation token for support tools, sign one manually with
+  `KeyStore.currentSigningKey()` + `jose` — but treat it as a host
+  operation, not a library operation.
+- **Don't share `SubjectClaim` shapes across tenants without checking
+  `tid`.** Two tenants may issue `type: "user"` with the same
+  `properties.userId` and they are different subjects.
+
+## Why no console ships with the library
+
+This was an explicit decision (Open Question #1 in the rebuild plan,
+closed):
+
+- **Console UI** lives in the host product where the rest of the product
+  UI lives.
+- **Admin API** is unnecessary as a separate HTTP surface — the host
+  process imports `createIdP` and the port adapters, so it has direct
+  in-process access to every mutation it needs.
+- **RBAC / admin determination** is authorization, not authentication.
+  The library authenticates; the host's middleware reads the token and
+  decides what they can do.
+- **Audit log display** is read-side; the host queries its underlying
+  store directly. A generic `AuditLog.query(filter)` port would be
+  necessarily less expressive than the raw SQL / native queries the host
+  already needs.

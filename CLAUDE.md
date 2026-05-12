@@ -1,73 +1,103 @@
 # Claude Code Guidelines
 
-This file provides context for Claude Code when working on this project.
+Context for Claude Code when working in this repo.
 
-## Project Overview
+## What this is
 
-OpenAuth is a standards-based auth provider for web apps, mobile apps, SPAs, APIs, and 3rd party clients. It's built on [Hono](https://hono.dev) and can run anywhere (Node.js, Bun, AWS Lambda, Cloudflare Workers).
+`@_mustachio/openauth` is a **server-side IdP library** that gets embedded
+inside a larger host application. The host owns the console UI, the data
+model (Users, Apps, Workspaces, App-Tenants), authorization (RBAC), and
+admin mutations. This library owns OAuth 2.1 / OIDC Core endpoints,
+per-tenant isolation, the auth-method registry, and the port + adapter
+stack.
 
-## Project Structure
+`Tenant` is **opaque** to the library — a partition key, not a business
+concept. The library never parses it.
+
+This boundary is non-negotiable. Do not reintroduce console / admin-API /
+RBAC scope into the library. See "Why the library doesn't ship a console"
+in `packages/openauth/ARCHITECTURE.md`.
+
+## Authoritative docs (read these before non-trivial work)
+
+| Document | What it covers |
+|---|---|
+| `packages/openauth/ARCHITECTURE.md` | Mental model, type layout, tenant recovery, flow lifecycle, embedding pattern, phase status. |
+| `packages/openauth/INTEGRATION.md` | End-to-end embedding guide for hosts: install, public API, adapters, the four host contracts, hardening rules. |
+| `packages/openauth/src/ports/CONSISTENCY.md` | Consistency contracts for every port. |
+| `docs/plans/claude/idp-rebuild-plan.md` | Phased rebuild plan — sequencing + decisions. |
+
+## Source tree
 
 ```
-openauth/
-├── packages/openauth/     # Main package
-│   ├── src/               # Source code
-│   │   ├── issuer.ts      # Main issuer implementation
-│   │   ├── provider/      # Auth providers (GitHub, Google, Password, etc.)
-│   │   ├── storage/       # Storage adapters (DynamoDB, Cloudflare KV, Memory)
-│   │   └── ui/            # UI components
-│   └── test/              # Tests
-├── www/                   # Documentation website (Astro/Starlight)
-├── examples/              # Example implementations
-└── docs/                  # Internal documentation
+packages/openauth/
+├── ARCHITECTURE.md
+├── INTEGRATION.md
+├── src/
+│   ├── index.ts              # public entry — `createIdP`, type re-exports
+│   ├── client.ts             # @_mustachio/openauth/client — RP-side helpers
+│   ├── error.ts, pkce.ts
+│   ├── types/                # public-surface types (idp, tenant, method, ...)
+│   ├── ports/                # port interfaces + CONSISTENCY.md
+│   ├── domain/               # pure functions over ports (authorize, token, ...)
+│   ├── http/                 # Hono adapter, schemas, middleware, handlers
+│   ├── methods/              # auth methods + provider factories
+│   │   └── providers/        # 15 vendor factories (google, github, ...)
+│   ├── adapters/             # concrete port impls
+│   │   ├── memory/  postgres/  d1/  durable-object/
+│   │   └── dynamo/  kv/       kms/
+│   └── ui/                   # forms.ts, picker.ts — server-rendered defaults
+├── script/                   # build, preview-ui
+└── test/                     # unit / port-conformance / integration / conformance
 ```
 
-## Development Commands
+## Public entry — at a glance
+
+```ts
+import { createIdP } from "@_mustachio/openauth"
+// + types: IdP, IdPOptions, Result, AuthError, TenantId, TenantConfig,
+//   ClientConfig, MethodConfig, SubjectSchema, SubjectClaim, StateKeyRing
+// + method factories: passwordMethod, codeMethod, m2mMethod, passkeyMethod,
+//   oauth2Factory, oidcFactory, buildOauth2Method, buildOidcMethod
+// + 15 vendor factories: googleFactory, githubFactory, … cognitoFactory
+// + port interfaces: ConfigStore, TokenStore, SessionStore, KeyStore,
+//   MethodStore, AuditLog
+import { createClient } from "@_mustachio/openauth/client"
+// + storage adapters: @_mustachio/openauth/adapters/{memory,postgres,d1,
+//   durable-object,dynamo,kv,kms}
+```
+
+The host calls `createIdP(opts)` and serves the returned `idp.handle` as
+the fetch entrypoint. See `INTEGRATION.md` § 7 for the minimum-viable
+integration.
+
+## Dev commands
 
 ```bash
-# Run tests
-cd packages/openauth && bun test
+# From packages/openauth/
+bun test                          # unit + integration + conformance
+bun run build                     # ESM + .d.ts under dist/
+bun run preview:ui                # local visual check of forms + picker
 
-# Build the package
-cd packages/openauth && bun run build
-
-# Build documentation site
-cd www && bun run build
+# From www/
+bun run build                     # Astro/Starlight docs site
 ```
 
-## Documentation
+## Conventions
 
-- [Release Process](docs/release-process.md) - How to create releases with changesets
+- TypeScript strict; ESM only.
+- Domain functions return `Result<T, AuthError>` rather than throwing.
+- The `id` / `kind` split: `MethodConfig.id` is the tenant-local instance
+  id and routes URLs (`/<id>/*`); `MethodConfig.kind` is the factory
+  lookup key. The `methods` map passed to `createIdP` MUST have keys
+  equal to `factory.kind`.
+- `ClientConfig` is a discriminated union — public clients carry
+  `pkceRequired: true` as a literal; confidential clients carry a
+  required `secretHash`.
+- The public API never reaches a `jose` / `hono` / `oauth4webapi` /
+  `@simplewebauthn/server` type. See `INTEGRATION.md` § 16 and
+  `test/types/public-api-no-thirdparty-leaks.test.ts`.
 
-## Key Files
+## Release
 
-- `packages/openauth/src/issuer.ts` - Main issuer implementation, creates the Hono app
-- `packages/openauth/src/provider/provider.ts` - Provider interface definition
-- `.github/workflows/release.yml` - Release automation workflow
-
-## Testing
-
-Tests use Bun's built-in test runner. Run from `packages/openauth/`:
-
-```bash
-bun test                    # Run all tests
-bun test issuer            # Run specific test file
-bun test dynamic-providers # Run dynamic providers tests
-```
-
-## Code Style
-
-- TypeScript with strict mode
-- Prettier for formatting (runs via GitHub Action)
-- JSDoc comments are used for documentation generation
-
-## Multi-tenant Features
-
-The issuer supports multi-tenant configurations:
-
-- `basePath` - Dynamic URL prefix for mounted issuers
-- `cookies.path` - Cookie path configuration
-- `context` - Extract custom request context available in providers and callbacks
-- `tenantId` - Available via `/tenant/:tenantId/` routes
-
-See `packages/openauth/src/issuer.ts` for implementation details.
+See `docs/release-process.md`.

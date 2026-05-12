@@ -1,0 +1,147 @@
+---
+title: Tenants
+description: TenantId, resolveTenant, ConfigStore, and how multi-tenancy works without the library knowing your model.
+---
+
+The library's `Tenant` is **not** a business concept. It's a partition
+key. Every flow, token, audit event, and method-instance cache is keyed
+by it; the framework never parses it.
+
+## `TenantId` is opaque
+
+```ts
+import { asTenantId, type TenantId } from "@_mustachio/openauth"
+
+const id: TenantId = asTenantId("acme:bigcorp")
+```
+
+`asTenantId(string)` is a brand cast. The framework treats the resulting
+value as a black box. You decide what counts as a partition for an
+incoming request, and you decide how to resolve a `TenantId` back to a
+`TenantConfig`.
+
+What the framework explicitly does **not** know:
+
+- What a tenant "is" in your business model (org? workspace? deployment?
+  realm? customer-of-customer?).
+- A hierarchy. Tenants are flat at the framework level. You can simulate
+  hierarchy by encoding tuples into the key.
+- Lifecycle. You create / destroy partitions on your own schedule.
+
+## Two-level encoding: `App × App-Tenant`
+
+The common case where you have a registered Application with default
+providers, and that App's customers ("App-Tenants") may override with
+their own providers:
+
+```ts
+async function resolveTenant(req: Request): Promise<Result<TenantId>> {
+  const url = new URL(req.url)
+  const clientId = url.searchParams.get("client_id")
+  const subdomain = url.hostname.split(".")[0]
+
+  const app = await db.apps.findByOAuthClientId(clientId)
+  if (!app) return err(authError.tenantNotFound("unknown client", ""))
+
+  const appTenant = await db.appTenants.findBySubdomain(subdomain)
+
+  return ok(asTenantId(`${app.id}:${appTenant?.id ?? "__default__"}`))
+}
+
+async function getTenantConfig(id: TenantId): Promise<Result<TenantConfig>> {
+  const [appId, subId] = (id as string).split(":")
+  const app = await db.apps.get(appId)
+  const appTenant = subId === "__default__"
+    ? null
+    : await db.appTenants.get(subId)
+
+  return ok({
+    id,
+    displayName: appTenant?.displayName ?? app.name,
+    clients: [/* ... */],
+    methods: appTenant?.providers ?? app.defaultProviders, // <-- merge here
+    theme: app.theme,
+    cookieDomain: app.cookieDomain,
+  })
+}
+```
+
+The framework gets one resolved `TenantConfig`. Tokens minted under
+`acme:bigcorp` are invalid at `acme:smallco`, the audit log slices by
+`tid`, and method-instance caches are keyed by `(tenantId, methodId)` so
+BigCorp's Google client_id can't leak into SmallCo's flow.
+
+## Where the `TenantId` shows up
+
+- **JWT `tid` claim** — every access token carries the partition id of
+  the IdP that issued it. Your downstream services should treat it as
+  the authoritative scope of the subject.
+- **Audit events** — every `AuditEvent` carries `tenantId`. Your
+  audit-log queries should always partition by it.
+- **Method-instance cache** — keyed by `(tenantId, methodId)`. Two
+  tenants registering `kind: "google"` get isolated upstream client
+  state.
+
+## When the host doesn't ship its own subdomains
+
+If you don't have hostname-based tenant routing — e.g. everyone hits
+`https://auth.example.com/...` — derive the partition from
+`client_id` alone:
+
+```ts
+const resolveTenant = async (req: Request) => {
+  const clientId = new URL(req.url).searchParams.get("client_id")
+  if (!clientId) return err(authError.invalidRequest("missing client_id"))
+  return ok(asTenantId(clientId))
+}
+```
+
+This is the simplest viable embedding and what
+[`examples/embed-postgres`](https://github.com/the-human-mustachio/openauth/tree/master/examples/embed-postgres)
+uses.
+
+## Path-based tenant routing
+
+If you mount the IdP under `/tenant/:tenantId/...`, do the mapping in
+`resolveTenant`:
+
+```ts
+async function resolveTenant(req: Request): Promise<Result<TenantId>> {
+  const m = /^\/tenant\/([^/]+)\//.exec(new URL(req.url).pathname)
+  if (!m) return err(authError.invalidRequest("missing tenant path"))
+  return ok(asTenantId(m[1]!))
+}
+```
+
+The library doesn't care what URL shape you use; it only needs your
+function to be able to derive a partition from the request.
+
+## Resolving a `TenantId` from a callback
+
+`resolveTenant` only runs for the **first** request in a flow. By the
+time an upstream provider (Google / GitHub / etc.) redirects the user
+back, the original tenant signal may be gone — the user may have hopped
+domains, lost a subdomain, dropped a header.
+
+The framework handles this with a recovery chain that runs before
+`resolveTenant` is consulted. See [Flow lifecycle](/docs/concepts/flow/)
+for details.
+
+## Cache invalidation
+
+`ConfigStore` is allowed to be eventually consistent (TTL ≤ 60 s). When
+the host mutates a tenant's config and wants the change to take effect
+immediately, it can call the optional `onTenantConfigChanged` invalidator
+the framework registered:
+
+```ts
+const configStore: ConfigStore = {
+  async getTenantConfig(id) { /* ... */ },
+
+  onTenantConfigChanged: undefined, // omit if you don't have invalidation
+}
+```
+
+See the `ConfigStore` interface in `src/ports/config-store.ts` for the
+exact contract, and `src/ports/CONSISTENCY.md` for the consistency
+matrix across all ports.

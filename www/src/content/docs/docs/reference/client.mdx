@@ -1,0 +1,123 @@
+---
+title: Client
+description: The relying-party-side helper at @_mustachio/openauth/client.
+---
+
+`createClient` is the relying-party (RP) helper for kicking off OAuth
+flows, exchanging codes, refreshing tokens, and verifying JWTs. It lives
+at a dedicated import path for tree-shaking:
+
+```ts
+import { createClient } from "@_mustachio/openauth/client"
+
+const client = createClient({
+  clientID: "my-client",
+  issuer: "https://auth.yourapp.com",
+})
+```
+
+The helper is optional — any OAuth client library can talk to the IdP.
+Use this when you want a thin typed wrapper without pulling another
+dependency.
+
+## Server-side code flow (SSR sites)
+
+```ts
+const redirectUri = "https://app.example.com/callback"
+
+// 1. Redirect the user to the IdP.
+const { url } = await client.authorize(redirectUri, "code")
+return Response.redirect(url, 302)
+
+// 2. Handle the callback with `?code=...`.
+const tokens = await client.exchange(query.get("code")!, redirectUri)
+// tokens.access, tokens.refresh, tokens.expiresIn
+
+// 3. Verify on subsequent requests. If `refresh` is supplied, the helper
+//    will refresh automatically when access is expired and return the
+//    rotated tokens to be re-set on the client.
+const verified = await client.verify(subjects, cookies.get("access_token")!, {
+  refresh: cookies.get("refresh_token") || undefined,
+})
+console.log(verified.subject.type, verified.subject.properties)
+if (verified.refresh) {
+  // Set rotated tokens back onto the cookies.
+}
+```
+
+## SPA / mobile (PKCE)
+
+```ts
+// 1. Kick off the flow with PKCE.
+const { challenge, url } = await client.authorize(redirectUri, "code", {
+  pkce: true,
+})
+localStorage.setItem("challenge", JSON.stringify(challenge))
+location.href = url
+
+// 2. Handle the redirect back to your app.
+const challenge = JSON.parse(localStorage.getItem("challenge")!)
+const exchanged = await client.exchange(
+  new URLSearchParams(location.search).get("code")!,
+  redirectUri,
+  challenge.verifier,
+)
+if (exchanged.err) throw exchanged.err
+localStorage.setItem("access_token", exchanged.tokens.access)
+localStorage.setItem("refresh_token", exchanged.tokens.refresh)
+```
+
+## Verifying tokens on the API side
+
+When your API receives a request with an access-token bearer:
+
+```ts
+const verified = await client.verify(subjects, bearerToken)
+if (verified.err) {
+  return new Response("Unauthorized", { status: 401 })
+}
+console.log(verified.subject.type, verified.subject.properties)
+```
+
+`verify` does full JWKS validation against the issuer's
+`/.well-known/jwks.json`. It caches the JWKS internally.
+
+## Validating manually with `jose`
+
+If you'd rather not pull in the client helper, validate the JWT directly
+— the library doesn't leak any helper types so manual validation is
+fully supported. See [Subjects](/docs/reference/subjects/) §"Verifying
+tokens downstream" for the `jose` pattern.
+
+## What about the discriminated `verified.subject`?
+
+`subjects` is the same schema record you passed to `createIdP`. The
+helper's `verify` narrows `verified.subject` to the right shape based on
+`verified.subject.type`:
+
+```ts
+const verified = await client.verify(subjects, accessToken)
+if (verified.subject.type === "admin") {
+  verified.subject.properties.roles  // typed as string[]
+} else if (verified.subject.type === "user") {
+  verified.subject.properties.userId // typed as string
+}
+```
+
+This is the main reason to use the helper over hand-rolling `jose`.
+
+## Full API
+
+`createClient(input: ClientInput): Client` returns:
+
+```ts
+type Client = {
+  authorize(redirectUri: string, response: "code", opts?: AuthorizeOptions): Promise<AuthorizeResult>
+  exchange(code: string, redirectUri: string, verifier?: string): Promise<ExchangeSuccess | ExchangeError>
+  refresh(refreshToken: string, opts?: RefreshOptions): Promise<RefreshSuccess | RefreshError>
+  verify<T extends SubjectSchema>(subjects: T, accessToken: string, opts?: VerifyOptions): Promise<VerifyResult<T> | VerifyError>
+}
+```
+
+See `packages/openauth/src/client.ts` for the full type surface (input
+shape, error types, refresh / verify options).

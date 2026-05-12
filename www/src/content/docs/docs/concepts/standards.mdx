@@ -1,0 +1,135 @@
+---
+title: Standards & hardening
+description: RFC conformance, behavioral contracts, and hardening rules the library enforces.
+---
+
+The library targets OAuth 2.1 (the consolidated profile) plus OIDC Core
+and a handful of OAuth extension RFCs. This page lists what's enforced.
+
+## RFC posture
+
+| Spec | Status |
+|---|---|
+| **OAuth 2.1** (draft) | Authorization code + PKCE, refresh-token rotation, reuse detection with family revocation, 60 s auth-code TTL ceiling. |
+| **OIDC Core** | `/.well-known/openid-configuration`, JWKS at `/.well-known/jwks.json`, ID-token issuance. |
+| **RFC 7009** Token revocation | `/revoke`. Confidential clients must authenticate; wrong-client revoke returns `invalid_grant` without consuming. |
+| **RFC 7662** Token introspection | `/introspect`. Client auth required; cross-client introspect returns `{active: false}` (don't leak token existence). |
+| **RFC 8693** Token exchange | Optional via `IdPOptions.exchangeAudience` hook. If hook isn't supplied, exchange requests return `unsupported_grant_type`. |
+| **RFC 9126** PAR | Not yet shipped (Phase 8 follow-up). |
+| **RFC 9449** DPoP | Not yet shipped (Phase 8 follow-up). |
+| **RFC 8705** mTLS client auth | Not yet shipped (Phase 8 follow-up). |
+| **RFC 7591** DCR | Not yet shipped. Hosts can register clients via `ConfigStore` directly. |
+
+## Behavioral contracts
+
+These are the rules the library enforces. Internalize them; they protect
+you from common OAuth foot-guns.
+
+- **PKCE is enforced for every public client.** `pkceRequired: true` is
+  the only legal value on `PublicClientConfig`. Confidential clients can
+  set `pkceRequired: false` but it's not recommended.
+- **Refresh-token grant authenticates the client.** Confidential clients
+  MUST present `client_secret` (Basic auth or form body) when
+  refreshing. Anonymous refresh = `401 invalid_client`.
+- **`/introspect` requires client auth** (RFC 7662 §2.1) and only
+  returns claims to the client named in `aud`. Cross-client introspect
+  returns `{active: false}` to avoid token-existence leaks.
+- **`/revoke` authenticates confidential-client tokens** (RFC 7009 §2.1).
+  Public-client tokens can be revoked anonymously. Wrong-client revoke
+  = `400 invalid_grant` without consuming.
+- **Auth-code TTL is fixed at 60 s** by OAuth 2.1 BCP. The library
+  refuses larger TTLs at the storage layer.
+- **Refresh-token reuse triggers family revocation.** Detected reuse
+  within the 60 s window invalidates every token in the family and
+  audits `refresh_reuse_detected`.
+- **One callback consume per flow.** The framework's recovery chain
+  consumes the `FlowRecord` exactly once before dispatching the method
+  callback. Methods observe via `MethodContext`; they do not call
+  `SessionStore` directly to mutate.
+- **Method-returned `Cookie` headers are stripped** by the HTTP adapter
+  and replaced with the framework's own cookie serializer. Methods set
+  cookies via `MethodResult.setCookies`, never via
+  `Response.headers.set("set-cookie", ...)`.
+
+## Response sanitization
+
+Returning an arbitrary `Response` from a method would let it stuff
+`Set-Cookie` headers in and bypass framework-owned cookie policy. To
+prevent that, the HTTP layer strips a fixed set of headers from every
+method-returned `Response`:
+
+- `Set-Cookie`, `Set-Cookie2`
+- `Strict-Transport-Security`, `Content-Security-Policy`,
+  `Content-Security-Policy-Report-Only`
+- `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`,
+  `Permissions-Policy`
+- `Cache-Control` (methods opt in via the typed `cache?: CachePolicy`
+  field on `MethodResult.challenge`).
+
+Cookies are then applied from `MethodResult.setCookies` through the
+framework's serializer, which enforces:
+
+- `Secure` forced on in production.
+- `SameSite` defaulted to `Lax`.
+- `HttpOnly` defaulted to `true` for any cookie matching `auth.*` /
+  `idp.*`.
+
+## Client-secret hashing
+
+When you store `secretHash` in `ConfigStore`, hash the plaintext with
+SHA-256 + base64url:
+
+```ts
+function hashClientSecret(plain: string): string {
+  const bytes = new TextEncoder().encode(plain)
+  return Buffer.from(crypto.createHash("sha256").update(bytes).digest())
+    .toString("base64url")
+}
+```
+
+(This format is documented in `domain/token.ts:hashClientSecret`. A
+future Phase 8 session migrates production deployments to argon2id; the
+storage shape — `string` — won't change.)
+
+## Public-API third-party type leakage
+
+The public API never reaches a `jose` / `hono` / `oauth4webapi` /
+`@simplewebauthn/server` / `aws4fetch` type into a re-exported type.
+Consumers that `file:`-link or `npm link` this package against their own
+copy of those libraries will not hit duplicate-type errors.
+
+What that means in practice:
+
+- `Oauth2Properties.idTokenClaims` is `Record<string, unknown>` (not
+  `JWTPayload`). Narrow with `typeof claims.sub === "string"` at the
+  call site.
+- `IdP.handle` / `IdPOptions.resolveTenant` take the global `Request`
+  and return the global `Response` — never Hono's `Context`.
+- `AuthMethodFactory.configSchema` is Standard Schema v1, satisfied by
+  Zod 3.24+, Zod 4, Valibot 1.0+, Arktype 2.0+, Effect Schema.
+- `KeyStore` private key material is `unknown`; `publicJwk` is
+  `Record<string, unknown>`.
+
+Enforced by `test/types/public-api-no-thirdparty-leaks.test.ts`.
+
+## Phase-8 features that are NOT yet shipped
+
+If you need any of these and want them on the library side rather than
+in front of it, raise scope before integrating:
+
+- **DPoP (RFC 9449)** — sender-constrained tokens. Bearer tokens only
+  for now.
+- **PAR (RFC 9126)** — pushed authorization requests.
+- **mTLS client auth (RFC 8705)** — relies on a host-side
+  `extractClientCert(req)` hook that doesn't exist yet.
+- **Dynamic Client Registration (RFC 7591)** — host-callable helper
+  pattern, not landed yet.
+- **Rate-limiter port** — put rate limits in your proxy / CDN / WAF in
+  front of the IdP for now.
+- **Logger / Tracer ports** — wrap `idp.handle` with your own
+  request-logging middleware until structured ports land.
+
+All of these are designed to be **additive when they ship**: new
+optional fields on `IdPOptions`, new optional methods on existing
+ports. Integrating today does not require an overhaul to pick them up
+later.

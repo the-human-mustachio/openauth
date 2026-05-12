@@ -1,311 +1,153 @@
-<p align="center">
-  <a href="https://openauth.js.org">
-    <picture>
-      <source srcset="https://raw.githubusercontent.com/toolbeam/identity/main/openauth/logo-dark.svg" media="(prefers-color-scheme: dark)">
-      <source srcset="https://raw.githubusercontent.com/toolbeam/identity/main/openauth/logo-light.svg" media="(prefers-color-scheme: light)">
-      <img src="https://raw.githubusercontent.com/toolbeam/identity/main/openauth/logo-light.svg" alt="OpenAuth logo">
-    </picture>
-  </a>
-</p>
-<p align="center">
-  <a href="https://sst.dev/discord"><img alt="Discord" src="https://img.shields.io/discord/983865673656705025?style=flat-square&label=Discord" /></a>
-  <a href="https://www.npmjs.com/package/@openauthjs/openauth"><img alt="npm" src="https://img.shields.io/npm/v/%40openauthjs%2Fcore?style=flat-square" /></a>
-  <a href="https://github.com/toolbeam/openauth/actions/workflows/release.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/toolbeam/openauth/release.yml?style=flat-square&branch=master" /></a>
-</p>
+# `@_mustachio/openauth`
 
----
+A **server-side IdP library** for OAuth 2.1 / OIDC Core. Embed it inside
+your host application — the host owns the console, the data model, and
+RBAC; this library owns the identity endpoints, per-tenant isolation, and
+the standards posture.
 
-[OpenAuth](https://openauth.js.org) is a standards-based auth provider for web apps, mobile apps, single pages apps, APIs, or 3rd party clients. It is currently in beta.
+- **Library, not a service.** Mounts inside your existing app. No
+  separate admin HTTP surface; the host imports port adapters in-process.
+- **Multi-tenant from day one.** `TenantId` is an opaque partition key.
+  Encode whatever hierarchy you need (App × App-Tenant, workspace,
+  deployment) into it inside your `resolveTenant`.
+- **OAuth 2.1 / OIDC Core.** Authorization code + PKCE, refresh-token
+  rotation with reuse detection, RFC 7009 revoke, RFC 7662 introspect,
+  RFC 8693 token exchange, `/.well-known/openid-configuration`.
+- **15 upstream provider factories** (Google, GitHub, Apple, Microsoft,
+  Discord, Facebook, LinkedIn, Slack, Spotify, Twitch, X, Yahoo,
+  JumpCloud, Keycloak, Cognito) plus generic `oauth2Factory` /
+  `oidcFactory` for everything else.
+- **Built-in credential methods.** Password (argon2id), email/SMS code,
+  WebAuthn passkey, M2M client-credentials.
+- **Production storage adapters.** Postgres, DynamoDB, Cloudflare D1, KV,
+  Durable Objects, AWS KMS (key wrapping), in-memory (dev / tests).
+- **Runs anywhere a fetch handler runs.** Node, Bun, AWS Lambda,
+  Cloudflare Workers.
 
-- **Universal**: You can deploy it as a standalone service or embed it into an existing application. It works with any framework or platform.
-- **Self-hosted**: It runs entirely on your infrastructure and can be deployed on Node.js, Bun, AWS Lambda, or Cloudflare Workers.
-- **Standards-based**: It implements the OAuth 2.0 spec and is based on web standards. So any OAuth client can use it.
-- **Customizable**: It comes with prebuilt themeable UI that you can customize or opt out of.
+## Install
 
-<picture>
-  <source srcset="https://raw.githubusercontent.com/toolbeam/identity/main/openauth/assets/themes-dark.png" media="(prefers-color-scheme: dark)">
-  <source srcset="https://raw.githubusercontent.com/toolbeam/identity/main/openauth/assets/themes-light.png" media="(prefers-color-scheme: dark)">
-  <img src="https://raw.githubusercontent.com/toolbeam/identity/main/openauth/assets/themes-light.png" alt="OpenAuth themes">
-</picture>
-
-## Quick Start
-
-If you just want to get started as fast as possible you can jump straight into the [code examples](https://github.com/toolbeam/openauth/tree/master/examples) folder and copy paste away. There are also [SST components](https://sst.dev/docs/component/aws/auth) for deploying everything OpenAuth needs.
-
-## Approach
-
-While there are many open source solutions for auth, almost all of them are libraries that are meant to be embedded into a single application. Centralized auth servers typically are delivered as SaaS services - eg Auth0 or Clerk.
-
-OpenAuth instead is a centralized auth server that runs on your own infrastructure and has been designed for ease of self hosting. It can be used to authenticate all of your applications - web apps, mobile apps, internal admin tools, etc.
-
-It adheres mostly to OAuth 2.0 specifications - which means anything that can speak OAuth can use it to receive access and refresh tokens. When a client initiates an authorization flow, OpenAuth will hand off to one of the configured providers - this can be third party identity providers like Google, GitHub, etc or built in flows like email/password or pin code.
-
-Because it follows these specifications it can even be used to issue credentials for third party applications - allowing you to implement "login with myapp" flows.
-
-OpenAuth very intentionally does not attempt to solve user management. We've found that this is a very difficult problem given the wide range of databases and drivers that are used in the JS ecosystem. Additionally it's quite hard to build data abstractions that work for every use case. Instead, once a user has identified themselves OpenAuth will invoke a callback where you can implement your own user lookup/creation logic.
-
-While OpenAuth tries to be mostly stateless, it does need to store a minimal amount of data (refresh tokens, password hashes, etc). However this has been reduced to a simple KV store with various implementations for zero overhead systems like Cloudflare KV and DynamoDB. You should never need to directly access any data that is stored in there.
-
-There is also a themeable UI that you can use to get going without implementing any designs yourself. This is built on top of a lower level system so you can copy paste the default UI and tweak it or opt out entirely and implement your own.
-
-Finally, OpenAuth is created by the maintainers of [SST](https://sst.dev) which is a tool to manage all the infrastructure for your app. It contains components for OpenAuth that make deploying it to AWS or Cloudflare as simple as it can get.
-
-## Tutorial
-
-We'll show how to deploy the auth server and then a sample app that uses it.
-
-### Auth server
-
-Start by importing the `issuer` function from the `@openauthjs/openauth` package.
-
-```ts
-import { issuer } from "@openauthjs/openauth"
+```bash
+bun add @_mustachio/openauth hono jose
+# Plus a storage adapter for your deployment target:
+bun add postgres                                            # Postgres
+bun add @aws-sdk/client-dynamodb @aws-sdk/lib-dynamodb      # DynamoDB
+bun add @aws-sdk/client-kms                                 # KMS key wrap
+# Cloudflare D1 / KV / Durable Objects need @cloudflare/workers-types.
 ```
 
-OpenAuth is built on top of [Hono](https://github.com/honojs/hono) which is a minimal web framework that can run anywhere. The `issuer` function creates a Hono app with all of the auth server implemented that you can then deploy to AWS Lambda, Cloudflare Workers, or in a container running under Node.js or Bun.
+Storage adapters live under `@_mustachio/openauth/adapters/<backend>`.
+Hono is a peer dependency.
 
-The `issuer` function requires a few things:
-
-```ts
-const app = issuer({
-  providers: { ... },
-  storage,
-  subjects,
-  success: async (ctx, value) => { ... }
-})
-```
-
-First we need to define some providers that are enabled - these are either third party identity providers like Google, GitHub, etc or built in flows like email/password or pin code. You can also implement your own. Let's try the GitHub provider.
+## Minimum viable integration
 
 ```ts
-import { GithubProvider } from "@openauthjs/openauth/provider/github"
+import postgres from "postgres"
+import {
+  createIdP,
+  asTenantId,
+  authError,
+  err,
+  ok,
+  passwordMethod,
+  googleFactory,
+  type SubjectSchema,
+} from "@_mustachio/openauth"
+import {
+  fromPostgresJs,
+  migrate,
+  PostgresAuditLog,
+  PostgresConfigStore,
+  PostgresKeyStore,
+  PostgresMethodStore,
+  PostgresSessionStore,
+  PostgresTokenStore,
+} from "@_mustachio/openauth/adapters/postgres"
+import { z } from "zod"
 
-const app = issuer({
-  providers: {
-    github: GithubProvider({
-      clientID: process.env.GITHUB_CLIENT_ID!,
-      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
-      scopes: ["user:email"],
-    }),
+const sql = postgres(process.env.DATABASE_URL!)
+const exec = fromPostgresJs(sql)
+await migrate(exec) // idempotent
+
+const idp = createIdP({
+  resolveTenant: async (req) => {
+    const clientId = new URL(req.url).searchParams.get("client_id")
+    if (!clientId) return err(authError.invalidRequest("missing client_id"))
+    return ok(asTenantId(clientId))
   },
-  ...
-})
-```
-
-Providers take some configuration - since this is a third party identity provider there is no UI to worry about and all it needs is a client ID, secret and some scopes. Let's add the password provider which is a bit more complicated.
-
-```ts
-import { PasswordProvider } from "@openauthjs/openauth/provider/password"
-
-const app = issuer({
-  providers: {
-    github: ...,
-    password: PasswordProvider(...),
+  stateKeys: loadStateKeyRing(),       // 32-byte HMAC key ring
+  configStore:  new PostgresConfigStore({ exec }),
+  tokenStore:   new PostgresTokenStore({ exec, keyStore: new PostgresKeyStore({ exec }) }),
+  sessionStore: new PostgresSessionStore({ exec }),
+  keyStore:     new PostgresKeyStore({ exec }),
+  methodStore:  new PostgresMethodStore({ exec }),
+  auditLog:     new PostgresAuditLog({ exec }),
+  issuerUrl: "https://auth.yourapp.com",
+  methods: {
+    password: passwordMethod({ users: { /* findByEmail, create? */ } }),
+    google:   googleFactory,
   },
-  ...
-})
-```
-
-The password provider is quite complicated as username/password involve a lot of flows so there are a lot of callbacks to implement. However you can opt into the default UI which has all of this already implemented for you. The only thing you have to specify is how to send a code for forgot password/email verification. In this case we'll log the code but you would send this over email.
-
-```ts
-import { PasswordProvider } from "@openauthjs/openauth/provider/password"
-import { PasswordUI } from "@openauthjs/openauth/ui/password"
-
-const app = issuer({
-  providers: {
-    github: ...,
-    password: PasswordProvider(
-      PasswordUI({
-        sendCode: async (email, code) => {
-          console.log(email, code)
-        },
-      }),
-    ),
-  },
-  ...
-})
-```
-
-Next up is the `subjects` field. Subjects are what the access token generated at the end of the auth flow will map to. Under the hood, the access token is a JWT that contains this data. You will likely just have a single subject to start but you can define additional ones for different types of users.
-
-```ts
-import { object, string } from "valibot"
-
-const subjects = createSubjects({
-  user: object({
-    userID: string(),
-    // may want to add workspaceID here if doing a multi-tenant app
-    workspaceID: string(),
+  subjects: {
+    user: z.object({ userId: z.string(), email: z.string().email() }),
+  } satisfies SubjectSchema,
+  success: async ({ providerSubject, properties }) => ({
+    type: "user",
+    properties: {
+      userId: await db.users.upsert({ providerSubject }),
+      email: (properties as { email?: string }).email ?? "",
+    },
   }),
 })
+
+Bun.serve({ port: 3000, fetch: idp.handle })
 ```
 
-Note we are using [valibot](https://github.com/fabian-hiller/valibot) to define the shape of the subject so it can be validated properly. You can use any validation library that is following the [standard-schema specification](https://github.com/standard-schema/standard-schema) - the next version of Zod will support this.
+That's a complete IdP: `/authorize`, `/token`, `/cb/*`, `/userinfo`,
+`/revoke`, `/introspect`, `/.well-known/*` over Postgres with password +
+Google sign-in.
 
-You typically will want to place subjects in its own file as it can be imported by all of your apps. You can pass it to the issuer in the `subjects` field.
+For the full host-side embedding guide — the four host contracts
+(`resolveTenant`, `ConfigStore`, `success`, `subjects`), method
+configuration, mounting under a prefix, behavioral contracts, hardening
+rules — see [`packages/openauth/INTEGRATION.md`](packages/openauth/INTEGRATION.md).
 
-```ts
-import { subjects } from "./subjects.js"
+For the architectural picture — tenant recovery, flow lifecycle, port
+consistency, embedding pattern — see
+[`packages/openauth/ARCHITECTURE.md`](packages/openauth/ARCHITECTURE.md).
 
-const app = issuer({
-  providers: { ... },
-  subjects,
-  ...
-})
-```
+## Relying-party client
 
-Next we'll implement the `success` callback which receives the payload when a user successfully completes a provider flow.
-
-```ts
-const app = issuer({
-  providers: { ... },
-  subjects,
-  async success(ctx, value) {
-    let userID
-    if (value.provider === "password") {
-      console.log(value.email)
-      userID = ... // lookup user or create them
-    }
-    if (value.provider === "github") {
-      console.log(value.tokenset.access)
-      userID = ... // lookup user or create them
-    }
-    return ctx.subject("user", {
-      userID,
-      'a workspace id'
-    })
-  }
-})
-```
-
-Note all of this is typesafe - based on the configured providers you will receive different properties in the `value` object. Also the `subject` method will only accept properties. Note - most callbacks in OpenAuth can return a `Response` object. In this case if something goes wrong, you can return a `Response.redirect("...")` sending them to a different place or rendering an error.
-
-Next we have the `storage` field which defines where things like refresh tokens and password hashes are stored. If on AWS we recommend DynamoDB, if on Cloudflare we recommend Cloudflare KV. We also have a MemoryStore used for testing.
+The RP-side helper lives at a separate import path for tree-shaking:
 
 ```ts
-import { MemoryStorage } from "@openauthjs/openauth/storage/memory"
-
-const app = issuer({
-  providers: { ... },
-  subjects,
-  async success(ctx, value) { ... },
-  storage: MemoryStorage(),
-})
-```
-
-And now we are ready to deploy! Here's how you do that depending on your infrastructure.
-
-```ts
-// Bun
-export default app
-
-// Cloudflare
-export default app
-
-// Lambda
-import { handle } from "hono/aws-lambda"
-export const handler = handle(app)
-
-// Node.js
-import { serve } from "@hono/node-server"
-serve(app)
-```
-
-You now have a centralized auth server. Test it out by visiting `/.well-known/oauth-authorization-server` - you can see a live example [here](https://auth.terminal.shop/.well-known/oauth-authorization-server).
-
-### Auth client
-
-Since this is a standard OAuth server you can use any libraries for OAuth and it will work. OpenAuth does provide some light tooling for this although even a manual flow is pretty simple. You can create a client like this:
-
-```ts
-import { createClient } from "@openauthjs/openauth/client"
+import { createClient } from "@_mustachio/openauth/client"
 
 const client = createClient({
   clientID: "my-client",
-  issuer: "https://auth.myserver.com", // url to the OpenAuth server
+  issuer: "https://auth.yourapp.com",
 })
-```
 
-#### SSR Sites
-
-If your frontend has a server component you can use the code flow. Redirect the user here
-
-```ts
-const { url } = await client.authorize(
-  <redirect-uri>,
-  "code"
-)
-```
-
-You can make up a `client_id` that represents your app. This will initiate the auth flow and user will be redirected to the `redirect_uri` you provided with a query parameter `code` which you can exchange for an access token.
-
-```ts
-// the redirect_uri is the original redirect_uri you passed in and is used for verification
-const tokens = await client.exchange(query.get("code"), redirect_uri)
-console.log(tokens.access, tokens.refresh)
-```
-
-You likely want to store both the access token and refresh token in an HTTP only cookie so they are sent up with future requests. Then you can use the `client` to verify the tokens.
-
-```ts
-const verified = await client.verify(subjects, cookies.get("access_token")!, {
-  refresh: cookies.get("refresh_token") || undefined,
+// Server-side code flow:
+const { url } = await client.authorize(redirectUri, "code")
+// ... after the user returns with ?code=...
+const tokens = await client.exchange(code, redirectUri)
+const verified = await client.verify(subjects, tokens.access, {
+  refresh: tokens.refresh,
 })
-console.log(
-  verified.subject.type,
-  verified.subject.properties,
-  verified.refresh,
-  verified.access,
-)
+
+// SPA / mobile (PKCE):
+const { challenge, url } = await client.authorize(redirectUri, "code", { pkce: true })
+const exchanged = await client.exchange(code, redirectUri, challenge.verifier)
 ```
 
-Passing in the refresh token is optional but if you do, this function will automatically refresh the access token if it has expired. It will return a new access token and refresh token which you should set back into the cookies.
+## Repo layout
 
-#### SPA Sites, Mobile apps, etc
-
-In cases where you do not have a server, you can use the `token` flow with `pkce` on the frontend.
-
-```ts
-const { challenge, url } = await client.authorize(<redirect_uri>, "code", { pkce: true })
-localStorage.setItem("challenge", JSON.stringify(challenge))
-location.href = url
+```
+packages/openauth/   Library source — see its ARCHITECTURE.md / INTEGRATION.md
+examples/            One minimal embedding example
+www/                 Astro/Starlight docs site
+docs/                Release process + rebuild plan
 ```
 
-When the auth flow is complete the user's browser will be redirected to the `redirect_uri` with a `code` query parameter. You can then exchange the code for access/refresh tokens.
+## License
 
-```ts
-const challenge = JSON.parse(localStorage.getItem("challenge"))
-const exchanged = await client.exchange(
-  query.get("code"),
-  redirect_uri,
-  challenge.verifier,
-)
-if (exchanged.err) throw new Error("Invalid code")
-localStorage.setItem("access_token", exchanged.tokens.access)
-localStorage.setItem("refresh_token", exchanged.tokens.refresh)
-```
-
-Then when you make requests to your API you can include the access token in the `Authorization` header.
-
-```ts
-const accessToken = localStorage.getItem("access_token")
-fetch("https://auth.example.com/api/user", {
-  headers: {
-    Authorization: `Bearer ${accessToken}`,
-  },
-})
-```
-
-And then you can verify the access token on the server.
-
-```ts
-const verified = await client.verify(subjects, accessToken)
-console.log(verified.subject)
-```
-
----
-
-OpenAuth is created by the maintainers of [SST](https://sst.dev).
-
-**Join our community** [Discord](https://sst.dev/discord) | [YouTube](https://www.youtube.com/c/sst-dev) | [X.com](https://x.com/SST_dev)
+MIT.

@@ -1,0 +1,248 @@
+---
+title: createIdP
+description: The full IdPOptions surface and the returned IdP handle.
+---
+
+`createIdP(options)` is the single entrypoint. It returns an `IdP` whose
+`handle` is a `(req: Request) => Promise<Response>` you can pass to any
+fetch-style runtime.
+
+```ts
+import { createIdP } from "@_mustachio/openauth"
+
+const idp = createIdP(options)
+Bun.serve({ fetch: idp.handle, port: 3000 })
+// or:  export default { fetch: idp.handle }    // Cloudflare Workers
+```
+
+## `IdPOptions`
+
+```ts
+type IdPOptions = {
+  resolveTenant: (req: Request) => Promise<Result<TenantId, AuthError>>
+  callbackHostFor?: (tenantId: TenantId) => string
+  stateKeys: StateKeyRing
+
+  configStore: ConfigStore
+  tokenStore: TokenStore
+  sessionStore: SessionStore
+  keyStore: KeyStore
+  auditLog?: AuditLog
+  methodStore?: MethodStore
+
+  issuerUrl: string | ((req: Request) => string)
+
+  methods: Record<string, AnyAuthMethodFactory>
+
+  subjects: SubjectSchema
+
+  success: (input: SuccessMapInput) => Promise<SubjectClaim>
+
+  theme?: ThemeConfig
+
+  hooks?: {
+    onSuccess?: (event: SuccessEvent) => Promise<void>
+    onFailure?: (event: FailureEvent) => Promise<void>
+  }
+
+  persistUpstreamTokens?: PersistUpstreamTokens
+  exchangeAudience?: ExchangeAudience
+  renderPicker?: RenderPicker
+}
+```
+
+### `resolveTenant`
+
+Tenant resolution for the **first** request in a flow. Not consulted on
+callbacks — the framework recovers `(tenantId, flowId)` from the
+MAC-bound state envelope, partitioned host, or `flowId`-in-URI
+mechanism. See [Flow lifecycle](/docs/concepts/flow/).
+
+Return a `Result<TenantId, AuthError>`. Use `asTenantId(string)` to
+brand the value.
+
+### `callbackHostFor` (optional)
+
+Opt-in for the **partitioned callback host** recovery mechanism — useful
+if each tenant has its own `auth.<tenant>.example.com`. The framework
+will recover the tenant by matching the request host against this
+function.
+
+### `stateKeys` — required
+
+HMAC-SHA-256 key ring used to MAC the minimal state envelope. The
+envelope carries only `{ tenantId, flowId, nonce, kid }` — never
+sensitive data — so a global ring is acceptable and necessary
+(tenant config can't be loaded until we know the tenant).
+
+```ts
+const stateKeys: StateKeyRing = {
+  active: { kid: "2026-05", key: new Uint8Array(/* 32 bytes */) },
+  verify: [
+    { kid: "2026-05", key: /* same as active */ },
+    { kid: "2026-04", key: /* previous month's key */ },
+  ],
+}
+```
+
+Rotate monthly. Keep the previous key in `verify[]` for at least the
+flow-record TTL (10 minutes); recommended 1 hour.
+
+### Ports — `configStore`, `tokenStore`, `sessionStore`, `keyStore`
+
+Required. Implement with bundled adapters or your own. See
+[Storage adapters](/docs/reference/adapters/) for the bundled set and
+which ports each backend covers.
+
+### `auditLog` (optional)
+
+Optional but recommended for any production deployment. The library
+writes flow events, token issuance / revocation / refresh, and reuse
+detection.
+
+### `methodStore` (optional)
+
+Optional — falls back to `ConfigStore` for `MethodConfig` lookups when
+absent. Separate it from `ConfigStore` when method configs change at a
+different cadence than tenant configs.
+
+### `issuerUrl`
+
+Issuer URL. Function form lets multi-tenant deployments derive it per
+request:
+
+```ts
+issuerUrl: (req) => {
+  const tenant = new URL(req.url).hostname.split(".")[0]
+  return `https://auth.example.com/${tenant}`
+}
+```
+
+### `methods`
+
+Available method factories. **The KEY of this record MUST equal
+`factory.kind`.** `createIdP` throws on construction if any key
+disagrees, with a list of offending keys in the error message.
+
+See [Methods](/docs/concepts/methods/) for the `id` vs `kind` distinction.
+
+### `subjects`
+
+The subject schema — a `Record<string, StandardSchema>`. See
+[Subjects](/docs/reference/subjects/).
+
+### `success` — required
+
+Maps method result → issued subject. Runs at `/token` time, after PKCE
+check, before tokens are minted.
+
+```ts
+type SuccessMapInput = {
+  tenant: TenantContext
+  methodId: string                          // tenant-local instance id
+  methodKind: string                        // factory kind
+  providerSubject: string                   // stable upstream id
+  properties: unknown                       // typed per method
+  context: Record<string, unknown> | null
+}
+
+success: async (input) => ({
+  type: "user",
+  properties: { /* shape matching subjects.user */ },
+})
+```
+
+### `hooks` (optional)
+
+- `onSuccess` — fires after the subject claim has been minted.
+  Observation only; does NOT influence the issued subject. Use for
+  audit, analytics, side effects.
+- `onFailure` — fires on a failed attempt. Carries enough id information
+  for operators to find the offending flow / config row without leaking
+  secrets.
+
+### `persistUpstreamTokens` (optional)
+
+Called at `/token` time after `success`, before the response is
+returned. Use this when you prefer not to persist upstream tokens in the
+code payload itself. If it throws, the IdP responds with `server_error`
+and aborts token issuance.
+
+### `exchangeAudience` (optional)
+
+RFC 8693 token-exchange hook. The host decides whether the
+authenticated subject can obtain a token scoped to `request.audience`
+(a new tenant), and returns either the new `SubjectClaim` or an
+`AuthError`.
+
+If absent, exchange requests return `unsupported_grant_type` — the
+graceful-degradation default.
+
+```ts
+exchangeAudience: async (currentClaim, { audience, clientId, fromTenantId }) => {
+  // Decide whether `currentClaim` may obtain a token at `audience`.
+  const allowed = await db.checkExchange(currentClaim, audience)
+  if (!allowed) return authError.invalidTarget(audience)
+  return { type: "user", properties: { /* role at the new audience */ } }
+}
+```
+
+### `renderPicker` (optional)
+
+Override for the default provider picker shown when an `/authorize`
+request has multiple enabled methods and no `method_id`. The library
+ships a minimal styled default (`src/ui/picker.ts`); supply this to
+render a fully custom selection screen.
+
+## `IdP` — the returned handle
+
+```ts
+type IdP = {
+  handle: (req: Request) => Promise<Response>
+  authorize: (req: Request) => Promise<Response>
+  token: (req: Request) => Promise<Response>
+  userinfo: (req: Request) => Promise<Response>
+  jwks: (req: Request) => Promise<Response>
+  discovery: (req: Request) => Promise<Response>
+  revoke?: (req: Request) => Promise<Response>
+  introspect?: (req: Request) => Promise<Response>
+}
+```
+
+`handle` is the full router. The per-endpoint accessors are exposed for
+mounting alongside admin routes — e.g. Hono `app.route("/auth",
+honoWrap(idp.handle))`. The per-endpoint primitives all re-enter the
+same app under the hood, so feel free to use whichever fits your shape.
+
+## `ClientConfig` discriminated union
+
+`ClientConfig = PublicClientConfig | ConfidentialClientConfig`. Type
+your literal carefully:
+
+```ts
+// Public — SPA, mobile, native:
+{
+  id: "spa-client",
+  name: "Web app",
+  type: "public",
+  redirectUris: [...],
+  grantTypes: ["authorization_code", "refresh_token"],
+  scopes: [...],
+  pkceRequired: true,    // MUST be literal `true` — false is a compile error
+}
+
+// Confidential — server, M2M:
+{
+  id: "api-client",
+  name: "API server",
+  type: "confidential",
+  secretHash: "<sha256(secret) base64url>",  // REQUIRED
+  redirectUris: [...],
+  grantTypes: ["authorization_code", "refresh_token", "client_credentials"],
+  scopes: [...],
+  pkceRequired: true,
+}
+```
+
+See [Standards & hardening](/docs/concepts/standards/) for the client-secret
+hashing format.

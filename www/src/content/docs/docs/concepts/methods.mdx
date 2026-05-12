@@ -1,0 +1,151 @@
+---
+title: Methods
+description: The id / kind split, factories vs single methods, and multi-instance configuration.
+---
+
+An **auth method** is a self-contained way for a subject to prove their
+identity — password, email code, WebAuthn passkey, "Sign in with
+Google," and so on. Each method is a piece of data (its config + routes)
+plus a handful of pure handler functions.
+
+## `id` vs `kind` — the split
+
+Every runtime contract that names a method carries **two** identifiers:
+
+- `id` — **tenant-local instance id** (from `MethodConfig.id`). The
+  framework dispatches URL routes by this value. URLs look like
+  `/<id>/authorize`, `/<id>/callback`.
+- `kind` — **factory id** (from `MethodConfig.kind`). Selects which
+  `AuthMethodFactory` builds the instance.
+
+Why both: **a tenant may register multiple instances of the same
+factory.** A typical example is a tenant that wants both Google
+Workspace SSO and consumer Google Sign-In, each with its own client id
+and scopes:
+
+```ts
+// TenantConfig.methods:
+[
+  {
+    id: "google-workspace",     // becomes /google-workspace/* in URLs
+    kind: "google",
+    type: "oidc",
+    enabled: true,
+    config: {
+      clientId: "...workspace...",
+      clientSecret: "...",
+      hostedDomain: "yourcompany.com",
+    },
+  },
+  {
+    id: "google-personal",
+    kind: "google",
+    type: "oidc",
+    enabled: true,
+    config: { clientId: "...personal...", clientSecret: "..." },
+  },
+]
+```
+
+The factory lookup is `MethodConfig.kind`; the URL space and the cache
+key are `MethodConfig.id`.
+
+## The `methods` map invariant
+
+The map you pass to `createIdP` MUST have keys that equal each factory's
+declared `kind`. `createIdP` throws on construction if any key
+disagrees with its factory:
+
+```ts
+const idp = createIdP({
+  methods: {
+    google:  googleFactory,    // ✓ matches googleFactory.kind === "google"
+    okta:    oidcFactory,      // ✗ throws: oidcFactory.kind === "oidc"
+  },
+  // ...
+})
+```
+
+The fix in this example would be `oidc: oidcFactory`. Multiple tenants
+can then each register many `MethodConfig` instances of `kind: "oidc"`
+with distinct `id`s.
+
+## Factories vs single static methods
+
+There are two layers:
+
+- **`AuthMethodFactory`** — multi-instance. Has a `configSchema` (per
+  tenant). Builds an `AuthMethod` on demand from a `MethodConfig.config`.
+  Use this when each tenant brings its own upstream credentials. Cached
+  per `(tenantId, methodId)`.
+- **`AuthMethod`** — a single static instance. No factory wrapping. Use
+  this only when the upstream is fixed at deployment level
+  (single-tenant deployments).
+
+The 15 bundled vendor factories (`googleFactory`, `githubFactory`,
+`appleFactory`, …) are `AuthMethodFactory` values — they're cached
+per-tenant and per-instance. So is `oauth2Factory` /`oidcFactory` (the
+generic ones for non-bundled providers).
+
+`buildOauth2Method` and `buildOidcMethod` return single static
+`AuthMethod`s; you call them inside your own factory's `build` if you
+want a vendor-style factory with a custom `kind` and fixed upstream.
+
+## In the `success` callback
+
+`methodId` tells you which instance, `methodKind` tells you which
+provider:
+
+```ts
+success: async ({ methodId, methodKind, providerSubject, properties }) => {
+  // methodKind === "google" for both google-workspace and google-personal.
+  if (methodId === "google-workspace") {
+    return { type: "admin", properties: { /* ... */ } }
+  }
+  return { type: "user", properties: { /* ... */ } }
+}
+```
+
+Use `methodKind` for branching on provider type; use `methodId` for
+branching on which instance was used.
+
+## What ships built-in
+
+- [Credential methods](/docs/reference/methods/): `passwordMethod`,
+  `codeMethod`, `passkeyMethod`, `m2mMethod`.
+- [OAuth/OIDC providers](/docs/reference/providers/): 15 vendor
+  factories + generic `oauth2Factory` / `oidcFactory`.
+
+## Writing your own factory
+
+A factory is a value of `AuthMethodFactory<Properties, State, Config>`:
+
+```ts
+import type { AuthMethodFactory } from "@_mustachio/openauth"
+import { z } from "zod"
+
+const myFactory: AuthMethodFactory<Props, State, Cfg> = {
+  kind: "my-method",
+  configSchema: z.object({ /* tenant-supplied fields */ }),
+  async build({ id, kind, config }) {
+    return {
+      id,
+      kind,
+      type: "credential", // or "redirect"
+      routes: [/* ... */],
+    }
+  },
+}
+```
+
+The factory's `configSchema` is validated at request time against
+whatever the host put in `MethodConfig.config`. Schema is
+Standard-Schema v1 — Zod 3.24+, Zod 4, Valibot 1.0+, Arktype 2.0+, etc.
+
+Methods import only Web Fetch `Request` / `Response` and the types in
+`src/types/` — no Hono, no framework coupling. The HTTP adapter mounts
+each tenant's methods under `/<id>/*`.
+
+See `packages/openauth/src/methods/` for working examples — start with
+`password.ts` for a credential method and `oauth2-factory.ts` for a
+redirect-based factory.

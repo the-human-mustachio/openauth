@@ -1,6 +1,0 @@
-{
-  "name": "@openauthjs/example-custom-frontend",
-  "scripts": {
-    "dev": "bun run --hot frontend.tsx"
-  }
-}

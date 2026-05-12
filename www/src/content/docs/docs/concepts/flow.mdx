@@ -1,0 +1,138 @@
+---
+title: Flow lifecycle
+description: How the framework tracks an in-flight authorization and recovers tenant context across upstream callbacks.
+---
+
+This page explains how a single `/authorize` → upstream → `/cb` → `/token`
+sequence is tracked, and how the framework recovers the right tenant
+when the user comes back from an upstream provider.
+
+## `FlowRecord` — the source of truth
+
+`FlowRecord` is the single in-flight record for an authorization. It's
+created at `/authorize` after `resolveTenant` succeeds, optionally
+updated when a method records its own upstream state, then consumed
+exactly once when the upstream redirects the user back.
+
+```
+/authorize
+   │
+   │ schema-validate, resolveTenant, mint state envelope, saveFlow
+   ▼
+{ tenantId, flowId, methodId, clientPkce, callbackHost, callbackPath, … }
+   │
+   │ method returns { kind: "challenge", saveMethodState }
+   ▼
+updateFlowMethodState(flowId, methodState)
+   │
+   │ user redirected to upstream
+   ▼
+upstream callback hits the IdP
+   │
+   │ MAC-verify state, consumeFlow (atomic delete-on-read)
+   ▼
+method.callback(...) runs with the recovered FlowRecord
+   │
+   │ method returns success → snapshot fields into auth-code payload
+   ▼
+saveCode → RP exchanges code at /token
+```
+
+The framework consumes `FlowRecord` **exactly once**. After consume, the
+in-memory record is the source of truth for the rest of the request;
+the framework does not call `consumeFlow` a second time.
+
+## Tenant recovery — why it's not just `resolveTenant`
+
+`resolveTenant(req)` works for the **first** request in a flow
+(subdomain, header, JWT, mTLS — whatever signal you ship). It does
+**not** work reliably for the upstream provider's callback — by the time
+Google redirects the user back, the original tenant signal may be gone.
+
+The framework runs an **ordered recovery chain** before
+`resolveTenant`:
+
+1. If `callbackHostFor` is configured AND the request host matches a
+   known tenant:
+   - `state` MAC-verifies → `host-plus-mac`
+   - else `flowId` in URI → `host-plus-uri`
+   - else reject with `invalid_request`, audit `unrecoverable_flow`
+2. Else if `state` MAC-verifies → `mac-state`
+3. Else if `flowId` in registered URI path / query → `flow-id-in-uri`
+4. Else → `fresh-request` → call your `resolveTenant(req)`
+
+Each non-`fresh-request` outcome carries `(tenantId, flowId)`. The
+framework then runs the **state-flow consistency check** before
+dispatching the method callback:
+
+```
+state.tenantId === flow.tenantId       // tenant binding
+state.nonce    === flow.nonce          // CSRF
+request.host   === flow.callbackHost   // host binding
+request.path   === flow.callbackPath   // exact-match after normalization
+```
+
+Any mismatch → `invalid_request`, audit `flow_replay_attempt`,
+`flow_tenant_mismatch`, or `flow_callback_mismatch`.
+
+## The state envelope
+
+The OAuth `state` parameter the IdP sends to upstream providers is
+MAC-protected. The envelope carries only:
+
+```
+{ tenantId, flowId, nonce, kid }
+```
+
+**Nothing sensitive lives in `state`.** Everything else (`clientPkce`,
+`appRedirectUri`, scopes, audience, …) is in the server-side
+`FlowRecord` keyed by `flowId`.
+
+The MAC verifies *before* tenant config is loaded — that's how recovery
+works at all. So the key ring is global (`IdPOptions.stateKeys`), not
+per-tenant. Per-tenant keys would create a bootstrap problem.
+
+## Two PKCEs, don't confuse them
+
+- **`clientPkce`** is the **relying-party → IdP** PKCE. RP generates the
+  verifier, sends the challenge to `/authorize`. Stored in
+  `FlowRecord.clientPkce`; verified at `/token`.
+- The **IdP → upstream provider** PKCE (when we act as a client of
+  Google / GitHub / etc.) lives inside `FlowRecord.methodState` for the
+  upstream-OAuth methods. The framework never inspects it; it's opaque
+  per method.
+
+## TTLs
+
+| Lifetime | Default | Notes |
+|---|---|---|
+| Flow record | 10 minutes | Pre-callback span: upstream login, MFA, consent, mobile app switching. 60 s is far too short. |
+| Auth code | 60 seconds | Post-callback span: RP exchanges code at `/token`. OAuth 2.1 BCP requires very short. The framework refuses larger TTLs at `saveCode`. |
+| Flow cookie | 10 minutes | Defense in depth for the `flow-id-in-uri` recovery path. HttpOnly / Secure / SameSite=Lax. |
+| Access token | 15 minutes | Configurable. |
+| Refresh token | 30 days (sliding) | Reuse window 60 s. Family revocation on detected reuse. |
+| State-MAC key overlap | ≥ flow TTL (10 m), recommended 1 h | Keep previous keys in `verify[]` for the overlap window. |
+
+## Audit events
+
+The framework writes these kinds via your `AuditLog` adapter:
+
+```
+authorize_started, authorize_completed, authorize_rejected,
+flow_replay_attempt, flow_tenant_mismatch, flow_callback_mismatch,
+unrecoverable_flow,
+token_issued, token_refreshed, token_revoked, refresh_reuse_detected
+```
+
+Reading the audit log is a **host concern** — query the underlying
+store directly. There's no `AuditLog.query(filter)` because a generic
+predicate would be necessarily less expressive than raw SQL / native
+queries.
+
+## Where to look in the code
+
+- `src/types/flow.ts` — the `FlowRecord` shape.
+- `src/domain/state-envelope.ts` — MAC envelope encoding / verification.
+- `src/http/middleware/` — tenant-recovery chain.
+- `src/ports/session-store.ts` — `saveFlow` / `updateFlowMethodState` /
+  `consumeFlow` interface.

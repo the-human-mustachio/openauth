@@ -1,8 +1,0 @@
-{
-  "name": "@openauthjs/example-issuer-cloudflare",
-  "version": "0.0.0",
-  "dependencies": {
-    "@_mustachio/openauth": "workspace:*",
-    "sst": "3.5.1"
-  }
-}

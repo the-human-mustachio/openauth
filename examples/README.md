@@ -1,28 +1,10 @@
 # Examples
 
-There are two sets of examples here, issuers and clients. Issuers are examples of setting up an OpenAuth server. The clients are examples of using OpenAuth in a client application and work with any of the issuer servers.
+| Example | What it shows |
+|---|---|
+| [`embed-postgres/`](embed-postgres/) | Minimum-viable host embedding — Node/Bun + Postgres adapter set + password + Google sign-in. |
 
-The fastest way to play around is to use the bun issuer. You can bring it up with:
-
-```shell
-$ bun run --hot ./issuer/bun/issuer.ts
-```
-
-You might have to install some workspace packages first, run this in the root:
-
-```shell
-$ bun install
-$ cd packages/openauth
-$ bun run build
-```
-
-This will bring it up on port 3000. Then try one of the clients - for example the astro one.
-
-```
-$ cd client/astro
-$ bun dev
-```
-
-Now visit `http://localhost:4321` (the astro app) and experience the auth flow.
-
-Or head over to `http://localhost:3000/password/authorize` to try the password flow directly.
+If you want a different deployment target (Cloudflare Workers,
+DynamoDB / Lambda, etc.), swap the `adapters/postgres` imports in
+`embed-postgres/index.ts` for the equivalent backend — see
+INTEGRATION.md § 4 for the full coverage matrix.

@@ -1,0 +1,15 @@
+{
+  "name": "embed-postgres-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run --hot index.ts"
+  },
+  "dependencies": {
+    "@_mustachio/openauth": "workspace:*",
+    "hono": "^4.0.0",
+    "jose": "^5.0.0",
+    "postgres": "^3.4.0",
+    "zod": "^3.24.0"
+  }
+}
