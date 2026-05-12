@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 4 | 8 | 12 |
+| High | 3 | 9 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **21** | **10** | **31** |
+| **Total** | **20** | **11** | **31** |
 
 ---
 
@@ -127,7 +127,7 @@ output.
 
 ### H9 — Stop passing `"unknown"` strings as `TenantId` to the audit log
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** M (overlaps with H10)
 - **Files:** `packages/openauth/src/domain/refresh.ts:93-101, 162-172`
 - **Problem:** `parseReuseSignal` returns `{ tenantId: "unknown" }` when the adapter's description doesn't match the regex. The audit call casts via `as never`. Downstream `AuditLog.log` implementations will fail on a `NOT NULL` / FK constraint when written against Postgres / Dynamo audit-log tables.

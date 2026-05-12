@@ -194,7 +194,21 @@ describe("end-to-end: authorize → callback → token → refresh → revoke", 
       },
     )
     expect(reused.ok).toBe(false)
-    expect(auditLog.byKind("refresh_reuse_detected").length).toBe(1)
+    const reuseEvents = auditLog.byKind("refresh_reuse_detected")
+    expect(reuseEvents.length).toBe(1)
+    // H9: audit event must carry the peeked payload's branded tenantId /
+    // clientId — never the regex's "unknown" sentinel that would blow up
+    // a NOT NULL / FK column at the AuditLog adapter.
+    const reuseEvent = reuseEvents[0] as {
+      tenantId: string
+      clientId: string
+      family: string
+    }
+    expect(reuseEvent.tenantId).toBe(tenant.id)
+    expect(reuseEvent.clientId).toBe("rp-1")
+    expect(typeof reuseEvent.family).toBe("string")
+    expect(reuseEvent.family.length).toBeGreaterThan(0)
+    expect(reuseEvent.family).not.toBe("unknown")
     // The new refresh should also have been revoked (whole family torched).
     const tryNewAfterReuse = await refreshTokens(
       { grantType: "refresh_token", refreshToken: refresh2 },
