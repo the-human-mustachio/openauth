@@ -238,7 +238,11 @@ export function createIdP(opts: IdPOptions): IdP {
       ? { buildCustomContext: opts.buildCustomContext }
       : {}),
     clock,
-    cookieDefaults: { secure: true },
+    cookieDefaults: {
+      secure: opts.cookies?.secure ?? true,
+      ...(opts.cookies?.domain !== undefined ? { domain: opts.cookies.domain } : {}),
+      ...(opts.cookies?.path !== undefined ? { path: opts.cookies.path } : {}),
+    },
   }
 
   const app = buildRouter(deps)

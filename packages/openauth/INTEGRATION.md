@@ -961,6 +961,12 @@ session; the storage shape — a `string` — won't change.)
   adapter and replaced with the framework's own cookie serializer.
   Methods set cookies via `MethodResult.setCookies`, never via
   `Response.headers.set("set-cookie", ...)`.
+- **Cookie defaults are `secure: true`, no domain, `path: "/"`.** For
+  local-HTTP development pass `createIdP({ cookies: { secure: false } })`
+  so `idp.flow` and other framework cookies round-trip on `localhost`
+  (Chrome rejects `Secure` cookies over plain HTTP). `cookies.domain` /
+  `cookies.path` are passed through to every framework-issued cookie
+  that doesn't override them.
 
 ---
 

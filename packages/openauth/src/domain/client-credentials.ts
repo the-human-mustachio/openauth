@@ -26,7 +26,7 @@ import type { PersistUpstreamTokens, SuccessMapInput } from "../types/idp"
 import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { SubjectClaim } from "../types/subject"
-import type { TenantContext } from "../types/tenant"
+import type { TenantContext, TenantId } from "../types/tenant"
 import type { TokenResponse } from "../types/token"
 
 import { verifyClientCredentials } from "./client-auth"
@@ -59,10 +59,10 @@ export type ClientCredentialsDeps = {
 export async function clientCredentialsGrant(
   req: ClientCredentialsRequest,
   deps: ClientCredentialsDeps,
-  tenantId: string,
+  tenantId: TenantId,
 ): Promise<Result<TokenResponse, AuthError>> {
   // 1. Tenant + client lookup.
-  const tenantCfg = await deps.configStore.getTenantConfig(tenantId as never)
+  const tenantCfg = await deps.configStore.getTenantConfig(tenantId)
   if (isErr(tenantCfg)) return err(tenantCfg.error)
   const client = tenantCfg.value.clients.find((c) => c.id === req.clientId)
   if (!client) {

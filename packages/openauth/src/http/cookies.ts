@@ -43,6 +43,24 @@ export type CookieDefaults = {
 const RESERVED_PREFIX = /^(auth|idp)\./
 
 /**
+ * Characters explicitly forbidden in a cookie name. RFC 6265 §4.1.1 defers
+ * to RFC 2616's `token` grammar (no separators, no CTLs); rather than the
+ * full grammar we reject the chars most likely to corrupt the header on
+ * splice: `=`, `;`, `,`, and any whitespace. Method-returned cookie names
+ * are the realistic source of bad input here — internal callers use fixed
+ * `auth.*` / `idp.*` names that pass.
+ */
+const INVALID_COOKIE_NAME = /[=;,\s]/
+
+function assertValidCookieName(name: string): void {
+  if (!name || INVALID_COOKIE_NAME.test(name)) {
+    throw new TypeError(
+      `invalid cookie name ${JSON.stringify(name)} — must be non-empty and contain no '=', ';', ',' or whitespace`,
+    )
+  }
+}
+
+/**
  * Serialize a single `SetCookie` data instruction into a `Set-Cookie` header
  * string. Enforces framework policy:
  *   - `Secure` forced on if `defaults.secure === true`.
@@ -55,6 +73,7 @@ export function serializeSetCookie(
   cookie: SetCookie,
   defaults: CookieDefaults = {},
 ): string {
+  assertValidCookieName(cookie.name)
   const parts: string[] = []
   const value = cookie.value ?? ""
   parts.push(`${cookie.name}=${encodeURIComponent(value)}`)

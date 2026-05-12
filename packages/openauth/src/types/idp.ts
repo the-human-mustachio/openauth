@@ -233,6 +233,22 @@ export type IdPOptions = {
   buildCustomContext?: (
     req: Request,
   ) => Record<string, unknown> | Promise<Record<string, unknown>>
+
+  /**
+   * Optional override for the framework's `Set-Cookie` defaults.
+   *
+   * Production deployments should rely on the built-in defaults
+   * (`secure: true`, no domain, `path: "/"`). Local development over plain
+   * HTTP — where Chrome rejects `Secure` cookies — can pass
+   * `cookies: { secure: false }` so the `idp.flow` / `auth.*` cookies
+   * round-trip on `localhost`. `domain` and `path` are passed through to
+   * every framework-issued cookie that doesn't set them itself.
+   */
+  cookies?: {
+    secure?: boolean
+    domain?: string
+    path?: string
+  }
 }
 
 /**
@@ -248,10 +264,6 @@ export type IdP = {
   userinfo: (req: Request) => Promise<Response>
   jwks: (req: Request) => Promise<Response>
   discovery: (req: Request) => Promise<Response>
-  /** Phase 8. */
-  revoke?: (req: Request) => Promise<Response>
-  /** Phase 8. */
-  introspect?: (req: Request) => Promise<Response>
-  /** Phase 8. */
-  par?: (req: Request) => Promise<Response>
+  revoke: (req: Request) => Promise<Response>
+  introspect: (req: Request) => Promise<Response>
 }

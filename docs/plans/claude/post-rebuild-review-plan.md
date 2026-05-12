@@ -23,9 +23,9 @@ output.
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
 | High | 0 | 12 | 12 |
-| Medium | 6 | 5 | 11 |
+| Medium | 2 | 9 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **12** | **19** | **31** |
+| **Total** | **8** | **23** | **31** |
 
 ---
 
@@ -212,7 +212,7 @@ output.
 
 ### M6 — Tighten `IdP` type to match `createIdP`'s actual return shape
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Medium · **Effort:** S
 - **Files:** `packages/openauth/src/types/idp.ts:223-236`; `packages/openauth/src/index.ts:230-239`
 - **Problem:** `IdP.revoke?` / `introspect?` typed optional but `createIdP` always assigns; `par?` is in the type but never returned. Callers that switch on the optionality get useless conditionals.
@@ -221,7 +221,7 @@ output.
 
 ### M7 — Fix `tenantId: string` parameter + `as never` cast in `clientCredentialsGrant`
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Medium · **Effort:** S
 - **Files:** `packages/openauth/src/domain/client-credentials.ts:62-65`
 - **Problem:** Function signature `tenantId: string` (not `TenantId`); call site uses `getTenantConfig(tenantId as never)`. Type hole — a caller passing an unbranded string bypasses the branding guarantee.
@@ -230,7 +230,7 @@ output.
 
 ### M8 — Validate / encode cookie names
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Medium · **Effort:** S
 - **Files:** `packages/openauth/src/http/cookies.ts:60`
 - **Problem:** `${cookie.name}=${encodeURIComponent(value)}` — the name is template-spliced raw. RFC 6265 §4.1 prohibits several characters in cookie names. Internal callers are safe (fixed names like `auth.flow`); host-supplied names via method `MethodResult.setCookies` are not.
@@ -239,7 +239,7 @@ output.
 
 ### M9 — Allow `cookieDefaults.secure` override for local-HTTP development
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Medium · **Effort:** S
 - **Files:** `packages/openauth/src/index.ts:223`; `packages/openauth/src/types/idp.ts` (extend `IdPOptions`)
 - **Problem:** `cookieDefaults: { secure: true }` hardcoded with no override. Chrome rejects `Secure` cookies over HTTP, so `idp.flow` and other framework cookies fail on `localhost`. INTEGRATION.md §17 walks a steel-thread that exercises the cookie path and would fail locally.
