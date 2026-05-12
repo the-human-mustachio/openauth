@@ -63,6 +63,17 @@ export type AuditEvent =
       family: string
     }
   | {
+      kind: "token_exchanged"
+      /** Tenant the new tokens are scoped to. */
+      tenantId: TenantId
+      /** Tenant the subject_token was originally issued for. */
+      fromTenantId: TenantId
+      clientId: string
+      subjectId: string
+      /** Fresh refresh-token family for the issued tokens. */
+      family: string
+    }
+  | {
       kind: "token_revoked"
       tenantId: TenantId
       clientId: string | null

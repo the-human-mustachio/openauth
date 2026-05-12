@@ -97,6 +97,7 @@ export type {
 } from "./types/subject"
 
 export type {
+  ExchangeAudience,
   FailureEvent,
   IdP,
   IdPOptions,
@@ -241,6 +242,9 @@ export function createIdP(opts: IdPOptions): IdP {
     success: opts.success,
     ...(opts.persistUpstreamTokens
       ? { persistUpstreamTokens: opts.persistUpstreamTokens }
+      : {}),
+    ...(opts.exchangeAudience
+      ? { exchangeAudience: opts.exchangeAudience }
       : {}),
     clock,
     cookieDefaults: { secure: true },

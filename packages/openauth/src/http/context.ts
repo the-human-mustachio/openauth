@@ -16,6 +16,7 @@ import type { TokenStore } from "../ports/token-store"
 import type { MethodCache } from "../domain/method-cache"
 import type { AuthError } from "../types/error"
 import type {
+  ExchangeAudience,
   PersistUpstreamTokens,
   SuccessMapInput,
 } from "../types/idp"
@@ -47,6 +48,7 @@ export type HttpDeps = {
   resolveTenant: (req: Request) => Promise<Result<TenantId, AuthError>>
   success: (input: SuccessMapInput) => Promise<SubjectClaim>
   persistUpstreamTokens?: PersistUpstreamTokens
+  exchangeAudience?: ExchangeAudience
   clock: () => number
   cookieDefaults: CookieDefaults
 }

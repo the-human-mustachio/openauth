@@ -85,6 +85,39 @@ export type PersistUpstreamTokens = (input: {
   subjectClaim: SubjectClaim
 }) => Promise<void>
 
+/**
+ * Optional hook called for RFC 8693 token-exchange requests at
+ * `/token`. The host decides whether the authenticated subject can
+ * obtain a token scoped to `request.audience` (a new tenant), and
+ * returns either:
+ *
+ *   - the `SubjectClaim` representing the subject's identity at the
+ *     new audience (often the same shape but different `properties` —
+ *     e.g. a different role), or
+ *   - an `AuthError` (typically `authError.invalidTarget(...)` if the
+ *     subject can't access that audience).
+ *
+ * If this hook is not supplied, token-exchange requests are rejected
+ * with `unsupported_grant_type`. This is the graceful-degradation
+ * default — the grant simply isn't enabled.
+ *
+ * The library does NOT inspect the audience string; it's an opaque
+ * `TenantId` that the host's `ConfigStore` must be able to resolve.
+ */
+export type ExchangeAudience = (
+  currentClaim: SubjectClaim,
+  request: {
+    /** The target tenant id (RFC 8693 `audience`). Opaque to the library. */
+    audience: string
+    /** Subset of subject_token scopes the caller asked for. */
+    requestedScopes?: string[]
+    /** The authenticated client doing the exchange. */
+    clientId: string
+    /** Tenant the subject_token came from. */
+    fromTenantId: string
+  },
+) => Promise<SubjectClaim | AuthError>
+
 export type IdPOptions = {
   /**
    * Tenant resolution for the first request in a flow. Not consulted on
@@ -152,6 +185,13 @@ export type IdPOptions = {
    * `PersistUpstreamTokens` type doc.
    */
   persistUpstreamTokens?: PersistUpstreamTokens
+
+  /**
+   * Optional RFC 8693 token-exchange hook. If absent, exchange
+   * requests at `/token` return `unsupported_grant_type`. See the
+   * `ExchangeAudience` type doc for the contract.
+   */
+  exchangeAudience?: ExchangeAudience
 }
 
 /**

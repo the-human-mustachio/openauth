@@ -18,6 +18,7 @@
  */
 import { clientCredentialsGrant } from "../../domain/client-credentials"
 import { exchangeCode } from "../../domain/token"
+import { exchangeToken } from "../../domain/token-exchange"
 import { refreshTokens } from "../../domain/refresh"
 import { isErr } from "../../types/result"
 import { authError } from "../../types/error"
@@ -129,11 +130,44 @@ export function makeTokenHandler(deps: HttpDeps) {
       return jsonResponse(result.value)
     }
 
-    // refresh_token
-    const refreshResult = await refreshTokens(
+    if (req.grant_type === "refresh_token") {
+      const refreshResult = await refreshTokens(
+        {
+          grantType: "refresh_token",
+          refreshToken: req.refresh_token,
+          ...(req.scope !== undefined ? { scope: req.scope } : {}),
+          ...(req.client_id !== undefined ? { clientId: req.client_id } : {}),
+          ...(req.client_secret !== undefined
+            ? { clientSecret: req.client_secret }
+            : {}),
+        },
+        {
+          configStore: deps.configStore,
+          tokenStore: deps.tokenStore,
+          keyStore: deps.keyStore,
+          ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
+          issuerUrl: c.get("issuerUrl"),
+          clock: deps.clock,
+        },
+      )
+      if (isErr(refreshResult)) return tokenEndpointErrorResponse(refreshResult.error)
+      return jsonResponse(refreshResult.value)
+    }
+
+    // RFC 8693 token-exchange. Delegation (actor_token) is out of scope;
+    // reject up front so we don't silently accept an actor and ignore it.
+    if (req.actor_token !== undefined) {
+      return tokenEndpointErrorResponse(
+        authError.invalidRequest(
+          "actor_token (delegation) is not supported; only impersonation / audience-switch is in scope",
+        ),
+      )
+    }
+    const exchangeResult = await exchangeToken(
       {
-        grantType: "refresh_token",
-        refreshToken: req.refresh_token,
+        grantType: req.grant_type,
+        subjectToken: req.subject_token,
+        audience: req.audience,
         ...(req.scope !== undefined ? { scope: req.scope } : {}),
         ...(req.client_id !== undefined ? { clientId: req.client_id } : {}),
         ...(req.client_secret !== undefined
@@ -145,12 +179,17 @@ export function makeTokenHandler(deps: HttpDeps) {
         tokenStore: deps.tokenStore,
         keyStore: deps.keyStore,
         ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
+        ...(deps.exchangeAudience
+          ? { exchangeAudience: deps.exchangeAudience }
+          : {}),
         issuerUrl: c.get("issuerUrl"),
         clock: deps.clock,
       },
     )
-    if (isErr(refreshResult)) return tokenEndpointErrorResponse(refreshResult.error)
-    return jsonResponse(refreshResult.value)
+    if (isErr(exchangeResult)) {
+      return tokenEndpointErrorResponse(exchangeResult.error)
+    }
+    return jsonResponse(exchangeResult.value)
   }
 }
 

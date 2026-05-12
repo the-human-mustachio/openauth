@@ -20,6 +20,9 @@ export type AuthError =
   // the relying party.
   | { code: "server_error"; description: string; cause?: unknown }
   | { code: "tenant_not_found"; description: string; tenantId: string }
+  // RFC 8693 §2.2.2 — token-exchange "audience the subject can't reach"
+  // signal. Surfaced when the host's `exchangeAudience` hook rejects.
+  | { code: "invalid_target"; description: string }
   // Populate whichever was requested (id from MethodConfig.id, or kind from
   // MethodConfig.kind) so operators can find the offending config row.
   | {
@@ -88,6 +91,10 @@ export const authError = {
     description,
     ...(refs.methodId !== undefined ? { methodId: refs.methodId } : {}),
     ...(refs.methodKind !== undefined ? { methodKind: refs.methodKind } : {}),
+  }),
+  invalidTarget: (description: string): AuthError => ({
+    code: "invalid_target",
+    description,
   }),
   internalError: (description: string, cause?: unknown): AuthError => ({
     code: "internal_error",
