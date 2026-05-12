@@ -999,6 +999,20 @@ introduce security bugs:
 If you need any of these and want them on the library side rather than
 in front of it, raise scope before integrating:
 
+> **⚠️ Rate-limiting is required, not optional.**
+>
+> The library applies **no rate limits** at any endpoint. The
+> high-traffic unauthenticated endpoints — `/authorize`, the per-method
+> credential routes (`/<methodId>/login`, `/<methodId>/code/verify`,
+> `/<methodId>/passkey/*`), `/token`, `/revoke`, `/introspect`, and the
+> picker — are exposed without protection. Deploying the IdP without an
+> upstream rate-limiting layer leaves you open to credential stuffing,
+> code-verification brute force, refresh-token harvesting, and OIDC
+> discovery scraping. **Until the rate-limiter port lands, deploy
+> behind a rate-limiting proxy / CDN / WAF.** Per-IP buckets for
+> unauthenticated endpoints and per-client buckets for `/token` are the
+> usual minimum.
+
 - **DPoP (RFC 9449)** — sender-constrained tokens. Bearer tokens only
   for now.
 - **PAR (RFC 9126)** — pushed authorization requests.
@@ -1006,8 +1020,9 @@ in front of it, raise scope before integrating:
   `extractClientCert(req)` hook that doesn't exist yet.
 - **Dynamic Client Registration (RFC 7591)** — host-callable helper
   pattern, not landed yet.
-- **Rate-limiter port** — put rate limits in your proxy / CDN / WAF in
-  front of the IdP for now.
+- **Rate-limiter port** — see the callout above. Until this lands, the
+  library has no defense against high-volume abuse on its
+  unauthenticated endpoints.
 - **Logger / Tracer ports** — wrap `idp.handle` with your own
   request-logging middleware until structured ports land.
 

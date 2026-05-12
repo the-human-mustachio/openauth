@@ -26,6 +26,7 @@ import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { TenantId } from "../types/tenant"
 
+import { safeAudit } from "./audit"
 import { verifyClientCredentials } from "./client-auth"
 
 export type RevokeRequest = {
@@ -92,7 +93,7 @@ export async function revokeToken(
   // `invalid_grant` here would let a different client probe for token
   // existence. Audit the attempt so operators can spot abuse.
   if (req.clientId !== undefined && req.clientId !== payload.clientId) {
-    await audit(deps, {
+    await safeAudit(deps, {
       kind: "custom",
       type: "revoke_wrong_client_attempt",
       tenantId: payload.tenantId,
@@ -119,7 +120,7 @@ export async function revokeToken(
   if (isErr(consumed)) {
     return ok(undefined)
   }
-  await audit(deps, {
+  await safeAudit(deps, {
     kind: "token_revoked",
     tenantId: payload.tenantId,
     clientId: payload.clientId,
@@ -148,7 +149,7 @@ export async function revokeAllForSubject(
 ): Promise<Result<void, AuthError>> {
   const res = await deps.tokenStore.revokeBySubject(tenantId, subjectId)
   if (isErr(res)) return err(res.error)
-  await audit(deps, {
+  await safeAudit(deps, {
     kind: "token_revoked",
     tenantId,
     clientId: null,
@@ -159,14 +160,3 @@ export async function revokeAllForSubject(
   return ok(undefined)
 }
 
-async function audit(
-  deps: { auditLog?: AuditLog },
-  event: Parameters<AuditLog["log"]>[0],
-): Promise<void> {
-  if (!deps.auditLog) return
-  try {
-    await deps.auditLog.log(event)
-  } catch {
-    /* swallow */
-  }
-}

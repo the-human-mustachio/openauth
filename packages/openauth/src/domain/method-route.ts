@@ -37,6 +37,7 @@ import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { TenantContext } from "../types/tenant"
 
+import { safeAudit } from "./audit"
 import { AUTH_CODE_TTL_MS } from "./authorize"
 import { randomToken } from "./crypto"
 import { MethodCache } from "./method-cache"
@@ -94,7 +95,7 @@ export async function handleMethodRoute(
 
   // 2. Tenant must match.
   if (flow.tenantId !== input.tenant.id) {
-    await audit(deps, {
+    await safeAudit(deps, {
       kind: "flow_tenant_mismatch",
       stateTenantId: input.tenant.id,
       flowTenantId: flow.tenantId,
@@ -186,7 +187,7 @@ async function translate(
         ...(result.cache !== undefined ? { cache: result.cache } : {}),
       })
     case "denied":
-      await audit(deps, {
+      await safeAudit(deps, {
         kind: "authorize_failed",
         tenantId: flow.tenantId,
         clientId: flow.clientId,
@@ -206,14 +207,3 @@ async function translate(
   }
 }
 
-async function audit(
-  deps: { auditLog?: AuditLog },
-  event: Parameters<AuditLog["log"]>[0],
-): Promise<void> {
-  if (!deps.auditLog) return
-  try {
-    await deps.auditLog.log(event)
-  } catch {
-    /* swallow */
-  }
-}

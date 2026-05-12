@@ -36,6 +36,7 @@ import type {
   TokenResponse,
 } from "../types/token"
 
+import { safeAudit } from "./audit"
 import { verifyClientCredentials } from "./client-auth"
 import {
   base64url,
@@ -299,7 +300,7 @@ export async function mintTokens(args: {
     if (isErr(saved)) return err(saved.error)
   }
 
-  await audit(deps, {
+  await safeAudit(deps, {
     kind: "token_issued",
     tenantId: payload.tenantId,
     clientId: payload.clientId,
@@ -353,14 +354,3 @@ async function hashTokenForAudit(token: string): Promise<string> {
   return base64url.encode(await sha256(utf8.encode(token))).slice(0, 16)
 }
 
-async function audit(
-  deps: { auditLog?: AuditLog },
-  event: Parameters<AuditLog["log"]>[0],
-): Promise<void> {
-  if (!deps.auditLog) return
-  try {
-    await deps.auditLog.log(event)
-  } catch {
-    /* swallow */
-  }
-}

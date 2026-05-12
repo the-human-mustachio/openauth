@@ -22,6 +22,7 @@ import { err, isErr } from "../types/result"
 import type { TenantContext } from "../types/tenant"
 import type { TokenResponse } from "../types/token"
 
+import { safeAudit } from "./audit"
 import { verifyClientCredentials } from "./client-auth"
 import { mintTokens } from "./token"
 
@@ -105,7 +106,7 @@ export async function refreshTokens(
       // structured carrier). `family` always prefers the signal — it's
       // the discriminating identifier the adapter knows.
       const signal = consumed.error.reuseSignal
-      await audit(deps, {
+      await safeAudit(deps, {
         kind: "refresh_reuse_detected",
         tenantId: peekedPayload.tenantId,
         clientId: peekedPayload.clientId,
@@ -155,7 +156,7 @@ export async function refreshTokens(
     deps,
   }).then(async (result) => {
     if (result.ok) {
-      await audit(deps, {
+      await safeAudit(deps, {
         kind: "token_refreshed",
         tenantId: payload.tenantId,
         clientId: payload.clientId,
@@ -168,14 +169,3 @@ export async function refreshTokens(
   })
 }
 
-async function audit(
-  deps: { auditLog?: AuditLog },
-  event: Parameters<AuditLog["log"]>[0],
-): Promise<void> {
-  if (!deps.auditLog) return
-  try {
-    await deps.auditLog.log(event)
-  } catch {
-    /* swallow */
-  }
-}

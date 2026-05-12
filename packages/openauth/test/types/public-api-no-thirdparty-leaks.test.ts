@@ -21,13 +21,17 @@
 import { test, expect } from "bun:test"
 
 import type {
+  AuditEvent,
+  AuthMethodFactory,
   IdP,
   IdPOptions,
+  MethodConfig,
   Oauth2MethodInput,
   Oauth2Properties,
   OidcMethodInput,
   Oauth2FactoryConfig,
   OidcFactoryConfig,
+  SigningKey,
   SuccessMapInput,
 } from "../../src/index"
 
@@ -116,4 +120,89 @@ test("public API: oauth2Factory / oidcFactory configs use plain primitives", () 
     clientId: string
   }>({} as Oidc)
   expect(true).toBe(true)
+})
+
+test("public API: SigningKey.privateKeyRef is opaque, publicJwk is plain record", () => {
+  // jose's `KeyLike` / `JWK` would force value types here. `unknown` and
+  // `Record<string, unknown>` accept arbitrary values — if either leaked
+  // back into a third-party type the assignments below would fail.
+  type Key = SigningKey
+  const k = {} as Key
+  k.privateKeyRef = 42 // would fail under `KeyLike`.
+  k.privateKeyRef = { custom: "kms-arn://…" }
+  k.publicJwk = { kty: 42, weird: { nested: true } } // JWK shapes `kty` as string.
+  expect(true).toBe(true)
+})
+
+test("public API: MethodConfig fields are plain primitives / Record", () => {
+  // Anything in MethodConfig is host-supplied — no Zod / jose types
+  // should be reachable. `config` stays `Record<string, unknown>` so
+  // factories validate it via their own `configSchema`.
+  assertAssignable<{
+    id: string
+    kind: string
+    type: string
+    enabled: boolean
+    config: Record<string, unknown>
+  }>({} as MethodConfig)
+  expect(true).toBe(true)
+})
+
+test("public API: AuditEvent variants are plain primitive shapes", () => {
+  // Pick representative variants. If a Date / Buffer / jose / hono type
+  // leaked into any field, structural assignability against the
+  // primitive shape below would fail.
+  type TokenIssued = Extract<AuditEvent, { kind: "token_issued" }>
+  assertAssignable<{
+    kind: "token_issued"
+    tenantId: string
+    clientId: string
+    methodId: string
+    methodKind: string
+    subjectId: string
+    refreshTokenIdHash?: string
+  }>({
+    kind: "token_issued",
+    tenantId: "tnt_x" as TokenIssued["tenantId"],
+    clientId: "rp",
+    methodId: "m",
+    methodKind: "k",
+    subjectId: "s",
+  })
+
+  type ReuseDetected = Extract<AuditEvent, { kind: "refresh_reuse_detected" }>
+  assertAssignable<{
+    kind: "refresh_reuse_detected"
+    tenantId: string
+    clientId: string
+    family: string
+  }>({
+    kind: "refresh_reuse_detected",
+    tenantId: "tnt_x" as ReuseDetected["tenantId"],
+    clientId: "rp",
+    family: "fam-1",
+  })
+  expect(true).toBe(true)
+})
+
+test("public API: AuthMethodFactory.configSchema is Standard Schema (not Zod-specific)", () => {
+  // The validation library is intentionally pluggable — Zod 3.24+,
+  // Valibot 1.0+, Arktype 2.0+, etc., all satisfy Standard Schema v1.
+  // The contract therefore exposes only the Standard Schema surface
+  // (`~standard`); requiring a Zod-specific shape like `_def` /
+  // `_output` would block other validators.
+  //
+  // Probe: a plain object that conforms to the Standard Schema v1
+  // contract should assign to `configSchema` without any Zod gymnastics.
+  type Factory = AuthMethodFactory<unknown, unknown, { foo: string }>
+  type Schema = Factory["configSchema"]
+  const plainStandard = {
+    "~standard": {
+      version: 1 as const,
+      vendor: "test",
+      validate: (_: unknown) =>
+        ({ value: { foo: "ok" } }) as { value: { foo: string } },
+    },
+  } as Schema
+  expect(plainStandard).toBeDefined()
 })

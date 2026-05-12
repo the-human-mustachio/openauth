@@ -47,6 +47,7 @@ import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { ClientConfig, StateKeyRing, TenantContext } from "../types/tenant"
 
+import { safeAudit } from "./audit"
 import { randomId, randomToken } from "./crypto"
 import { MethodCache } from "./method-cache"
 import { dispatchMethod } from "./method-dispatch"
@@ -237,7 +238,7 @@ export async function startAuthorize(
     deps.stateKeys,
   )
 
-  await audit(deps, {
+  await safeAudit(deps, {
     kind: "authorize_started",
     tenantId: tenant.id,
     clientId: client.id,
@@ -323,7 +324,7 @@ async function translateMethodResult(
     }
 
     case "denied":
-      await audit(deps, {
+      await safeAudit(deps, {
         kind: "authorize_failed",
         tenantId: record.tenantId,
         clientId: record.clientId,
@@ -340,7 +341,7 @@ async function translateMethodResult(
       })
 
     case "error":
-      await audit(deps, {
+      await safeAudit(deps, {
         kind: "authorize_failed",
         tenantId: record.tenantId,
         clientId: record.clientId,
@@ -398,18 +399,6 @@ async function issueCodeFromInlineSuccess(
     appRedirectUri: flow.appRedirectUri,
     appState: flow.appState,
   })
-}
-
-async function audit(
-  deps: { auditLog?: AuditLog },
-  event: Parameters<AuditLog["log"]>[0],
-): Promise<void> {
-  if (!deps.auditLog) return
-  try {
-    await deps.auditLog.log(event)
-  } catch {
-    // swallow
-  }
 }
 
 /** Factory map type — exported for HTTP-layer consumers. */

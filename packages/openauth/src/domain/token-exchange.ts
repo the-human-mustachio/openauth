@@ -46,6 +46,7 @@ import type {
   TokenResponse,
 } from "../types/token"
 
+import { safeAudit } from "./audit"
 import { verifyClientCredentials } from "./client-auth"
 import { randomId } from "./crypto"
 import { verifyAccessToken } from "./jwt"
@@ -221,21 +222,15 @@ export async function exchangeToken(
 
   // 8. Audit. mintTokens already emits `token_issued`; the additional
   // `token_exchanged` event records the cross-tenant context.
-  if (deps.auditLog) {
-    try {
-      await deps.auditLog.log({
-        kind: "token_exchanged",
-        tenantId: targetTenantId,
-        fromTenantId,
-        clientId: callerClient.id,
-        subjectId: subjectClaims.sub,
-        family: "exchanged",
-        timestamp: deps.clock(),
-      })
-    } catch {
-      /* swallow — auditing is best-effort */
-    }
-  }
+  await safeAudit(deps, {
+    kind: "token_exchanged",
+    tenantId: targetTenantId,
+    fromTenantId,
+    clientId: callerClient.id,
+    subjectId: subjectClaims.sub,
+    family: "exchanged",
+    timestamp: deps.clock(),
+  })
 
   return ok({
     ...minted.value,

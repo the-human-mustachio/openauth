@@ -24,8 +24,8 @@ output.
 | Critical | 0 | 2 | 2 |
 | High | 0 | 12 | 12 |
 | Medium | 0 | 11 | 11 |
-| Low | 3 | 3 | 6 |
-| **Total** | **3** | **28** | **31** |
+| Low | 0 | 6 | 6 |
+| **Total** | **0** | **31** | **31** |
 
 ---
 
@@ -297,7 +297,7 @@ output.
 
 ### L4 — Expand public-API third-party type-leak guard
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Low · **Effort:** S
 - **Files:** `packages/openauth/test/types/public-api-no-thirdparty-leaks.test.ts`
 - **Problem:** Test probes `Oauth2Properties.idTokenClaims`, `Oauth2MethodInput.deriveSubject`, `IdP.handle`, `IdPOptions.resolveTenant`, `SuccessMapInput.properties`, `Oauth2FactoryConfig`, `OidcFactoryConfig`. INTEGRATION.md §16 promises additional surfaces are clean (`AuthMethodFactory.configSchema`, `KeyStore.SigningKey.privateKeyRef` / `publicJwk`, `AuditEvent`, `MethodConfig`) but they're not probed.
@@ -306,7 +306,7 @@ output.
 
 ### L5 — Document rate-limiting / unauth-endpoint gap prominently in INTEGRATION.md
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Low · **Effort:** S
 - **Files:** `packages/openauth/INTEGRATION.md` §15 ("Phase 8 features that are NOT yet in the library")
 - **Problem:** Rate-limiter port is intentionally deferred to Phase 8, but the current note is a parenthetical. `/authorize`, `/login`, `/passkey/*`, `/code/*` are unprotected at the library layer. Hosts deploying without an upstream WAF / CDN ratelimit are exposed.
@@ -315,7 +315,7 @@ output.
 
 ### L6 — Audit-log error swallowing should at least `console.error` until Logger port lands
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Low · **Effort:** S
 - **Files:** `packages/openauth/src/domain/authorize.ts:399` (and similar `audit(...)` helpers in `refresh.ts:184`, `revoke.ts:148`)
 - **Problem:** `await deps.auditLog.log(event)` is wrapped in `try { … } catch { /* swallow */ }`. Audit gaps are silent. Operators have no way to know when the audit pipeline is down.

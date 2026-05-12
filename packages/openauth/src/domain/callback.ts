@@ -31,6 +31,7 @@ import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { StateKeyRing, TenantContext } from "../types/tenant"
 
+import { safeAudit } from "./audit"
 import { randomToken } from "./crypto"
 import { MethodCache } from "./method-cache"
 import { dispatchMethod } from "./method-dispatch"
@@ -91,7 +92,7 @@ export async function handleCallback(
   }
   const envelopeRes = await verifyStateEnvelope(state, deps.stateKeys)
   if (isErr(envelopeRes)) {
-    await audit(deps, {
+    await safeAudit(deps, {
       kind: "flow_replay_attempt",
       tenantId: null,
       flowId: "unknown",
@@ -103,7 +104,7 @@ export async function handleCallback(
 
   const flowRes = await deps.sessionStore.consumeFlow(envelope.flowId)
   if (isErr(flowRes)) {
-    await audit(deps, {
+    await safeAudit(deps, {
       kind: "flow_replay_attempt",
       tenantId: envelope.tenantId,
       flowId: envelope.flowId,
@@ -115,7 +116,7 @@ export async function handleCallback(
 
   // 3. State-flow consistency check.
   if (envelope.tenantId !== flow.tenantId) {
-    await audit(deps, {
+    await safeAudit(deps, {
       kind: "flow_tenant_mismatch",
       stateTenantId: envelope.tenantId,
       flowTenantId: flow.tenantId,
@@ -128,7 +129,7 @@ export async function handleCallback(
     return err(authError.invalidRequest("nonce mismatch", "state"))
   }
   if (url.host !== flow.callbackHost) {
-    await audit(deps, {
+    await safeAudit(deps, {
       kind: "flow_callback_mismatch",
       tenantId: flow.tenantId,
       flowId: flow.flowId,
@@ -139,7 +140,7 @@ export async function handleCallback(
     return err(authError.invalidRequest("host mismatch", "state"))
   }
   if (normalizePath(url.pathname) !== normalizePath(flow.callbackPath)) {
-    await audit(deps, {
+    await safeAudit(deps, {
       kind: "flow_callback_mismatch",
       tenantId: flow.tenantId,
       flowId: flow.flowId,
@@ -227,7 +228,7 @@ async function translate(
         ...(result.cache !== undefined ? { cache: result.cache } : {}),
       })
     case "denied":
-      await audit(deps, {
+      await safeAudit(deps, {
         kind: "authorize_failed",
         tenantId: flow.tenantId,
         clientId: flow.clientId,
@@ -243,7 +244,7 @@ async function translate(
         setCookies: result.setCookies ?? [],
       })
     case "error":
-      await audit(deps, {
+      await safeAudit(deps, {
         kind: "authorize_failed",
         tenantId: flow.tenantId,
         clientId: flow.clientId,
@@ -261,14 +262,3 @@ function normalizePath(p: string): string {
   return p.replace(/\/+$/, "")
 }
 
-async function audit(
-  deps: { auditLog?: AuditLog },
-  event: Parameters<AuditLog["log"]>[0],
-): Promise<void> {
-  if (!deps.auditLog) return
-  try {
-    await deps.auditLog.log(event)
-  } catch {
-    /* swallow */
-  }
-}
