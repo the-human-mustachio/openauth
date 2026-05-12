@@ -3,9 +3,15 @@
  *
  * AD2: methods are **data + handler functions**, not framework modules. They
  * depend on Web Fetch `Request`/`Response` (Web standards available on every
- * runtime) and on a small `MethodContext` of plain data. They do **not**
- * import from Hono or any other HTTP framework. This file is enforced
- * framework-import-free by CI lint.
+ * runtime) and on a small `MethodContext` of plain data. The full allowed
+ * import set for files under `src/methods/` is `src/types/`,
+ * `src/domain/crypto`, `src/ui/forms`, sibling `src/methods/*`, and
+ * method-specific third-party libraries (e.g. `zod`,
+ * `@simplewebauthn/server`); methods MUST NOT import from `src/http/`,
+ * `src/adapters/`, or `src/ports/`, and never from Hono or any other HTTP
+ * framework. This `types/method.ts` file in particular is enforced
+ * framework-import-free by CI lint. See ARCHITECTURE.md §"Methods plug
+ * in alongside this stack" for the full contract.
  *
  * Cookies and other policy-sensitive response headers are returned as data
  * (`SetCookie[]`, `CachePolicy`) and applied to the final `Response` by the

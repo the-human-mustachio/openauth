@@ -23,9 +23,9 @@ output.
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
 | High | 0 | 12 | 12 |
-| Medium | 2 | 9 | 11 |
-| Low | 6 | 0 | 6 |
-| **Total** | **8** | **23** | **31** |
+| Medium | 0 | 11 | 11 |
+| Low | 3 | 3 | 6 |
+| **Total** | **3** | **28** | **31** |
 
 ---
 
@@ -248,7 +248,7 @@ output.
 
 ### M10 — Re-export picker types from `index.ts`
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Medium · **Effort:** S
 - **Files:** `packages/openauth/src/index.ts` (add exports); `packages/openauth/src/types/idp.ts:263` (currently `import type { PickerContext, PickerMethod } from "../ui/picker"`); also consider moving the types into `types/`
 - **Problem:** `IdPOptions.renderPicker: RenderPicker` is public surface, but `RenderPicker` / `PickerMethod` / `PickerContext` aren't re-exported. Consumers must inline-type or deep-import. There's also a minor `types/` → `ui/` cross-layer dependency.
@@ -257,7 +257,7 @@ output.
 
 ### M11 — Either implement or strike the "warn on response sanitization" claim
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Medium · **Effort:** S
 - **Files:** `packages/openauth/src/http/cookies.ts:112-132`; `packages/openauth/ARCHITECTURE.md` line ~175-179
 - **Problem:** ARCHITECTURE.md promises "logging a programmer-bug warning at ERROR level" when method-returned responses include stripped headers. The implementation silently drops them. A method that tries to set CSP / Set-Cookie via `Response.headers` will fail silently — real footgun.
@@ -270,7 +270,7 @@ output.
 
 ### L1 — Wire or delete `revokeAllForSubject`
 
-- [ ] **Status:** not started
+- [x] **Status:** done (promoted to public API)
 - **Severity:** Low · **Effort:** S
 - **Files:** `packages/openauth/src/domain/revoke.ts:122-138`
 - **Problem:** Exported, but the only callers are tests. ARCHITECTURE / refresh.ts comments suggest it's meant for reuse-detection escalation; reuse detection currently revokes only the family (which is handled inside the adapter's `consumeRefresh` already).
@@ -279,7 +279,7 @@ output.
 
 ### L2 — Move `domain/password-hash.ts` to `methods/`
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Low · **Effort:** S
 - **Files:** `packages/openauth/src/domain/password-hash.ts`; `packages/openauth/src/methods/password.ts`; `packages/openauth/src/index.ts` (re-export path)
 - **Problem:** Only imported by `methods/password.ts` and `src/index.ts`. Argon2id hashing is a method-specific concern, not a domain policy. Sitting under `domain/` is a layering smell.
@@ -288,7 +288,7 @@ output.
 
 ### L3 — Make ARCHITECTURE.md / INTEGRATION.md honest about methods importing helpers
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Low · **Effort:** S
 - **Files:** `packages/openauth/ARCHITECTURE.md` line 42-47; `packages/openauth/src/types/method.ts:7-8`; check imports in `packages/openauth/src/methods/{password,code,passkey}.ts`
 - **Problem:** ARCHITECTURE.md says methods "import only Web Fetch `Request`/`Response` and the types in `src/types/`." In reality `methods/code.ts`, `methods/password.ts` import `base64url`, `sha256`, `randomBytes`, `timingSafeEqualStr`, `argon2idHasher` from `domain/crypto` + `domain/password-hash`; `methods/passkey.ts:35` imports from `ui/forms`.

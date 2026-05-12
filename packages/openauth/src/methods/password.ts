@@ -22,7 +22,7 @@ import { z } from "zod"
 import {
   argon2idHasher,
   type PasswordHasher,
-} from "../domain/password-hash"
+} from "./password-hash"
 import type {
   AuthMethod,
   AuthMethodFactory,

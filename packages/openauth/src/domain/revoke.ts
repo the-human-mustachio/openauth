@@ -131,7 +131,16 @@ export async function revokeToken(
   return ok(undefined)
 }
 
-/** Revoke every refresh token for a subject — used by reuse-detection escalation. */
+/**
+ * Revoke every refresh token for a `(tenantId, subjectId)` pair and emit
+ * a `token_revoked` audit event with `reason: "subject_revoke"`.
+ *
+ * Public primitive exposed for host-driven "log me out of all devices"
+ * flows. Not called from the reuse-detection path — that stays at
+ * family-scope per OAuth 2.0 Security BCP §4.13.2 (revoking sibling
+ * families would punish legitimate other-device sessions sharing the
+ * same subject). See ARCHITECTURE.md §"Reuse detection scope".
+ */
 export async function revokeAllForSubject(
   tenantId: TenantId,
   subjectId: string,

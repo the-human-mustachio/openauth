@@ -126,14 +126,29 @@ export type ApplyOptions = {
 /**
  * Sanitize a method-returned `Response` and apply framework-owned headers.
  *
- * Returns a new `Response` so the original is left untouched.
+ * Returns a new `Response` so the original is left untouched. When the
+ * method's response carried any of the stripped headers, emit a
+ * `console.warn` so a programmer notices their header got dropped
+ * silently. (Per ARCHITECTURE.md §"Response sanitization"; switches to
+ * the Logger port when that lands in Phase 8.)
  */
 export function applyResponsePolicy(
   response: Response,
   opts: ApplyOptions = {},
 ): Response {
   const headers = new Headers(response.headers)
-  for (const h of STRIPPED_HEADERS) headers.delete(h)
+  const stripped: string[] = []
+  for (const h of STRIPPED_HEADERS) {
+    if (headers.has(h)) {
+      stripped.push(h)
+      headers.delete(h)
+    }
+  }
+  if (stripped.length > 0) {
+    console.warn(
+      `[openauth] dropped method-returned header(s) ${stripped.join(", ")} — the framework owns cookie/security/cache headers; methods should return cookies via MethodResult.setCookies.`,
+    )
+  }
 
   headers.set("Cache-Control", opts.cacheControl ?? "no-store")
 

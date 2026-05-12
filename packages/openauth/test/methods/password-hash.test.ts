@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from "bun:test"
 
-import { argon2idHasher } from "../../src/domain/password-hash"
+import { argon2idHasher } from "../../src/methods/password-hash"
 
 describe("argon2idHasher", () => {
   const hasher = argon2idHasher({ t: 1, m: 8, p: 1 })

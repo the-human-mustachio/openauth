@@ -14,7 +14,7 @@ import {
 } from "../../src/adapters/memory"
 import { createIdP } from "../../src/index"
 import { s256Challenge } from "../../src/domain/pkce"
-import { argon2idHasher } from "../../src/domain/password-hash"
+import { argon2idHasher } from "../../src/methods/password-hash"
 import {
   passwordMethod,
   type PasswordUser,

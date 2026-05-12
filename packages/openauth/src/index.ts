@@ -74,9 +74,12 @@ export type {
   IdP,
   IdPOptions,
   PersistUpstreamTokens,
+  RenderPicker,
   SuccessEvent,
   SuccessMapInput,
 } from "./types/idp"
+
+export type { PickerContext, PickerMethod } from "./types/picker"
 
 export type { AuditEvent, AuditLog } from "./ports/audit-log"
 export type { ConfigStore } from "./ports/config-store"
@@ -89,6 +92,15 @@ export type {
 export type { MethodStore } from "./ports/method-store"
 export type { SessionRecord, SessionStore } from "./ports/session-store"
 export type { TokenStore } from "./ports/token-store"
+
+/**
+ * Host-callable primitive for "log me out of all devices" UX. Wraps
+ * `TokenStore.revokeBySubject` with the framework's audit emission so
+ * hosts don't need to reimplement it. Reuse-detection escalation itself
+ * stays at family-scope per OAuth 2.0 Security BCP §4.13.2 (see
+ * ARCHITECTURE.md "Reuse detection scope").
+ */
+export { revokeAllForSubject } from "./domain/revoke"
 
 // Phase 4 — credential + WebAuthn method factories.
 export { passwordMethod } from "./methods/password"
@@ -119,11 +131,11 @@ export type {
 export {
   argon2idHasher,
   DEFAULT_ARGON2ID_PARAMS,
-} from "./domain/password-hash"
+} from "./methods/password-hash"
 export type {
   PasswordHasher,
   Argon2idParams,
-} from "./domain/password-hash"
+} from "./methods/password-hash"
 
 // Phase 5 — OAuth / OIDC provider factories.
 export { buildOauth2Method } from "./methods/oauth2-generic"

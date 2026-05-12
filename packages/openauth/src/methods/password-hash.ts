@@ -20,7 +20,7 @@ import {
   randomBytes,
   timingSafeEqualStr,
   utf8,
-} from "./crypto"
+} from "../domain/crypto"
 
 export type PasswordHasher = {
   /** Hash the password; output includes salt + parameters. */

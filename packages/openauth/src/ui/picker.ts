@@ -6,33 +6,10 @@
  * Both the default and any override return a `Response`; the framework
  * applies caching headers afterward.
  */
+import type { PickerContext, PickerMethod } from "../types/picker"
 import { escapeHtml, htmlPage } from "./forms"
 
-/** Minimal shape of a method as seen by the picker. */
-export type PickerMethod = {
-  /** Tenant-local id (e.g. "google-workspace"). Goes into method_id. */
-  id: string
-  /** Factory kind (e.g. "google"). Identifies the provider family. */
-  kind: string
-  /** "redirect" for upstream OAuth/OIDC, "credential" for password/code/passkey. */
-  type: string
-  /** Optional human-readable label provided by tenant config. */
-  displayName?: string
-}
-
-/** Query params propagated into each picker option's link. */
-export type PickerContext = {
-  clientId: string
-  redirectUri: string
-  state?: string | null
-  scope?: string | null
-  nonce?: string | null
-  codeChallenge?: string | null
-  codeChallengeMethod?: string | null
-  audience?: string | null
-  prompt?: string | null
-  uiLocales?: string | null
-}
+export type { PickerContext, PickerMethod }
 
 /**
  * Build an `/authorize` URL that pre-selects a specific `method_id` while

@@ -18,11 +18,8 @@ import { startAuthorize } from "../../domain/authorize"
 import { asTenantId } from "../../types/tenant"
 import { authError } from "../../types/error"
 import type { AuthorizationRequest } from "../../types/authorization"
-import {
-  renderPicker as renderDefaultPicker,
-  type PickerContext,
-  type PickerMethod,
-} from "../../ui/picker"
+import type { PickerContext, PickerMethod } from "../../types/picker"
+import { renderPicker as renderDefaultPicker } from "../../ui/picker"
 
 import { applyResponsePolicy } from "../cookies"
 import type { HttpContext, HttpDeps } from "../context"

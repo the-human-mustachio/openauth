@@ -20,7 +20,7 @@ import type {
   TenantId,
   ThemeConfig,
 } from "./tenant"
-import type { PickerContext, PickerMethod } from "../ui/picker"
+import type { PickerContext, PickerMethod } from "./picker"
 
 /**
  * Input handed to the user's `success` callback. The framework provides

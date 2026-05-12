@@ -40,11 +40,21 @@ later phases.
 ```
 
 Methods (`src/methods/`) plug in alongside this stack. A method is **data +
-handler functions**, not a framework module — it imports only Web Fetch
-`Request` / `Response` and the types in `src/types/`. The HTTP adapter
-mounts each tenant's configured methods under
-`/<MethodConfig.id>/*` (the tenant-local instance id, not the factory
-kind).
+handler functions**, not a framework module. The allowed import set is:
+
+- `src/types/` — every public type (`AuthMethod`, `MethodContext`, …).
+- `src/domain/crypto` — `base64url`, `sha256`, `randomBytes`,
+  `timingSafeEqualStr`, `utf8`. The cryptographic primitives are shared
+  with the domain layer and would be needlessly duplicated otherwise.
+- `src/ui/forms` — `renderForm` and friends for the default credential UI.
+- Sibling `src/methods/*` modules (e.g. `methods/password-hash`).
+- Web Fetch `Request` / `Response` and method-specific third-party
+  libraries (`zod`, `@simplewebauthn/server`).
+
+Methods MUST NOT import from `src/http/`, `src/adapters/`, or
+`src/ports/`. The HTTP adapter mounts each tenant's configured methods
+under `/<MethodConfig.id>/*` (the tenant-local instance id, not the
+factory kind).
 
 ## Type system — what lives where
 
@@ -175,7 +185,8 @@ Returning an arbitrary `Response` from a method would let it stuff
 `Set-Cookie` headers in and bypass framework-owned cookie policy. To
 prevent that, the HTTP layer strips a fixed allowlist-violating set of
 headers from every method-returned `Response` (logging a programmer-bug
-warning at ERROR level), then merges in `SetCookie[]` data through the
+warning via `console.warn`; will switch to the Logger port when that
+lands in Phase 8), then merges in `SetCookie[]` data through the
 framework's own serializer:
 
 **Stripped:**
@@ -272,6 +283,22 @@ No runtime breakage — both shapes were already rejected at request time.
   so auth failures don't burn the token.
 
 The shared parsing + verification lives in `domain/client-auth.ts`.
+
+## Reuse detection scope
+
+Refresh-token reuse detection lives inside the `TokenStore.consumeRefresh`
+adapter: when a token is re-presented inside the reuse window the
+adapter returns `invalid_grant` with a typed `reuseSignal` and atomically
+revokes **only the affected family**. Family scope matches OAuth 2.0
+Security BCP §4.13.2 — escalating further would also revoke legitimate
+sibling-device sessions that share the subject (laptop, phone, tablet),
+which is a poor default.
+
+Hosts that want to expose "log me out of all devices" UX can call
+`revokeAllForSubject(tenantId, subjectId, deps)` — the framework
+primitive that wraps `TokenStore.revokeBySubject` with the matching
+`token_revoked` audit event (`reason: "subject_revoke"`). It is opt-in
+host-driven, never invoked automatically.
 
 ## Port consistency contracts
 
