@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 2 | 10 | 12 |
+| High | 1 | 11 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **19** | **12** | **31** |
+| **Total** | **18** | **13** | **31** |
 
 ---
 
@@ -145,7 +145,7 @@ output.
 
 ### H11 — Don't issue refresh tokens on `client_credentials`
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** M
 - **Files:** `packages/openauth/src/domain/client-credentials.ts:159-174`; `packages/openauth/src/domain/token.ts` (`mintTokens` signature)
 - **Problem:** `mintTokens` is called, which durably saves a refresh token via `tokenStore.saveRefresh`, then the response strips it (`{ refresh_token: _drop, ...rest }`). Per RFC 6749 §4.4.3 a client_credentials grant SHOULD NOT issue a refresh token. The orphaned token sits in the DB until its TTL expires.

@@ -105,6 +105,76 @@ describe("m2mMethod / client_credentials grant", () => {
     expect(body.scope).toBe("read")
   })
 
+  test("client_credentials does NOT save an orphaned refresh row (H11)", async () => {
+    const secret = "another-skip-refresh-secret"
+    const secretHash = await hashClientSecret(secret)
+    const tenant: TenantConfig = {
+      id: asTenantId("acme"),
+      displayName: "Acme",
+      clients: [
+        {
+          id: "svc-1",
+          name: "Service",
+          type: "confidential",
+          secretHash,
+          redirectUris: [],
+          grantTypes: ["client_credentials"],
+          scopes: ["read"],
+          pkceRequired: false,
+        },
+      ],
+      methods: [
+        { id: "m2m", kind: "m2m", type: "m2m", enabled: true, config: {} },
+      ],
+    }
+    const configStore = new MemoryConfigStore({ seed: [tenant] })
+    const keyStore = new MemoryKeyStore({ clock: () => Date.now() })
+    const inner = new MemoryTokenStore({ keyStore, clock: () => Date.now() })
+    let saveRefreshCalls = 0
+    const tokenStore = {
+      saveCode: inner.saveCode.bind(inner),
+      consumeCode: inner.consumeCode.bind(inner),
+      consumeRefresh: inner.consumeRefresh.bind(inner),
+      peekRefresh: inner.peekRefresh.bind(inner),
+      revokeFamily: inner.revokeFamily.bind(inner),
+      revokeBySubject: inner.revokeBySubject.bind(inner),
+      saveRefresh: (...args: Parameters<typeof inner.saveRefresh>) => {
+        saveRefreshCalls += 1
+        return inner.saveRefresh(...args)
+      },
+    }
+    const sessionStore = new MemorySessionStore({ clock: () => Date.now() })
+    const idp = createIdP({
+      resolveTenant: async () => ok(tenant.id),
+      stateKeys: buildStateKeys(),
+      configStore,
+      tokenStore,
+      sessionStore,
+      keyStore,
+      issuerUrl: "https://idp.example",
+      methods: {
+        m2m: m2mMethod({
+          verify: async () => ({}),
+        }) as never,
+      },
+      subjects: {} as never,
+      success: async ({ providerSubject }) =>
+        ({ type: "service", properties: { id: providerSubject } }) as never,
+    })
+    const res = await idp.handle(
+      tokenRequest("https://idp.example", {
+        grant_type: "client_credentials",
+        client_id: "svc-1",
+        client_secret: secret,
+        scope: "read",
+      }),
+    )
+    expect(res.status).toBe(200)
+    // The refresh token would otherwise persist for 30 days even though
+    // the response drops it. Assert the store was never asked to save one.
+    expect(saveRefreshCalls).toBe(0)
+  })
+
   test("client_id is injected into the URL so a search-param resolver works (H5)", async () => {
     const secret = "lookup-from-url-secret"
     const secretHash = await hashClientSecret(secret)

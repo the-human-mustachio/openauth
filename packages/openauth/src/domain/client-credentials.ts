@@ -154,8 +154,10 @@ export async function clientCredentialsGrant(
     return err(authError.serverError("success callback threw", e))
   }
 
-  // 6. Mint access + refresh (refresh path same code; RFC 6749 §4.4.3 says
-  //    SHOULD NOT issue refresh — we strip it from the response below).
+  // 6. Mint access only — RFC 6749 §4.4.3 says client_credentials SHOULD
+  //    NOT issue a refresh token. `skipRefresh: true` keeps the token-
+  //    store from accumulating orphaned rows that the response would
+  //    otherwise strip.
   const minted = await mintTokens({
     tenant,
     claim,
@@ -168,9 +170,9 @@ export async function clientCredentialsGrant(
       ...(client.scopes.includes("audience") ? {} : {}),
     },
     family: (deps.newRefreshFamily ?? randomId)(),
+    skipRefresh: true,
     deps,
   })
   if (isErr(minted)) return err(minted.error)
-  const { refresh_token: _drop, ...rest } = minted.value
-  return ok(rest)
+  return ok(minted.value)
 }

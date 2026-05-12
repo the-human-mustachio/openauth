@@ -179,6 +179,14 @@ export async function mintTokens(args: {
     "tenantId" | "clientId" | "methodId" | "methodKind" | "scopes" | "audience"
   >
   family: string
+  /**
+   * `client_credentials` grants (RFC 6749 §4.4.3) and other paths where a
+   * refresh token is not appropriate set `skipRefresh: true`. The response
+   * then omits `refresh_token` and **no row is written** to `TokenStore`,
+   * so the durable store doesn't accumulate orphaned refresh entries that
+   * the response strips and discards.
+   */
+  skipRefresh?: boolean
   deps: {
     keyStore: KeyStore
     tokenStore: TokenStore
@@ -188,7 +196,7 @@ export async function mintTokens(args: {
     newRefreshToken?: () => string
   }
 }): Promise<Result<TokenResponse, AuthError>> {
-  const { tenant, claim, payload, deps, family } = args
+  const { tenant, claim, payload, deps, family, skipRefresh } = args
   const accessTtl = (tenant.config.accessTtl ?? 15 * 60) * 1000
   const refreshTtl = (tenant.config.refreshTtl ?? 30 * 24 * 60 * 60) * 1000
   const now = deps.clock()
@@ -226,20 +234,23 @@ export async function mintTokens(args: {
     return err(authError.serverError("access token sign failed", e))
   }
 
-  const refresh = (deps.newRefreshToken ?? randomToken)()
-  const refreshPayload: RefreshTokenPayload = {
-    tenantId: payload.tenantId,
-    clientId: payload.clientId,
-    subjectId,
-    claim,
-    scopes: payload.scopes,
-    audience: payload.audience,
-    family,
-    issuedAt: now,
-    expiresAt: now + refreshTtl,
+  let refresh: string | undefined
+  if (!skipRefresh) {
+    refresh = (deps.newRefreshToken ?? randomToken)()
+    const refreshPayload: RefreshTokenPayload = {
+      tenantId: payload.tenantId,
+      clientId: payload.clientId,
+      subjectId,
+      claim,
+      scopes: payload.scopes,
+      audience: payload.audience,
+      family,
+      issuedAt: now,
+      expiresAt: now + refreshTtl,
+    }
+    const saved = await deps.tokenStore.saveRefresh(refresh, refreshPayload)
+    if (isErr(saved)) return err(saved.error)
   }
-  const saved = await deps.tokenStore.saveRefresh(refresh, refreshPayload)
-  if (isErr(saved)) return err(saved.error)
 
   await audit(deps, {
     kind: "token_issued",
@@ -248,7 +259,7 @@ export async function mintTokens(args: {
     methodId: payload.methodId,
     methodKind: payload.methodKind,
     subjectId,
-    refreshTokenIdHash: await hashTokenForAudit(refresh),
+    refreshTokenIdHash: refresh ? await hashTokenForAudit(refresh) : "",
     timestamp: now,
   })
 
@@ -256,7 +267,7 @@ export async function mintTokens(args: {
     access_token: accessToken,
     token_type: "Bearer",
     expires_in: Math.floor(accessTtl / 1000),
-    refresh_token: refresh,
+    ...(refresh !== undefined ? { refresh_token: refresh } : {}),
     scope: payload.scopes.join(" "),
   })
 }
