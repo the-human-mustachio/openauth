@@ -80,7 +80,12 @@ export type {
 
 export type { AuditEvent, AuditLog } from "./ports/audit-log"
 export type { ConfigStore } from "./ports/config-store"
-export type { EncryptionKey, KeyStore, SigningKey } from "./ports/key-store"
+export type {
+  EncryptionKey,
+  KeyStore,
+  KeyWrapper,
+  SigningKey,
+} from "./ports/key-store"
 export type { MethodStore } from "./ports/method-store"
 export type { SessionRecord, SessionStore } from "./ports/session-store"
 export type { TokenStore } from "./ports/token-store"

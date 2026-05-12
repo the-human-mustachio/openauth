@@ -21,11 +21,11 @@ output.
 
 | Tier | Open | Done | Total |
 |---|---|---|---|
-| Critical | 2 | 0 | 2 |
+| Critical | 1 | 1 | 2 |
 | High | 12 | 0 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **31** | **0** | **31** |
+| **Total** | **30** | **1** | **31** |
 
 ---
 
@@ -33,7 +33,7 @@ output.
 
 ### C1 — Wrap JWT signing keys at rest in Postgres + Dynamo `KeyStore` adapters
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Critical · **Effort:** L
 - **Files:** `packages/openauth/src/adapters/postgres/key-store.ts:118-122`, `packages/openauth/src/adapters/dynamo/key-store.ts:114-116`
 - **Problem:** `exportJWK(privateKey)` is `JSON.stringify`'d straight into the `private_jwk` column / DynamoDB attribute. A read-only DB compromise (SQL injection elsewhere, leaked backup, replica access, snapshot exfil) yields full token-forging power for every tenant. The KMS adapter wraps correctly; Postgres + Dynamo don't.

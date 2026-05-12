@@ -34,19 +34,27 @@ CREATE TABLE IF NOT EXISTS openauth_signing_keys (
   crv text,
   public_jwk jsonb NOT NULL,
   private_jwk jsonb NOT NULL,
+  private_jwk_wrapped boolean NOT NULL DEFAULT false,
   status text NOT NULL,
   created_at bigint NOT NULL,
   rotated_at bigint
 );
 
+ALTER TABLE openauth_signing_keys
+  ADD COLUMN IF NOT EXISTS private_jwk_wrapped boolean NOT NULL DEFAULT false;
+
 CREATE TABLE IF NOT EXISTS openauth_encryption_keys (
   kid text PRIMARY KEY,
   alg text NOT NULL,
   key_material bytea NOT NULL,
+  key_material_wrapped boolean NOT NULL DEFAULT false,
   status text NOT NULL,
   created_at bigint NOT NULL,
   rotated_at bigint
 );
+
+ALTER TABLE openauth_encryption_keys
+  ADD COLUMN IF NOT EXISTS key_material_wrapped boolean NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS openauth_codes (
   code text PRIMARY KEY,

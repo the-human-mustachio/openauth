@@ -54,6 +54,28 @@ export type EncryptionKey = {
   rotatedAt?: number
 }
 
+/**
+ * Optional host-supplied envelope for wrapping private key material at rest.
+ *
+ * Adapters that persist signing-key private JWKs and encryption-key raw bytes
+ * to durable storage (Postgres, DynamoDB, …) accept a `KeyWrapper` so that
+ * material is encrypted with a key the database server cannot read. The
+ * canonical implementation backs `wrap` / `unwrap` with a cloud KMS
+ * (`AWS KMS Encrypt` / `Decrypt`, GCP KMS, Vault transit, etc.).
+ *
+ * Without a wrapper, `PostgresKeyStore` / `DynamoKeyStore` store private
+ * material in plaintext at rest — acceptable for dev / single-tenant
+ * operators with full-disk encryption who have accepted the trade-off, but
+ * **not** acceptable for production deployments with multi-tenant data. See
+ * `INTEGRATION.md` §4.
+ */
+export type KeyWrapper = {
+  /** Encrypt `plaintext` (≤ a few KB) under the host's master key. */
+  wrap(plaintext: Uint8Array): Promise<Uint8Array>
+  /** Decrypt a value previously returned by `wrap`. */
+  unwrap(ciphertext: Uint8Array): Promise<Uint8Array>
+}
+
 export type KeyStore = {
   /** The unambiguous active signing key. Strong consistency. */
   currentSigningKey(): Promise<Result<SigningKey>>

@@ -160,6 +160,53 @@ Cloudflare KV is **not** acceptable for those two ports. See
 `ports/CONSISTENCY.md`. `PasskeyCredentialStore` similarly needs
 strong reads for the signature-counter update path, which rules out KV.
 
+### 4a. `KeyStore` at-rest encryption — required in production
+
+`PostgresKeyStore` and `DynamoKeyStore` persist JWT signing-key private
+material and the symmetric encryption-key bytes used for at-rest payload
+encryption (auth codes, future refresh-payload encryption). By default
+both adapters write that material **in plaintext** to the underlying
+column / attribute — convenient for dev, **not acceptable for production**
+deployments where a read-only DB compromise (SQL injection elsewhere,
+leaked backup, replica access, snapshot exfil) would yield full
+token-forging power for every tenant.
+
+Pass a `KeyWrapper` to either adapter to enable envelope encryption:
+
+```ts
+import { PostgresKeyStore, type KeyWrapper } from "@_mustachio/openauth"
+import { KMSClient, EncryptCommand, DecryptCommand } from "@aws-sdk/client-kms"
+
+const kms = new KMSClient({})
+const KeyId = process.env.OPENAUTH_KMS_KEY_ARN!
+
+const wrapper: KeyWrapper = {
+  async wrap(plaintext) {
+    const r = await kms.send(new EncryptCommand({ KeyId, Plaintext: plaintext }))
+    return new Uint8Array(r.CiphertextBlob!)
+  },
+  async unwrap(ciphertext) {
+    const r = await kms.send(new DecryptCommand({ CiphertextBlob: ciphertext }))
+    return new Uint8Array(r.Plaintext!)
+  },
+}
+
+const keyStore = new PostgresKeyStore({ exec, wrapper })
+```
+
+Other valid backings: GCP KMS `Encrypt`/`Decrypt`, Vault transit
+`encrypt`/`decrypt`, HSM-backed code. `@_mustachio/openauth/adapters/kms`
+ships a higher-level `KmsKeyStore` that bakes the same envelope pattern
+in directly and is usually the simpler choice on AWS — reach for
+`PostgresKeyStore`/`DynamoKeyStore` + `wrapper` only when your KMS isn't
+AWS or you want one storage backend for all ports.
+
+Without a wrapper, the adapter records `private_jwk_wrapped = false`
+(Postgres) or `private_jwk_wrapped: false` (Dynamo); flipping a wrapper
+on later is forward-compatible (legacy rows continue to read as
+plaintext), but operators rotating into wrapped storage should re-key by
+provisioning fresh signing/encryption keys after wiring the wrapper.
+
 ---
 
 ## 5. The four host-side contracts
