@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 9 | 3 | 12 |
+| High | 8 | 4 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **26** | **5** | **31** |
+| **Total** | **25** | **6** | **31** |
 
 ---
 
@@ -82,7 +82,7 @@ output.
 
 ### H4 — Authenticate client *before* the client-mismatch check on refresh-grant
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** S
 - **Files:** `packages/openauth/src/domain/refresh.ts:74-87`
 - **Problem:** Mismatch check at line 74 returns `invalid_grant` ("does not belong to this client") before `verifyClientCredentials` at line 86. An attacker with a stolen refresh token can probe candidate `client_id`s without burning the token. Unifies as an oracle distinct from `invalid_client`.

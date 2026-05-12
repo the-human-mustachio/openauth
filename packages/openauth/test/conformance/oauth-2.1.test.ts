@@ -29,6 +29,7 @@ import {
 import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
+import { hashClientSecret } from "../../src/domain/token"
 
 describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
   // ─── case 1 ───
@@ -930,7 +931,7 @@ describe("Phase 8 — revoke / introspect / client-auth hardening", () => {
   })
 
   // ─── case 27: refresh-token grant requires client auth for confidential clients (RFC 6749 §6) ───
-  test("27. refresh_token grant: confidential client without secret → invalid_client", async () => {
+  test("27. refresh_token grant: confidential client without secret → invalid_grant (uniform with mismatch)", async () => {
     const tenant = await buildTenant({
       clientType: "confidential",
       clientSecretPlain: "shh-secret",
@@ -965,7 +966,10 @@ describe("Phase 8 — revoke / introspect / client-auth hardening", () => {
     )
     const { refresh_token } = (await tok.json()) as { refresh_token: string }
 
-    // Refresh without client_secret is rejected.
+    // Refresh without client_secret is rejected. Response collapses to
+    // invalid_grant (matching the wrong-client / wrong-secret response) so
+    // an attacker cannot probe whether the presented client owns the
+    // token by comparing error codes.
     const refresh = await h.idp.handle(
       tokenRequest(h.issuerUrl, {
         grant_type: "refresh_token",
@@ -973,8 +977,95 @@ describe("Phase 8 — revoke / introspect / client-auth hardening", () => {
         client_id: "rp-1",
       }),
     )
-    expect(refresh.status).toBe(401)
+    expect(refresh.status).toBe(400)
     const body = await refresh.json()
-    expect(body.error).toBe("invalid_client")
+    expect(body.error).toBe("invalid_grant")
+    const wrongSecret = await h.idp.handle(
+      tokenRequest(h.issuerUrl, {
+        grant_type: "refresh_token",
+        refresh_token,
+        client_id: "rp-1",
+        client_secret: "bogus",
+      }),
+    )
+    const wrongSecretBody = await wrongSecret.json()
+    expect(wrongSecret.status).toBe(refresh.status)
+    expect(wrongSecretBody.error).toBe(body.error)
+    expect(wrongSecretBody.error_description).toBe(body.error_description)
+  })
+
+  // ─── case 28: stolen refresh + probe attempts return identical responses ──
+  test("28. refresh_token grant: wrong-client + wrong-secret probes are indistinguishable", async () => {
+    const tenant = await buildTenant({
+      clientType: "confidential",
+      clientSecretPlain: "shh-secret",
+      methods: [{ id: "stub", kind: "stub" }],
+    })
+    // Register a second confidential client in the same tenant — the
+    // attacker controls `rp-attacker` and tries to refresh a token issued
+    // to `rp-1`.
+    tenant.clients.push({
+      id: "rp-attacker",
+      name: "Attacker RP",
+      type: "confidential",
+      redirectUris: ["https://attacker.example/callback"],
+      grantTypes: ["authorization_code", "refresh_token"],
+      scopes: ["openid"],
+      pkceRequired: false,
+      secretHash: await hashClientSecret("attacker-secret"),
+    })
+    const h = await buildHarness({ tenant })
+
+    const authorize = await h.idp.handle(
+      new Request(
+        authorizeUrl(h.issuerUrl, {
+          response_type: "code",
+          client_id: "rp-1",
+          redirect_uri: "https://app.example/callback",
+          scope: "openid",
+          state: "rp-csrf",
+          code_challenge: h.challengePair.challenge,
+          code_challenge_method: "S256",
+        }),
+      ),
+    )
+    const cb = await driveCallback(h.idp, authorize.headers.get("location")!)
+    const code = new URL(cb.headers.get("location")!).searchParams.get("code")!
+    const tok = await h.idp.handle(
+      tokenRequest(h.issuerUrl, {
+        grant_type: "authorization_code",
+        code,
+        client_id: "rp-1",
+        client_secret: "shh-secret",
+        redirect_uri: "https://app.example/callback",
+        code_verifier: h.challengePair.verifier,
+      }),
+    )
+    const { refresh_token } = (await tok.json()) as { refresh_token: string }
+
+    // Probe A: attacker authenticates correctly as a different client.
+    const wrongClient = await h.idp.handle(
+      tokenRequest(h.issuerUrl, {
+        grant_type: "refresh_token",
+        refresh_token,
+        client_id: "rp-attacker",
+        client_secret: "attacker-secret",
+      }),
+    )
+    // Probe B: attacker guesses an own-client secret.
+    const wrongSecret = await h.idp.handle(
+      tokenRequest(h.issuerUrl, {
+        grant_type: "refresh_token",
+        refresh_token,
+        client_id: "rp-1",
+        client_secret: "guess",
+      }),
+    )
+    const aBody = await wrongClient.json()
+    const bBody = await wrongSecret.json()
+    expect(wrongClient.status).toBe(wrongSecret.status)
+    expect(aBody.error).toBe(bBody.error)
+    expect(aBody.error_description).toBe(bBody.error_description)
+    expect(aBody.error).toBe("invalid_grant")
   })
 })

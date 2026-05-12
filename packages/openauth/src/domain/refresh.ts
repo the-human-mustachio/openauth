@@ -59,32 +59,36 @@ export async function refreshTokens(
 
   const tenantCfg = await deps.configStore.getTenantConfig(peekedPayload.tenantId)
   if (isErr(tenantCfg)) return err(tenantCfg.error)
+
+  // Authenticate the *presenting* client first, then check ownership.
+  // Wrong-secret, wrong-client, and unknown-presenting-client all collapse
+  // to the same `invalid_grant` response so an attacker holding a stolen
+  // refresh token cannot probe candidate `client_id` values: every
+  // misroute looks identical on the wire (RFC 6749 §5.2; H4 of the
+  // post-rebuild review).
+  const INVALID_REFRESH_DESC = "refresh token is invalid"
   const client = tenantCfg.value.clients.find(
     (c) => c.id === peekedPayload.clientId,
   )
   if (!client) {
-    return err(
-      authError.invalidClient(`unknown client "${peekedPayload.clientId}"`),
-    )
+    return err(authError.invalidGrant(INVALID_REFRESH_DESC))
   }
 
-  // Refresh tokens are bound to the issuing client. If a `client_id`
-  // was presented, it must match the bound client. Confidential clients
-  // must always authenticate (no anonymous refresh).
-  if (req.clientId !== undefined && req.clientId !== peekedPayload.clientId) {
-    return err(
-      authError.invalidGrant("refresh token does not belong to this client"),
+  if (req.clientId !== undefined) {
+    const presenting = tenantCfg.value.clients.find(
+      (c) => c.id === req.clientId,
     )
+    if (!presenting) {
+      return err(authError.invalidGrant(INVALID_REFRESH_DESC))
+    }
+    const authErr = await verifyClientCredentials(presenting, req.clientSecret)
+    if (authErr) return err(authError.invalidGrant(INVALID_REFRESH_DESC))
+    if (req.clientId !== peekedPayload.clientId) {
+      return err(authError.invalidGrant(INVALID_REFRESH_DESC))
+    }
+  } else if (client.type === "confidential") {
+    return err(authError.invalidGrant(INVALID_REFRESH_DESC))
   }
-  if (client.type === "confidential" && !req.clientSecret) {
-    return err(
-      authError.invalidClient(
-        "confidential client must authenticate to refresh tokens",
-      ),
-    )
-  }
-  const authErr = await verifyClientCredentials(client, req.clientSecret)
-  if (authErr) return err(authErr)
 
   const consumed = await deps.tokenStore.consumeRefresh(req.refreshToken, {
     reuseWindowMs: deps.reuseWindowMs,
