@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 3 | 9 | 12 |
+| High | 2 | 10 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **20** | **11** | **31** |
+| **Total** | **19** | **12** | **31** |
 
 ---
 
@@ -136,7 +136,7 @@ output.
 
 ### H10 — Replace the regex-parsed reuse signal with a typed `AuthError` field
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** L
 - **Files:** `packages/openauth/src/domain/refresh.ts:93-101, 162-172`; `packages/openauth/src/adapters/memory/token-store.ts`, `…/postgres/token-store.ts`, `…/dynamo/token-store.ts` (each adapter writes the magic string); `packages/openauth/src/types/error.ts` (extend variant); `packages/openauth/src/ports/token-store.ts` (port doc); `packages/openauth/test/ports/token-store.ts` (conformance assertion).
 - **Problem:** Adapters smuggle reuse-detection signals through `AuthError.description` ("…(family=…,tenant=…,subject=…)"). Any 4th-party adapter that returns a perfectly valid `invalid_grant` with different phrasing silently degrades audit fidelity. The port-conformance suite never asserts the format.

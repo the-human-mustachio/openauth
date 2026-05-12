@@ -121,15 +121,21 @@ export class MemoryTokenStore implements TokenStore {
     if (stored.consumedAt !== undefined) {
       const withinWindow = now - stored.consumedAt <= reuseWindow
       if (withinWindow) {
-        // Reuse detection — auto-revoke the family so all descendants of
-        // the compromised chain are invalidated. The caller still gets
-        // `invalid_grant`; the family-id is stashed on the error
-        // description for audit-log enrichment.
+        // Reuse detection — auto-revoke the family so every descendant of
+        // the compromised chain is invalidated. The caller still gets
+        // `invalid_grant`; the structured `reuseSignal` carries the
+        // family / tenant / subject for audit-log enrichment (port
+        // contract per `ports/token-store.ts`).
         const family = stored.payload.family
         await this.revokeFamily(family)
         return err(
           authError.invalidGrant(
-            `refresh token reuse detected (family=${family},tenant=${stored.payload.tenantId},subject=${stored.payload.subjectId})`,
+            `refresh token reuse detected (family=${family})`,
+            {
+              family,
+              tenantId: stored.payload.tenantId,
+              subjectId: stored.payload.subjectId,
+            },
           ),
         )
       }

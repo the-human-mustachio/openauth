@@ -57,6 +57,14 @@ export type TokenStore = {
    *  - Within the reuse window (default 60 s), the consumed token must
    *    still be detectable so a second presentation can trigger
    *    revoke-the-whole-family. Outside the window the row may be GC'd.
+   *  - On reuse-detection (second consume within the window), return an
+   *    `invalid_grant` error **with a `reuseSignal` carrier** containing
+   *    the compromised refresh chain's `family`, `tenantId`, and
+   *    `subjectId`. The framework's refresh-grant handler reads
+   *    `reuseSignal` directly to emit `refresh_reuse_detected` audit
+   *    events. Adapters that omit the signal degrade audit fidelity (the
+   *    framework falls back to the peeked-payload values) but remain
+   *    behavior-compatible.
    */
   consumeRefresh(
     refresh: string,

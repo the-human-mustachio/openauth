@@ -181,7 +181,12 @@ export class DynamoTokenStore implements TokenStore {
         await this.revokeFamily(payload.family)
         return err(
           authError.invalidGrant(
-            `refresh token reuse detected (family=${payload.family},tenant=${payload.tenantId},subject=${payload.subjectId})`,
+            `refresh token reuse detected (family=${payload.family})`,
+            {
+              family: payload.family,
+              tenantId: payload.tenantId,
+              subjectId: payload.subjectId,
+            },
           ),
         )
       }

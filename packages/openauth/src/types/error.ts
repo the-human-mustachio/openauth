@@ -9,7 +9,22 @@
 export type AuthError =
   | { code: "invalid_request"; description: string; field?: string }
   | { code: "invalid_client"; description: string }
-  | { code: "invalid_grant"; description: string }
+  /**
+   * `invalid_grant`. `reuseSignal`, when present, is the structured
+   * reuse-detection hint `TokenStore.consumeRefresh` adapters emit on a
+   * second-use-within-the-window — used by the refresh-grant handler to
+   * audit `refresh_reuse_detected` with branded `TenantId` / `subjectId`
+   * fields rather than parsing strings out of `description`.
+   */
+  | {
+      code: "invalid_grant"
+      description: string
+      reuseSignal?: {
+        family: string
+        tenantId: string
+        subjectId: string
+      }
+    }
   | { code: "unauthorized_client"; description: string }
   | { code: "unsupported_grant_type"; description: string }
   | { code: "invalid_scope"; description: string }
@@ -49,9 +64,13 @@ export const authError = {
     code: "invalid_client",
     description,
   }),
-  invalidGrant: (description: string): AuthError => ({
+  invalidGrant: (
+    description: string,
+    reuseSignal?: { family: string; tenantId: string; subjectId: string },
+  ): AuthError => ({
     code: "invalid_grant",
     description,
+    ...(reuseSignal !== undefined ? { reuseSignal } : {}),
   }),
   unauthorizedClient: (description: string): AuthError => ({
     code: "unauthorized_client",

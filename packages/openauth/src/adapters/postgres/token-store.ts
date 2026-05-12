@@ -11,10 +11,10 @@
  *   generation. Reuse-detection within the configurable window auto-revokes
  *   the family.
  *
- * The reuse-detection error description follows the documented wire format:
- *   `refresh token reuse detected (family=<id>,tenant=<id>,subject=<id>)`
- * Phase 2 / `ports/CONSISTENCY.md` require this contract so the domain's
- * audit emission has the family / tenant / subject for forensics.
+ * On reuse-detection the adapter returns `invalid_grant` and populates
+ * the structured `reuseSignal` carrier on the error (family / tenantId /
+ * subjectId), per the `TokenStore` port contract. The domain's audit
+ * emission consumes the typed signal directly — no string parsing.
  */
 import type { KeyStore } from "../../ports/key-store"
 import type { TokenStore } from "../../ports/token-store"
@@ -202,7 +202,12 @@ export class PostgresTokenStore implements TokenStore {
         await this.revokeFamily(payload.family)
         return err(
           authError.invalidGrant(
-            `refresh token reuse detected (family=${payload.family},tenant=${payload.tenantId},subject=${payload.subjectId})`,
+            `refresh token reuse detected (family=${payload.family})`,
+            {
+              family: payload.family,
+              tenantId: payload.tenantId,
+              subjectId: payload.subjectId,
+            },
           ),
         )
       }

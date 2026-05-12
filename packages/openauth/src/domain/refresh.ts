@@ -94,17 +94,22 @@ export async function refreshTokens(
     reuseWindowMs: deps.reuseWindowMs,
   })
   if (isErr(consumed)) {
-    if (consumed.error.description.includes("reuse detected")) {
-      // tenantId / subjectId come from the peeked payload (branded
-      // TenantId, FK-safe). Only `family` is read from the adapter's
-      // description string — if the adapter doesn't follow the
-      // convention, we fall back to the payload's family.
-      const parsed = parseReuseSignal(consumed.error.description)
+    if (
+      consumed.error.code === "invalid_grant" &&
+      consumed.error.reuseSignal
+    ) {
+      // Reuse-detection signal arrives typed on the AuthError. tenantId /
+      // subjectId come from the signal when the adapter emits it; we fall
+      // back to the peeked payload's fields for adapters that don't
+      // (older 4th-party adapters that satisfy the port without the
+      // structured carrier). `family` always prefers the signal — it's
+      // the discriminating identifier the adapter knows.
+      const signal = consumed.error.reuseSignal
       await audit(deps, {
         kind: "refresh_reuse_detected",
         tenantId: peekedPayload.tenantId,
         clientId: peekedPayload.clientId,
-        family: parsed.family !== "unknown" ? parsed.family : peekedPayload.family,
+        family: signal.family,
         timestamp: deps.clock(),
       })
     }
@@ -158,22 +163,6 @@ export async function refreshTokens(
     }
     return result
   })
-}
-
-/**
- * Parse the reuse-detection hint the `TokenStore` adapter is contractually
- * allowed to stamp into its `invalid_grant` description. Format:
- * `... (family=<id>,tenant=<id>,subject=<id>)`. We only consume `family`
- * here — `tenantId` / `subjectId` come from the peeked payload (which is
- * already properly branded). Adapters that don't follow the convention
- * still emit a useful audit event (we fall back to the payload's
- * `family`); this parser will be replaced with a typed `reuseSignal`
- * field on `AuthError` under H10.
- */
-function parseReuseSignal(description: string): { family: string } {
-  const m = description.match(/family=([^,)]+)/)
-  if (!m) return { family: "unknown" }
-  return { family: m[1]! }
 }
 
 async function audit(

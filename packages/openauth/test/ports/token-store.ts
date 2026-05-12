@@ -139,7 +139,7 @@ export function describeTokenStore(opts: TokenStoreSuiteOptions): void {
     })
 
     describe("saveRefresh / consumeRefresh", () => {
-      test("first consume returns payload; second within window flags reuse with family", async () => {
+      test("first consume returns payload; second within window flags reuse with typed reuseSignal", async () => {
         const refresh = uniqueSuffix("r")
         const payload = makeRefreshPayload({ family: "FAM-X" })
         await tokenStore.saveRefresh(refresh, payload)
@@ -147,14 +147,15 @@ export function describeTokenStore(opts: TokenStoreSuiteOptions): void {
         expect(first.ok).toBe(true)
         const second = await tokenStore.consumeRefresh(refresh)
         expect(second.ok).toBe(false)
-        if (!second.ok) {
-          expect(second.error.code).toBe("invalid_grant")
-          // Reuse-detection wire format documented in Phase 2 decisions —
-          // adapters MUST emit `family=...,tenant=...,subject=...`.
+        if (!second.ok && second.error.code === "invalid_grant") {
+          // Description still carries a human-readable hint, but the
+          // structured reuseSignal is the load-bearing contract.
           expect(second.error.description).toContain("reuse detected")
-          expect(second.error.description).toContain("family=FAM-X")
-          expect(second.error.description).toContain(`tenant=${fixtureTenantId}`)
-          expect(second.error.description).toContain("subject=subj-1")
+          expect(second.error.reuseSignal).toBeDefined()
+          const signal = second.error.reuseSignal!
+          expect(signal.family).toBe("FAM-X")
+          expect(signal.tenantId).toBe(fixtureTenantId)
+          expect(signal.subjectId).toBe("subj-1")
         }
       })
 
