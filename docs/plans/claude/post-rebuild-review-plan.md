@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 7 | 5 | 12 |
+| High | 6 | 6 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **24** | **7** | **31** |
+| **Total** | **23** | **8** | **31** |
 
 ---
 
@@ -100,7 +100,7 @@ output.
 
 ### H6 — Authenticate against presenting client's tenant *before* loading the token's tenant in `/introspect`
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** S
 - **Files:** `packages/openauth/src/domain/introspect.ts:82-93`
 - **Problem:** Current order: (1) verify JWT → if unverifiable return `{active: false}`; (2) `getTenantConfig(claims.tid)`; (3) find client by `req.clientId` in *that* tenant → if absent `invalid_client`; (4) verify creds. A caller presenting a valid foreign token + their own valid creds in a different tenant gets a distinguishable `invalid_client` response — confirms whether their client exists in the foreign token's tenant. Narrower than the agent framed, but still a leak.

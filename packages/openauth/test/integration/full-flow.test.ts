@@ -150,7 +150,7 @@ describe("end-to-end: authorize → callback → token → refresh → revoke", 
 
     // ─── 5. introspect the access token ───
     const intr = await introspect(
-      { token: access1, clientId: "rp-1" },
+      { token: access1, clientId: "rp-1", presenterTenantId: tenant.id },
       { keyStore, configStore, issuerUrl },
     )
     expect(intr.ok).toBe(true)

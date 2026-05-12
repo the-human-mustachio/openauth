@@ -4,7 +4,19 @@
  * RFC 7662 §2.1 REQUIRES authentication: "To prevent token scanning
  * attacks, the endpoint MUST also require some form of authorization to
  * access this endpoint." Confidential-client credentials are validated
- * against the tenant the token belongs to.
+ * against the **presenter's** tenant — resolved by the HTTP layer from
+ * the request, exactly the same way `/token client_credentials` resolves
+ * tenant. Authenticating before touching the token's `tid` means:
+ *
+ *   - Unknown presenting client OR wrong secret → `invalid_client`
+ *     (uniform — the response says nothing about the token).
+ *   - Token belongs to a different tenant than the presenter, or names a
+ *     different client as audience, or fails verification → `{active: false}`.
+ *
+ * Pre-fix the order was "verify token → load token's tenant → look up
+ * presenter in *that* tenant", which let a client authenticated in
+ * tenant X probe whether its `client_id` existed in tenant Y by
+ * watching for `invalid_client` versus `{active: false}` responses.
  *
  * Audience check (RFC 7662 §2.2): an authenticated client may only
  * inspect tokens that name it as the audience. Tokens belonging to a
@@ -49,6 +61,13 @@ export type IntrospectRequest = {
   /** REQUIRED — RFC 7662 §2.1. */
   clientId: string
   clientSecret?: string
+  /**
+   * The tenant the presenting client belongs to. Resolved by the HTTP
+   * layer via `IdPOptions.resolveTenant`, just like for the m2m grant.
+   * Cross-tenant introspection collapses to `{active: false}` regardless
+   * of whether the presenter's client exists in the token's tenant.
+   */
+  presenterTenantId: TenantId
 }
 
 export type IntrospectDeps = {
@@ -62,14 +81,31 @@ export async function introspect(
   req: IntrospectRequest,
   deps: IntrospectDeps,
 ): Promise<Result<IntrospectResponse, AuthError>> {
+  // 1. Authenticate the presenting client against its OWN tenant before
+  //    looking at the token. Failure here = `invalid_client` (RFC 7662
+  //    §2.1). The presenter's tenant is the only signal we trust until
+  //    auth succeeds.
+  const presenterTenantCfg = await deps.configStore.getTenantConfig(
+    req.presenterTenantId,
+  )
+  if (isErr(presenterTenantCfg)) {
+    return err(authError.invalidClient(`unknown client "${req.clientId}"`))
+  }
+  const presenter = presenterTenantCfg.value.clients.find(
+    (c) => c.id === req.clientId,
+  )
+  if (!presenter) {
+    return err(authError.invalidClient(`unknown client "${req.clientId}"`))
+  }
+  const authErr = await verifyClientCredentials(presenter, req.clientSecret)
+  if (authErr) return err(authErr)
+
+  // 2. Try to verify the token. Unverifiable / wrong issuer / expired →
+  //    `{active: false}` so a presenter cannot tell the difference
+  //    between a forged token and a valid one belonging to another
+  //    tenant or client.
   const keysRes = await deps.keyStore.signingKeys()
   if (isErr(keysRes)) return err(keysRes.error)
-
-  // Try to verify the token. If it fails — bad signature, expired,
-  // wrong issuer — we still need to acknowledge the caller authenticated
-  // before returning `{active: false}`. Without a verified `tid` we
-  // can't look up the calling client, so we treat unverifiable tokens
-  // as inactive and return without consulting the tenant.
   let claims: AccessTokenClaims | null
   try {
     claims = await verifyAccessToken(req.token, keysRes.value, {
@@ -79,22 +115,16 @@ export async function introspect(
     return ok({ active: false })
   }
 
-  const tenantCfg = await deps.configStore.getTenantConfig(
-    claims.tid as TenantId,
-  )
-  if (isErr(tenantCfg)) {
+  // 3. Token's tenant must match the presenter's tenant. RFC 7662 lets
+  //    us return `{active: false}` here — never a structured error —
+  //    so a presenter can't probe across tenants. (H6 of the
+  //    post-rebuild review.)
+  if ((claims.tid as TenantId) !== req.presenterTenantId) {
     return ok({ active: false })
   }
-  const client = tenantCfg.value.clients.find((c) => c.id === req.clientId)
-  if (!client) {
-    return err(authError.invalidClient(`unknown client "${req.clientId}"`))
-  }
-  const authErr = await verifyClientCredentials(client, req.clientSecret)
-  if (authErr) return err(authErr)
 
-  // RFC 7662 §2.2 — only the client a token names as audience may see
-  // its claims. Cross-client introspection returns {active: false}
-  // rather than leaking that the token exists.
+  // 4. Audience check (RFC 7662 §2.2): only the client the token names
+  //    as audience may see its claims.
   if (claims.aud !== req.clientId) {
     return ok({ active: false })
   }

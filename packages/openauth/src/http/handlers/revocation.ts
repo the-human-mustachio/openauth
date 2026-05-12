@@ -20,6 +20,7 @@ import { isErr } from "../../types/result"
 
 import type { HttpContext, HttpDeps } from "../context"
 import { tokenEndpointErrorResponse } from "../errors"
+import { injectResolverHints } from "../resolver"
 import { introspectBodySchema, revokeBodySchema } from "../schemas/revocation"
 
 export function makeRevokeHandler(deps: HttpDeps) {
@@ -97,6 +98,17 @@ export function makeIntrospectHandler(deps: HttpDeps) {
         ),
       )
     }
+    // Resolve the presenter's tenant from the request the same way the
+    // m2m grant does — by injecting client_id into the URL so a
+    // canonical search-param resolver works for introspect too.
+    const tenantRes = await deps.resolveTenant(
+      injectResolverHints(c.req.raw, { client_id: creds.clientId }),
+    )
+    if (isErr(tenantRes)) {
+      return tokenEndpointErrorResponse(
+        authError.invalidClient(`unknown client "${creds.clientId}"`),
+      )
+    }
     const res = await introspect(
       {
         token: parsed.data.token,
@@ -107,6 +119,7 @@ export function makeIntrospectHandler(deps: HttpDeps) {
         ...(creds.clientSecret !== undefined
           ? { clientSecret: creds.clientSecret }
           : {}),
+        presenterTenantId: tenantRes.value,
       },
       {
         keyStore: deps.keyStore,

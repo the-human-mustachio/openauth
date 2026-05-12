@@ -136,7 +136,11 @@ describe("revoke", () => {
     // Derive the subject id by introspecting:
     const tokens = await issueTokens(f)
     const intr = await introspect(
-      { token: tokens.access_token, clientId: "rp-1" },
+      {
+        token: tokens.access_token,
+        clientId: "rp-1",
+        presenterTenantId: tenantId,
+      },
       { keyStore: f.keyStore, configStore: f.configStore },
     )
     if (!intr.ok || !intr.value.active) throw new Error("intr failed")
@@ -157,7 +161,11 @@ describe("introspect", () => {
     const f = await fixture()
     const tokens = await issueTokens(f)
     const r = await introspect(
-      { token: tokens.access_token, clientId: "rp-1" },
+      {
+        token: tokens.access_token,
+        clientId: "rp-1",
+        presenterTenantId: tenantId,
+      },
       {
         keyStore: f.keyStore,
         configStore: f.configStore,
@@ -175,7 +183,11 @@ describe("introspect", () => {
   test("returns active=false for garbage", async () => {
     const f = await fixture()
     const r = await introspect(
-      { token: "not-a-jwt", clientId: "rp-1" },
+      {
+        token: "not-a-jwt",
+        clientId: "rp-1",
+        presenterTenantId: tenantId,
+      },
       { keyStore: f.keyStore, configStore: f.configStore },
     )
     expect(r.ok).toBe(true)
