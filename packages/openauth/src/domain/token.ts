@@ -109,11 +109,11 @@ export async function exchangeCode(
     if (!req.codeVerifier) {
       return err(authError.invalidGrant("missing code_verifier"))
     }
-    const ok = await validatePkce(
+    const pkceValid = await validatePkce(
       req.codeVerifier,
       payload.clientPkce.challenge,
     )
-    if (!ok) {
+    if (!pkceValid) {
       return err(authError.invalidGrant("PKCE verification failed"))
     }
   }

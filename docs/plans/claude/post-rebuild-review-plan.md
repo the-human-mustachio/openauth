@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 5 | 7 | 12 |
+| High | 4 | 8 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **22** | **9** | **31** |
+| **Total** | **21** | **10** | **31** |
 
 ---
 
@@ -118,7 +118,7 @@ output.
 
 ### H8 — Rename shadowed `ok` binding in `exchangeCode`
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** S
 - **Files:** `packages/openauth/src/domain/token.ts:112`
 - **Problem:** `const ok = await validatePkce(…)` shadows the `ok` constructor imported at the top of the file. No broken caller today; the very next branch added after line 118 that returns `ok(...)` will type-error or (worse, with `as never`) misbehave at runtime.
