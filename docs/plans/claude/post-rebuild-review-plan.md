@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 12 | 0 | 12 |
+| High | 11 | 1 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **29** | **2** | **31** |
+| **Total** | **28** | **3** | **31** |
 
 ---
 
@@ -55,7 +55,7 @@ output.
 
 ### H1 — Pin `algorithms` on every `jwtVerify` call
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** S
 - **Files:** `packages/openauth/src/domain/jwt.ts:44-61`, `packages/openauth/src/domain/token-exchange.ts:99-101`, `packages/openauth/src/domain/introspect.ts:75-77`
 - **Problem:** `jwtVerify` is called without `algorithms: [...]`. The kid-resolver imports the key with its declared alg, and `jose` rejects header/key alg mismatch — so pure alg confusion is mitigated **today**. But the next person who lands an HS-capable key in the store (test fixtures, ops error, or via C1 escalation) opens a confusion path. Defense in depth.

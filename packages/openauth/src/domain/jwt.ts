@@ -28,9 +28,21 @@ export async function signAccessToken(
     .sign(privateKey)
 }
 
+/** Allow-list of asymmetric `alg` values the IdP issues + accepts. */
+const ASYMMETRIC_ALGS: ReadonlySet<string> = new Set(["ES256", "EdDSA"])
+
 /**
  * Verify a JWT access token using a list of trusted signing keys (from
  * `KeyStore.signingKeys()`). Looks up by `kid` in the JWT header.
+ *
+ * Algorithm enforcement: the allow-list is derived from the loaded
+ * `SigningKey.alg` values, intersected with the asymmetric allow-list
+ * (`ES256`, `EdDSA`). Symmetric (`HS*`) and `none` are filtered out, so a
+ * symmetric key accidentally landing in the store does not open an
+ * alg-confusion path. The kid resolver also rejects `alg: "none"`
+ * explicitly as defense in depth — `jose` already refuses tokens whose
+ * header `alg` is outside `algorithms`, but a future call site that
+ * dropped the option would still be safe.
  *
  * Returns the typed claims on success. Throws (via `jose`) on any
  * signature, expiry, or alg-mismatch failure — callers wrap in `try` and
@@ -41,12 +53,23 @@ export async function verifyAccessToken(
   keys: ReadonlyArray<SigningKey>,
   options: { issuer?: string; audience?: string } = {},
 ): Promise<AccessTokenClaims> {
+  const algorithms = Array.from(
+    new Set(keys.map((k) => k.alg).filter((a) => ASYMMETRIC_ALGS.has(a))),
+  )
   const { payload } = await jwtVerify<AccessTokenClaims>(
     token,
     async (header) => {
+      if (!header.alg || header.alg === "none") {
+        throw new Error(`verifyAccessToken: refusing alg "${header.alg ?? ""}"`)
+      }
       const match = keys.find((k) => k.kid === header.kid)
       if (!match) {
         throw new Error(`verifyAccessToken: unknown kid "${header.kid}"`)
+      }
+      if (match.alg !== header.alg) {
+        throw new Error(
+          `verifyAccessToken: header.alg "${header.alg}" does not match key alg "${match.alg}"`,
+        )
       }
       const imported = await importJWK(
         match.publicJwk as unknown as JWK,
@@ -55,6 +78,7 @@ export async function verifyAccessToken(
       return imported as KeyLike
     },
     {
+      algorithms,
       ...(options.issuer ? { issuer: options.issuer } : {}),
       ...(options.audience ? { audience: options.audience } : {}),
     },

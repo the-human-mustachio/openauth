@@ -60,6 +60,42 @@ describe("jwt: sign + verify", () => {
     await expect(verifyAccessToken(token, [k2])).rejects.toThrow()
   })
 
+  test("verify rejects alg: none token (hand-crafted)", async () => {
+    const ks = new MemoryKeyStore()
+    const keyRes = await ks.currentSigningKey()
+    if (!keyRes.ok) throw new Error("no signing key")
+    const signing = keyRes.value
+    const b64 = (s: string): string =>
+      Buffer.from(s)
+        .toString("base64")
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replace(/=+$/, "")
+    const header = b64(JSON.stringify({ alg: "none", typ: "JWT", kid: signing.kid }))
+    const payload = b64(JSON.stringify(sampleClaims()))
+    const noneToken = `${header}.${payload}.`
+    await expect(verifyAccessToken(noneToken, [signing])).rejects.toThrow()
+  })
+
+  test("verify rejects token whose header alg is not in the keys' alg list", async () => {
+    const ks = new MemoryKeyStore()
+    const keyRes = await ks.currentSigningKey()
+    if (!keyRes.ok) throw new Error("no signing key")
+    const signing = keyRes.value
+    // Forge a header with alg=HS256 + valid kid; jose must refuse because
+    // HS256 is not in the derived `algorithms` allow-list.
+    const b64 = (s: string): string =>
+      Buffer.from(s)
+        .toString("base64")
+        .replaceAll("+", "-")
+        .replaceAll("/", "_")
+        .replace(/=+$/, "")
+    const header = b64(JSON.stringify({ alg: "HS256", typ: "JWT", kid: signing.kid }))
+    const payload = b64(JSON.stringify(sampleClaims()))
+    const forged = `${header}.${payload}.AAAA`
+    await expect(verifyAccessToken(forged, [signing])).rejects.toThrow()
+  })
+
   test("buildJwksDocument exposes kid, alg, use", async () => {
     const ks = new MemoryKeyStore()
     const keysRes = await ks.signingKeys()
