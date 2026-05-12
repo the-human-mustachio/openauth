@@ -18,6 +18,7 @@
  *       GSI `family-index`:  hash = `family`
  *       GSI `subject-index`: hash = `subject_key` (`<tenant>#<subject>`)
  */
+import { AUTH_CODE_TTL_MS } from "../../domain/authorize"
 import type { KeyStore } from "../../ports/key-store"
 import type { TokenStore } from "../../ports/token-store"
 import { authError } from "../../types/error"
@@ -27,8 +28,6 @@ import type { TenantId } from "../../types/tenant"
 import type { RefreshTokenPayload } from "../../types/token"
 
 import type { DynamoExecutor } from "./client"
-
-const AUTH_CODE_MAX_TTL_MS = 60_000
 
 export type DynamoTokenStoreOptions = {
   exec: DynamoExecutor
@@ -54,10 +53,10 @@ export class DynamoTokenStore implements TokenStore {
     ciphertext: string,
     ttl: number,
   ): Promise<Result<void>> {
-    if (ttl <= 0 || ttl > AUTH_CODE_MAX_TTL_MS) {
+    if (ttl <= 0 || ttl > AUTH_CODE_TTL_MS) {
       return err(
         authError.internalError(
-          `saveCode: ttl ${ttl} outside (0, ${AUTH_CODE_MAX_TTL_MS}] (auth-code TTL is fixed at 60s by OAuth 2.1 BCP)`,
+          `saveCode: ttl ${ttl} outside (0, ${AUTH_CODE_TTL_MS}] (auth-code TTL is fixed at 60s by OAuth 2.1 BCP)`,
         ),
       )
     }

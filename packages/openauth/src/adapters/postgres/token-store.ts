@@ -16,6 +16,7 @@
  * subjectId), per the `TokenStore` port contract. The domain's audit
  * emission consumes the typed signal directly — no string parsing.
  */
+import { AUTH_CODE_TTL_MS } from "../../domain/authorize"
 import type { KeyStore } from "../../ports/key-store"
 import type { TokenStore } from "../../ports/token-store"
 import { authError } from "../../types/error"
@@ -25,8 +26,6 @@ import type { TenantId } from "../../types/tenant"
 import type { RefreshTokenPayload } from "../../types/token"
 
 import type { PostgresExecutor } from "./executor"
-
-const AUTH_CODE_MAX_TTL_MS = 60_000
 
 export type PostgresTokenStoreOptions = {
   exec: PostgresExecutor
@@ -53,10 +52,10 @@ export class PostgresTokenStore implements TokenStore {
     ciphertext: string,
     ttl: number,
   ): Promise<Result<void>> {
-    if (ttl <= 0 || ttl > AUTH_CODE_MAX_TTL_MS) {
+    if (ttl <= 0 || ttl > AUTH_CODE_TTL_MS) {
       return err(
         authError.internalError(
-          `saveCode: ttl ${ttl} outside (0, ${AUTH_CODE_MAX_TTL_MS}] (auth-code TTL is fixed at 60s by OAuth 2.1 BCP)`,
+          `saveCode: ttl ${ttl} outside (0, ${AUTH_CODE_TTL_MS}] (auth-code TTL is fixed at 60s by OAuth 2.1 BCP)`,
         ),
       )
     }

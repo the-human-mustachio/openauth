@@ -259,6 +259,33 @@ export function describeTokenStore(opts: TokenStoreSuiteOptions): void {
         expect(result.ok).toBe(false)
       })
 
+      test("peekRefresh racing consumeRefresh: consume is the strong gate", async () => {
+        // Per CONSISTENCY.md, peekRefresh is allowed to be eventually
+        // consistent — it may observe the row either before or after a
+        // concurrent consume lands. The atomicity guarantee lives on
+        // consumeRefresh, which must still resolve to exactly one winner
+        // and leave the token single-use regardless of what peek saw.
+        const refresh = uniqueSuffix("r")
+        await tokenStore.saveRefresh(
+          refresh,
+          makeRefreshPayload({ family: "RACE-FAM" }),
+        )
+        const [peekResult, consumeResult] = await Promise.all([
+          tokenStore.peekRefresh(refresh),
+          tokenStore.consumeRefresh(refresh),
+        ])
+        expect(consumeResult.ok).toBe(true)
+        // peek may have seen the row before or after consume — both legal.
+        if (peekResult.ok) {
+          expect(peekResult.value.family).toBe("RACE-FAM")
+        } else {
+          expect(peekResult.error.code).toBe("invalid_grant")
+        }
+        // Single-use is unaffected by the peek/consume race.
+        const second = await tokenStore.consumeRefresh(refresh)
+        expect(second.ok).toBe(false)
+      })
+
       test("revokeBySubject scoped to (tenant, subject)", async () => {
         const ra = uniqueSuffix("r")
         const rb = uniqueSuffix("r")

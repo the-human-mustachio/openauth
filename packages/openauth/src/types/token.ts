@@ -76,6 +76,15 @@ export type RefreshTokenPayload = {
   audience?: string
   /** Reuse-detection chain id. Rotation issues a new token with the same family. */
   family: string
+  /**
+   * Tenant-local method instance id (`MethodConfig.id`) that originated the
+   * chain. Preserved across `refresh_token` rotations so descendant access
+   * tokens carry the original `mid` / `mkind` claims instead of the
+   * grant-type literal "refresh".
+   */
+  methodId: string
+  /** Factory kind (`MethodConfig.kind`) that originated the chain. */
+  methodKind: string
   /** Wall-clock issuance and absolute-expiry timestamps. */
   issuedAt: number
   expiresAt: number

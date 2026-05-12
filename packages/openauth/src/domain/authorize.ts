@@ -56,7 +56,13 @@ import { saveEncryptedCode } from "./token"
 /** Default 10-minute pre-callback flow lifetime per plan §"TTLs". */
 export const DEFAULT_FLOW_TTL_MS = 10 * 60 * 1000
 
-/** Default 60-second auth-code lifetime per OAuth 2.1 BCP. */
+/**
+ * Auth-code lifetime per OAuth 2.1 BCP (`draft-ietf-oauth-v2-1-13` §4.1.3):
+ * the framework issues codes with this exact TTL, and every `TokenStore`
+ * adapter rejects `saveCode` calls whose `ttl` exceeds it. Treated as
+ * both the canonical default and the hard ceiling — there is no
+ * separate "max" knob.
+ */
 export const AUTH_CODE_TTL_MS = 60 * 1000
 
 export type AuthorizeOutput =

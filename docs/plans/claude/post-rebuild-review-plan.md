@@ -23,9 +23,9 @@ output.
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
 | High | 0 | 12 | 12 |
-| Medium | 10 | 1 | 11 |
+| Medium | 6 | 5 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **16** | **15** | **31** |
+| **Total** | **12** | **19** | **31** |
 
 ---
 
@@ -176,7 +176,7 @@ output.
 
 ### M2 — Wire `peekRefresh` into `ports/CONSISTENCY.md`
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Medium · **Effort:** S
 - **Files:** `packages/openauth/src/ports/CONSISTENCY.md`; `packages/openauth/src/ports/token-store.ts:159-167`; `packages/openauth/test/ports/token-store.ts` (assertion)
 - **Problem:** Phase-8-shipped `peekRefresh` is load-bearing for both `/revoke` and refresh-grant client auth, but has no row in `CONSISTENCY.md`. Port docstring says "Eventual consistency is acceptable" — which **is** safe given `consumeRefresh` is strong (the failure mode is benign `invalid_grant`), but the doc gap is real.
@@ -185,7 +185,7 @@ output.
 
 ### M3 — Deduplicate `AUTH_CODE_MAX_TTL_MS` across adapters
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Medium · **Effort:** S
 - **Files:** `packages/openauth/src/adapters/{memory:556, d1:22, dynamo:299, postgres:745}/token-store.ts`; canonical source `packages/openauth/src/domain/authorize.ts` (export)
 - **Problem:** Each adapter declares its own `const AUTH_CODE_MAX_TTL_MS = 60_000`. The canonical value is `AUTH_CODE_TTL_MS` in `domain/authorize.ts`. If the OAuth 2.1 BCP ceiling were ever changed (testing, future spec drift), the adapters silently enforce a different limit than the domain uses.
@@ -194,7 +194,7 @@ output.
 
 ### M4 — Use exported `DEFAULT_ACCESS_TTL_MS` / `DEFAULT_REFRESH_TTL_MS` at the fallback site
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Medium · **Effort:** S
 - **Files:** `packages/openauth/src/domain/token.ts:192-193` (fallback); `domain/token.ts:1047-1048` (canonical constants)
 - **Problem:** `mintTokens` falls back to inline literals (`15 * 60`, `30 * 24 * 60 * 60`) rather than the exported `DEFAULT_ACCESS_TTL_MS` / `DEFAULT_REFRESH_TTL_MS`. Drift will not be caught.
@@ -203,7 +203,7 @@ output.
 
 ### M5 — `mintTokens` should carry forward original `methodId` / `methodKind` on refresh
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Medium · **Effort:** S
 - **Files:** `packages/openauth/src/domain/refresh.ts:131-137`; `packages/openauth/src/types/token.ts` (consider grant-origin claim)
 - **Problem:** Refresh-grant stamps rotated tokens with `methodId: "refresh", methodKind: "refresh"` — loses original method provenance and collides with the host's URL-routing space (a tenant could register a method with `id: "refresh"`).

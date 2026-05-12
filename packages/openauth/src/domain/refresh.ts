@@ -143,8 +143,11 @@ export async function refreshTokens(
     payload: {
       tenantId: payload.tenantId,
       clientId: payload.clientId,
-      methodId: "refresh",
-      methodKind: "refresh",
+      // Carry original method provenance forward — descendant tokens
+      // surface the method that started the chain via `mid` / `mkind`,
+      // not the grant-type literal "refresh".
+      methodId: payload.methodId,
+      methodKind: payload.methodKind,
       scopes: requestedScopes,
       audience: payload.audience,
     },

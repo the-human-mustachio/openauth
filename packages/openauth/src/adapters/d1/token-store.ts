@@ -7,6 +7,7 @@
  * `primarySession(db)` so reads always see the latest write — per AD8 + the
  * D1 read-replication caveat in `ports/CONSISTENCY.md`.
  */
+import { AUTH_CODE_TTL_MS } from "../../domain/authorize"
 import type { KeyStore } from "../../ports/key-store"
 import type { TokenStore } from "../../ports/token-store"
 import { authError } from "../../types/error"
@@ -17,8 +18,6 @@ import type { RefreshTokenPayload } from "../../types/token"
 
 import { primarySession } from "./session"
 import type { AnyD1Database } from "./types"
-
-const AUTH_CODE_MAX_TTL_MS = 60_000
 
 export type D1TokenStoreOptions = {
   db: AnyD1Database
@@ -44,10 +43,10 @@ export class D1TokenStore implements TokenStore {
     ciphertext: string,
     ttl: number,
   ): Promise<Result<void>> {
-    if (ttl <= 0 || ttl > AUTH_CODE_MAX_TTL_MS) {
+    if (ttl <= 0 || ttl > AUTH_CODE_TTL_MS) {
       return err(
         authError.internalError(
-          `saveCode: ttl ${ttl} outside (0, ${AUTH_CODE_MAX_TTL_MS}] (auth-code TTL is fixed at 60s by OAuth 2.1 BCP)`,
+          `saveCode: ttl ${ttl} outside (0, ${AUTH_CODE_TTL_MS}] (auth-code TTL is fixed at 60s by OAuth 2.1 BCP)`,
         ),
       )
     }

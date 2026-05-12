@@ -8,6 +8,7 @@
  * never sees plaintext. Inspecting the internal map shows whatever
  * blob the domain saved.
  */
+import { AUTH_CODE_TTL_MS } from "../../domain/authorize"
 import type { KeyStore } from "../../ports/key-store"
 import type { TokenStore } from "../../ports/token-store"
 import { authError } from "../../types/error"
@@ -18,8 +19,6 @@ import type { RefreshTokenPayload } from "../../types/token"
 
 import type { Clock } from "./clock"
 import { realClock } from "./clock"
-
-const AUTH_CODE_MAX_TTL_MS = 60_000
 
 type StoredCode = {
   ciphertext: string
@@ -54,10 +53,10 @@ export class MemoryTokenStore implements TokenStore {
     ciphertext: string,
     ttl: number,
   ): Promise<Result<void>> {
-    if (ttl <= 0 || ttl > AUTH_CODE_MAX_TTL_MS) {
+    if (ttl <= 0 || ttl > AUTH_CODE_TTL_MS) {
       return err(
         authError.internalError(
-          `saveCode: ttl ${ttl} outside (0, ${AUTH_CODE_MAX_TTL_MS}] (auth-code TTL is fixed at 60s by OAuth 2.1 BCP)`,
+          `saveCode: ttl ${ttl} outside (0, ${AUTH_CODE_TTL_MS}] (auth-code TTL is fixed at 60s by OAuth 2.1 BCP)`,
         ),
       )
     }

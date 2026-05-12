@@ -70,6 +70,8 @@ export function makeRefreshPayload(
     claim,
     scopes: ["openid"],
     family: "fam-1",
+    methodId: "test-method",
+    methodKind: "test-kind",
     issuedAt: Date.now(),
     expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
     ...overrides,
