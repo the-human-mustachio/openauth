@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 6 | 6 | 12 |
+| High | 5 | 7 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **23** | **8** | **31** |
+| **Total** | **22** | **9** | **31** |
 
 ---
 
@@ -109,7 +109,7 @@ output.
 
 ### H7 — Auto-invalidate `MethodCache` on tenant-config changes
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** M
 - **Files:** `packages/openauth/src/domain/method-cache.ts:92-105`, `packages/openauth/src/index.ts` (wire site), `packages/openauth/src/ports/config-store.ts` (hook contract)
 - **Problem:** `MethodCache.invalidate(tenantId, methodId?)` exists, but **nothing** calls it. `buildOauth2Method` / `buildOidcMethod` capture `clientSecret` in closures. A tenant that rotates its upstream client secret with Google / Okta / etc. continues to authenticate with the old secret indefinitely.

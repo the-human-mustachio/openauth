@@ -201,6 +201,16 @@ export function createIdP(opts: IdPOptions): IdP {
     now: clock,
   })
 
+  // Tenant-config rotation must bust the cached `AuthMethod` instances,
+  // otherwise upstream client-secret changes (Google / Okta / etc.) are
+  // ignored because `buildOauth2Method` / `buildOidcMethod` capture the
+  // old secret in a closure. `ConfigStore.onInvalidate` is the canonical
+  // signal — adapters fire it from `putTenantConfig` and from any
+  // host-driven cross-process invalidation hook.
+  opts.configStore.onInvalidate?.((tenantId) => {
+    methodCache.invalidate(tenantId)
+  })
+
   const resolveIssuer = (req: Request): string =>
     typeof opts.issuerUrl === "string" ? opts.issuerUrl : opts.issuerUrl(req)
 
