@@ -21,11 +21,11 @@ output.
 
 | Tier | Open | Done | Total |
 |---|---|---|---|
-| Critical | 1 | 1 | 2 |
+| Critical | 0 | 2 | 2 |
 | High | 12 | 0 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **30** | **1** | **31** |
+| **Total** | **29** | **2** | **31** |
 
 ---
 
@@ -42,7 +42,7 @@ output.
 
 ### C2 — Add `attribute_exists(pk)` guard to DynamoDB `updateFlowMethodState`
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Critical · **Effort:** M
 - **Files:** `packages/openauth/src/adapters/dynamo/session-store.ts:83-106` (the code itself comments the race at lines 96-102)
 - **Problem:** The `put` is unconditional. If `consumeFlow` runs between the `get` and `put`, the deleted row is recreated; the original caller can re-consume and bypass flow-reuse detection. The comment claims "framework ordering" makes it safe — but the framework has no such ordering contract.

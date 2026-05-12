@@ -53,16 +53,17 @@ export function fromDynamoDBClient(
       return (result.Item as Record<string, unknown> | undefined) ?? undefined
     },
     async put(input: DynamoPutInput) {
+      const condition =
+        input.condition === "not-exists"
+          ? "attribute_not_exists(pk) AND attribute_not_exists(sk)"
+          : input.condition === "exists"
+            ? "attribute_exists(pk) AND attribute_exists(sk)"
+            : undefined
       await client.send(
         new PutCommand({
           TableName: tableName,
           Item: input.item,
-          ...(input.condition === "not-exists"
-            ? {
-                ConditionExpression:
-                  "attribute_not_exists(pk) AND attribute_not_exists(sk)",
-              }
-            : {}),
+          ...(condition ? { ConditionExpression: condition } : {}),
         }),
       )
     },

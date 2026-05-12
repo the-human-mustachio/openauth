@@ -24,13 +24,18 @@ export type DynamoGetInput = {
 }
 
 /**
- * Insert (`condition: "not-exists"`) or unconditional put. The adapter uses
- * not-exists for code / refresh / flow inserts so a duplicate token never
- * silently overwrites.
+ * Insert (`condition: "not-exists"`) or unconditional put. The adapter uses:
+ *  - `"not-exists"` for code / refresh / flow inserts so a duplicate token
+ *    never silently overwrites.
+ *  - `"exists"` for read-modify-write paths (e.g. `updateFlowMethodState`)
+ *    so the put fails if a concurrent `consumeFlow` deleted the row between
+ *    the prior `get` and this `put`. The executor surfaces a
+ *    `ConditionalCheckFailedException` that callers translate into a typed
+ *    failure.
  */
 export type DynamoPutInput = {
   item: Record<string, unknown> & DynamoKey
-  condition?: "not-exists"
+  condition?: "not-exists" | "exists"
 }
 
 /**

@@ -80,10 +80,11 @@ export class DynamoSessionStore implements SessionStore {
     const parsed = parseFlowPayload(row.payload)
     const next = { ...parsed, methodState }
     try {
-      // Use put with attribute_exists guard — DynamoDB doesn't update a
-      // single attribute conditionally on existence as cleanly as Postgres.
-      // The put overwrites the whole item; the condition ensures we don't
-      // resurrect a row that a concurrent `consumeFlow` just deleted.
+      // `condition: "exists"` translates to `attribute_exists(pk) AND
+      // attribute_exists(sk)`. If a concurrent `consumeFlow` deleted the row
+      // between our `get` and this `put`, the put fails instead of
+      // resurrecting the deleted row — which would otherwise let the original
+      // caller re-consume and bypass flow-reuse detection.
       await this.#exec.put({
         item: {
           pk: "flow",
@@ -92,15 +93,16 @@ export class DynamoSessionStore implements SessionStore {
           expires_at: row.expires_at,
           ttl: row.ttl,
         },
+        condition: "exists",
       })
-      // Note: this is a tiny race window — if `consumeFlow` runs between the
-      // `get` and `put`, the deleted item is recreated. Mitigated in
-      // production by using `ConditionExpression: attribute_exists(pk)` in
-      // a single put. The executor's `put` interface accepts only
-      // `not-exists` today; for now the framework's own ordering (it never
-      // calls update concurrently with consume on the same flowId) makes
-      // this safe in practice.
     } catch (e) {
+      if (isConditionalCheckFailed(e)) {
+        return err(
+          authError.unknownState(
+            `flow "${flowId}" was consumed between read and update`,
+          ),
+        )
+      }
       return err(authError.internalError("updateFlowMethodState: put failed", e))
     }
     return ok(undefined)
@@ -210,6 +212,11 @@ export class DynamoSessionStore implements SessionStore {
 function parseFlowPayload(raw: unknown): FlowRecord {
   if (typeof raw === "string") return JSON.parse(raw) as FlowRecord
   return raw as FlowRecord
+}
+
+function isConditionalCheckFailed(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false
+  return (e as { name?: string }).name === "ConditionalCheckFailedException"
 }
 
 function parseSessionPayload(raw: unknown): SessionRecord {
