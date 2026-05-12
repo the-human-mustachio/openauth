@@ -73,9 +73,12 @@ export function tenantMiddleware(
         if (isErr(cfg)) {
           return tokenEndpointErrorResponse(cfg.error)
         }
+        const customCb = deps.buildCustomContext
+          ? await deps.buildCustomContext(c.req.raw)
+          : {}
         c.set(
           "tenant",
-          buildTenantContext(c.req.raw, recovery.tenantId, cfg.value),
+          buildTenantContext(c.req.raw, recovery.tenantId, cfg.value, customCb),
         )
         return next()
       }
@@ -102,7 +105,10 @@ export function tenantMiddleware(
       }
       return tokenEndpointErrorResponse(err)
     }
-    c.set("tenant", buildTenantContext(c.req.raw, tenantId, cfg.value))
+    const custom = deps.buildCustomContext
+      ? await deps.buildCustomContext(c.req.raw)
+      : {}
+    c.set("tenant", buildTenantContext(c.req.raw, tenantId, cfg.value, custom))
     await next()
   }
 }
@@ -111,11 +117,12 @@ function buildTenantContext(
   req: Request,
   id: TenantId,
   config: TenantConfig,
+  custom: Record<string, unknown>,
 ): TenantContext {
   return {
     id,
     config,
-    request: { raw: req, custom: {} },
+    request: { raw: req, custom },
   }
 }
 

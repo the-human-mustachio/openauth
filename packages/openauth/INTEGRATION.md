@@ -373,6 +373,38 @@ const subjects = {
 } satisfies SubjectSchema
 ```
 
+### 5.5 `buildCustomContext(req)` — per-request blob for methods & `success`
+
+Optional. Build whatever per-request data the host wants downstream
+code to see (request id, decoded edge JWT claims, mTLS cert info, geo
+hints). The returned record becomes:
+
+  - `TenantContext.request.custom` for the same-request entrypoints
+    (`/authorize`, `/token`, `/userinfo`, `/revoke`, `/introspect`).
+  - `FlowRecord.context` on the saved flow (so it survives the upstream
+    redirect chain).
+  - `SuccessMapInput.context` when the `success` callback runs at
+    `/token` time.
+
+```ts
+const idp = createIdP({
+  resolveTenant,
+  configStore,
+  // …
+  buildCustomContext(req) {
+    return {
+      requestId: req.headers.get("x-request-id") ?? randomUUID(),
+      edgeIp: req.headers.get("x-forwarded-for") ?? null,
+    }
+  },
+})
+```
+
+The hook may return a plain object or a `Promise<Record<string,
+unknown>>`. Without it the blob is `{}` and `SuccessMapInput.context`
+is `null` — there's no semantic difference between an absent hook and
+one that returns `{}`.
+
 ---
 
 ## 6. State-MAC key ring

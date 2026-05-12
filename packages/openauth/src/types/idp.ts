@@ -212,6 +212,27 @@ export type IdPOptions = {
    * Optional override for the default provider picker. See `RenderPicker`.
    */
   renderPicker?: RenderPicker
+
+  /**
+   * Optional hook that builds the `TenantContext.request.custom` blob for
+   * each request the framework processes (the initial `/authorize`, the
+   * `/cb/*` callback, and any subsequent direct token endpoint hit).
+   *
+   * The returned record flows through to methods' `MethodContext`, to the
+   * `success` callback's `SuccessMapInput.context`, and to authorize-time
+   * `FlowRecord.context` (which is then re-presented on the
+   * `/cb/*` side as the flow proceeds). Typical contents: a request id,
+   * decoded JWT claims from a host edge layer, mTLS cert info, geo
+   * hints — anything per-request the host wants methods or `success` to
+   * see.
+   *
+   * Without this hook, `tenant.request.custom` is `{}` and
+   * `SuccessMapInput.context` is `null`. There is no semantic difference
+   * between an absent hook and one that returns `{}`.
+   */
+  buildCustomContext?: (
+    req: Request,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>
 }
 
 /**

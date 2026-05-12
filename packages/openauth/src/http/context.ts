@@ -51,6 +51,10 @@ export type HttpDeps = {
   persistUpstreamTokens?: PersistUpstreamTokens
   exchangeAudience?: ExchangeAudience
   renderPicker?: RenderPicker
+  /** Builds `TenantContext.request.custom` for every request. See `IdPOptions.buildCustomContext`. */
+  buildCustomContext?: (
+    req: Request,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>
   clock: () => number
   cookieDefaults: CookieDefaults
 }

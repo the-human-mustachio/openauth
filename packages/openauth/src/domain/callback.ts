@@ -67,11 +67,13 @@ export type HandleCallbackDeps = {
   clock: () => number
   newCodeId?: () => string
   /**
-   * Build the `TenantContext.request.custom` blob — Phase 3's tenant
-   * middleware does this; for Phase 2 testing we accept an injectable
-   * builder that defaults to an empty object.
+   * Build the `TenantContext.request.custom` blob. Wired through from
+   * `IdPOptions.buildCustomContext` by the HTTP layer; if absent the
+   * blob is `{}`.
    */
-  buildCustomContext?: (req: Request) => Record<string, unknown>
+  buildCustomContext?: (
+    req: Request,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>
 }
 
 export async function handleCallback(
@@ -152,7 +154,9 @@ export async function handleCallback(
     config: cfgRes.value,
     request: {
       raw: input.rawRequest,
-      custom: deps.buildCustomContext?.(input.rawRequest) ?? {},
+      custom: deps.buildCustomContext
+        ? await deps.buildCustomContext(input.rawRequest)
+        : {},
     },
   }
   const methodRes = await deps.methodCache.resolve(cfgRes.value, flow.methodId)

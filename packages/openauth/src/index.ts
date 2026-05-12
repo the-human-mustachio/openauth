@@ -234,6 +234,9 @@ export function createIdP(opts: IdPOptions): IdP {
       ? { exchangeAudience: opts.exchangeAudience }
       : {}),
     ...(opts.renderPicker ? { renderPicker: opts.renderPicker } : {}),
+    ...(opts.buildCustomContext
+      ? { buildCustomContext: opts.buildCustomContext }
+      : {}),
     clock,
     cookieDefaults: { secure: true },
   }

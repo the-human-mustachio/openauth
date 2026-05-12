@@ -25,6 +25,9 @@ export function makeCallbackHandler(deps: HttpDeps) {
         ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
         methodCache: deps.methodCache,
         stateKeys: deps.stateKeys,
+        ...(deps.buildCustomContext
+          ? { buildCustomContext: deps.buildCustomContext }
+          : {}),
         clock: deps.clock,
       },
     )

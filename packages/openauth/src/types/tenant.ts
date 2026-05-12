@@ -167,8 +167,12 @@ export type TenantConfig = {
 /**
  * Per-request tenant context handed to methods and the user-supplied
  * `success` callback. `request.raw` is the Web Fetch `Request` the framework
- * received; `request.custom` is whatever the user attached during
- * `resolveTenant` (e.g. a request id, decoded JWT claims, mTLS cert info).
+ * received; `request.custom` is whatever the host returned from the
+ * `IdPOptions.buildCustomContext` hook (request id, decoded JWT claims, mTLS
+ * cert info, geo hints — anything per-request that methods or `success`
+ * should see). Without the hook the blob is `{}`. The same blob is also
+ * persisted on the `FlowRecord` at `/authorize` time so it survives the
+ * upstream redirect and re-presents on the callback side.
  */
 export type TenantContext = {
   id: TenantId

@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 1 | 11 | 12 |
+| High | 0 | 12 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **18** | **13** | **31** |
+| **Total** | **17** | **14** | **31** |
 
 ---
 
@@ -154,7 +154,7 @@ output.
 
 ### H12 — Decide what `TenantContext.request.custom` is
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** M
 - **Files:** `packages/openauth/src/types/tenant.ts:172-180`; `packages/openauth/src/http/middleware/tenant.ts:146`; `packages/openauth/src/domain/{callback.ts:74,155,refresh.ts:124,token.ts:125,token-exchange.ts,client-credentials.ts:141}`
 - **Problem:** `TenantContext.request.custom: Record<string, unknown>` is documented as "whatever the user attached during `resolveTenant`." `IdPOptions.resolveTenant` returns `Promise<Result<TenantId>>` — no slot for a custom blob. Every code path hardcodes `custom: {}`. `domain/callback.ts:74,155` has a `buildCustomContext` hook, but it's not wired through `HttpDeps` or `IdPOptions`.
