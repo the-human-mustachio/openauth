@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 11 | 1 | 12 |
+| High | 10 | 2 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **28** | **3** | **31** |
+| **Total** | **27** | **4** | **31** |
 
 ---
 
@@ -64,7 +64,7 @@ output.
 
 ### H2 — Delete orphan top-level `src/pkce.ts` validator + `plain` branch
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** S
 - **Files:** `packages/openauth/src/pkce.ts:9,32-40`
 - **Problem:** `validatePKCE` accepts `method: "S256" | "plain"` and compares with `===` (line 39, with `// timing safe equals?` comment showing the author knew). It's dead code in `src/` — IdP-side validation lives in `domain/pkce.ts`. Reachable via deep import (`@_mustachio/openauth/pkce`), so a careless internal refactor or an ill-advised consumer could pick it up.
