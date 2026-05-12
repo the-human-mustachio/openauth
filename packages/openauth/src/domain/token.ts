@@ -39,6 +39,8 @@ import type {
 import { verifyClientCredentials } from "./client-auth"
 import {
   base64url,
+  decryptPayload,
+  encryptPayload,
   randomId,
   randomToken,
   sha256,
@@ -46,6 +48,32 @@ import {
 } from "./crypto"
 import { signAccessToken } from "./jwt"
 import { validatePkce } from "./pkce"
+
+/**
+ * Encrypt a `CodePayload` with the active `KeyStore` encryption key and
+ * persist it via `tokenStore.saveCode`. Centralizes the encrypt-then-store
+ * pattern so adapters never see plaintext (M1).
+ */
+export async function saveEncryptedCode(
+  code: string,
+  payload: CodePayload,
+  ttl: number,
+  deps: { keyStore: KeyStore; tokenStore: TokenStore },
+): Promise<Result<void, AuthError>> {
+  const keyResult = await deps.keyStore.currentEncryptionKey()
+  if (isErr(keyResult)) return err(keyResult.error)
+  let ciphertext: string
+  try {
+    ciphertext = await encryptPayload(
+      payload,
+      keyResult.value.kid,
+      keyResult.value.keyRef as Uint8Array,
+    )
+  } catch (e) {
+    return err(authError.internalError("saveEncryptedCode: encrypt failed", e))
+  }
+  return deps.tokenStore.saveCode(code, ciphertext, ttl)
+}
 
 export const DEFAULT_ACCESS_TTL_MS = 15 * 60 * 1000
 export const DEFAULT_REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -80,9 +108,22 @@ export async function exchangeCode(
   deps: ExchangeCodeDeps,
 ): Promise<Result<TokenResponse, AuthError>> {
   // 1. Consume code (atomic; failure here means unknown / consumed / expired).
+  //    The adapter returns the ciphertext blob verbatim — encryption is
+  //    the domain's job (M1), so decrypt here before reading any field.
   const consumed = await deps.tokenStore.consumeCode(req.code)
   if (isErr(consumed)) return err(consumed.error)
-  const payload = consumed.value
+  let payload: CodePayload
+  try {
+    payload = await decryptPayload<CodePayload>(consumed.value, async (kid) => {
+      const keyResult = await deps.keyStore.getEncryptionKey(kid)
+      if (isErr(keyResult)) {
+        throw new Error(`unknown encryption kid ${kid}`)
+      }
+      return keyResult.value.keyRef as Uint8Array
+    })
+  } catch (e) {
+    return err(authError.internalError("exchangeCode: decrypt failed", e))
+  }
 
   // 2. Load tenant + client.
   const tenantCfg = await deps.configStore.getTenantConfig(payload.tenantId)

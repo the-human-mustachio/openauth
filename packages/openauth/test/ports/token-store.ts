@@ -1,11 +1,17 @@
 /**
  * Parameterized `TokenStore` conformance suite.
  *
- * Adapters opt in by exporting a `makeStore` factory (and a matching
- * `makeKeyStore` for the encryption-at-rest path) and calling
- * `describeTokenStore({ adapterName, makeStore, makeKeyStore, inspectRawCode })`
- * from their own test file. Any adapter that fails a case here is not
- * certified per `ports/CONSISTENCY.md`.
+ * Adapters opt in by exporting a `makeStore` factory + (optional)
+ * `inspectRawCode` and calling `describeTokenStore({ ... })` from their
+ * own test file. Any adapter that fails a case here is not certified
+ * per `ports/CONSISTENCY.md`.
+ *
+ * Post-M1 the port is a ciphertext-blob KV — adapters store the
+ * `saveCode(code, ciphertext, ttl)` argument verbatim and return it on
+ * `consumeCode`. The domain layer (`domain/authorize.ts` →
+ * `encryptPayload`) is responsible for the at-rest opacity invariant;
+ * the integration test `full-flow.test.ts` exercises the
+ * encrypt-then-store path end-to-end.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 
@@ -14,7 +20,6 @@ import type { TokenStore } from "../../src/ports/token-store"
 
 import {
   fixtureTenantId,
-  makeCodePayload,
   makeRefreshPayload,
   testClock,
   uniqueSuffix,
@@ -23,19 +28,21 @@ import {
 
 export type TokenStoreSuiteOptions = {
   adapterName: string
-  /**
-   * Build a fresh `TokenStore` + matching `KeyStore` per test.
-   *
-   * `inspectRawCode(code)` returns ANY string snapshot of the at-rest
-   * representation of the given auth-code row so the suite can assert it
-   * does NOT contain a plaintext canary. Adapter-specific because adapters
-   * persist as JWE strings in a column, JSON blobs, opaque object handles,
-   * etc.
-   */
   makeStore: (clock: TestClock) => Promise<{
     tokenStore: TokenStore
+    /**
+     * `keyStore` is no longer load-bearing for the port (M1 moved
+     * encryption to the domain) but the suite still threads it through
+     * for the few cases that exercise refresh-token persistence.
+     */
     keyStore: KeyStore
-    inspectRawCode: (code: string) => Promise<string>
+    /**
+     * Optional — returns the raw at-rest representation of the given
+     * code row. Adapter test files can supply this to add an extra
+     * assertion that the stored blob equals what was passed to
+     * `saveCode` (i.e., the adapter doesn't transform the ciphertext).
+     */
+    inspectRawCode?: (code: string) => Promise<string>
     /** Optional teardown — close pools, drop tables, etc. */
     dispose?: () => Promise<void>
   }>
@@ -45,20 +52,15 @@ export function describeTokenStore(opts: TokenStoreSuiteOptions): void {
   describe(`TokenStore conformance — ${opts.adapterName}`, () => {
     let clock: TestClock
     let tokenStore: TokenStore
-    let keyStore: KeyStore
-    let inspectRawCode: (code: string) => Promise<string>
+    let inspectRawCode: ((code: string) => Promise<string>) | undefined
     let dispose: (() => Promise<void>) | undefined
 
     beforeEach(async () => {
       clock = testClock()
       const built = await opts.makeStore(clock)
       tokenStore = built.tokenStore
-      keyStore = built.keyStore
       inspectRawCode = built.inspectRawCode
       dispose = built.dispose
-      // Force the key store to materialize an encryption key so the assertion
-      // about encryption-at-rest does not race a lazy-init code path.
-      await keyStore.currentEncryptionKey()
     })
 
     afterEach(async () => {
@@ -66,28 +68,25 @@ export function describeTokenStore(opts: TokenStoreSuiteOptions): void {
     })
 
     describe("saveCode / consumeCode", () => {
-      test("round-trips a payload encrypted at rest", async () => {
+      test("round-trips the stored ciphertext blob verbatim", async () => {
         const code = uniqueSuffix("code")
-        const payload = makeCodePayload({
-          providerSubject: "PLAINTEXT-CANARY-12345",
-        })
-        const saved = await tokenStore.saveCode(code, payload, 60_000)
+        const ciphertext = "OPAQUE.CIPHERTEXT.BLOB.42"
+        const saved = await tokenStore.saveCode(code, ciphertext, 60_000)
         expect(saved.ok).toBe(true)
 
-        const rawSnapshot = await inspectRawCode(code)
-        expect(rawSnapshot).not.toContain("PLAINTEXT-CANARY-12345")
-        expect(rawSnapshot).not.toContain(payload.appRedirectUri)
+        if (inspectRawCode) {
+          const raw = await inspectRawCode(code)
+          expect(raw).toContain(ciphertext)
+        }
 
         const consumed = await tokenStore.consumeCode(code)
         expect(consumed.ok).toBe(true)
-        if (!consumed.ok) return
-        expect(consumed.value.providerSubject).toBe("PLAINTEXT-CANARY-12345")
-        expect(consumed.value.tenantId).toBe(fixtureTenantId)
+        if (consumed.ok) expect(consumed.value).toBe(ciphertext)
       })
 
       test("second consume returns invalid_grant (single-use)", async () => {
         const code = uniqueSuffix("code")
-        await tokenStore.saveCode(code, makeCodePayload(), 60_000)
+        await tokenStore.saveCode(code, "ct-1", 60_000)
         const first = await tokenStore.consumeCode(code)
         expect(first.ok).toBe(true)
         const second = await tokenStore.consumeCode(code)
@@ -97,7 +96,7 @@ export function describeTokenStore(opts: TokenStoreSuiteOptions): void {
 
       test("concurrent consume resolves to exactly one winner", async () => {
         const code = uniqueSuffix("code")
-        await tokenStore.saveCode(code, makeCodePayload(), 60_000)
+        await tokenStore.saveCode(code, "ct-race", 60_000)
         const results = await Promise.all([
           tokenStore.consumeCode(code),
           tokenStore.consumeCode(code),
@@ -111,21 +110,21 @@ export function describeTokenStore(opts: TokenStoreSuiteOptions): void {
 
       test("rejects ttl > 60s (auth-code BCP)", async () => {
         const code = uniqueSuffix("code")
-        const result = await tokenStore.saveCode(code, makeCodePayload(), 60_001)
+        const result = await tokenStore.saveCode(code, "ct", 60_001)
         expect(result.ok).toBe(false)
       })
 
       test("rejects ttl <= 0", async () => {
         const code = uniqueSuffix("code")
-        const zero = await tokenStore.saveCode(code, makeCodePayload(), 0)
+        const zero = await tokenStore.saveCode(code, "ct", 0)
         expect(zero.ok).toBe(false)
-        const neg = await tokenStore.saveCode(code, makeCodePayload(), -1)
+        const neg = await tokenStore.saveCode(code, "ct", -1)
         expect(neg.ok).toBe(false)
       })
 
       test("expired codes are not returned", async () => {
         const code = uniqueSuffix("code")
-        await tokenStore.saveCode(code, makeCodePayload(), 30_000)
+        await tokenStore.saveCode(code, "ct-expire", 30_000)
         clock.advance(40_000)
         const consumed = await tokenStore.consumeCode(code)
         expect(consumed.ok).toBe(false)

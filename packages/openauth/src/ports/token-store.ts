@@ -8,35 +8,40 @@
  *
  * See `ports/CONSISTENCY.md` §"Per-method consistency contracts".
  */
-import type { CodePayload, RefreshTokenPayload } from "../types/token"
+import type { RefreshTokenPayload } from "../types/token"
 import type { Result } from "../types/result"
 import type { TenantId } from "../types/tenant"
 
 export type TokenStore = {
   /**
-   * Persist an auth-code payload under `code`.
+   * Persist an auth-code ciphertext blob under `code`.
+   *
+   * The blob is **opaque** to the adapter — the framework encrypts the
+   * `CodePayload` at the domain boundary (`domain/authorize.ts` →
+   * `domain/crypto.encryptPayload`) before calling `saveCode`. Adapters
+   * must not parse, transform, or otherwise interpret the blob; just
+   * store it verbatim and return it on `consumeCode`.
    *
    * Required semantics:
    *  - Strong, atomic write (the row must be visible to the next
    *    `consumeCode` call on any node).
-   *  - Payload **encrypted at rest** using a key from `KeyStore`. The
-   *    plaintext payload must never reach durable storage.
-   *  - `ttl` must be ≤ the framework's auth-code TTL (60 s). Implementations
-   *    that receive a larger value must reject.
+   *  - `ttl` must be ≤ the framework's auth-code TTL (60 s).
+   *    Implementations that receive a larger value must reject.
    */
   saveCode(
     code: string,
-    payload: CodePayload,
+    ciphertext: string,
     ttl: number,
   ): Promise<Result<void>>
 
   /**
-   * Single-use, atomic compare-and-swap: return and delete the payload in
-   * one logical operation. Concurrent calls with the same `code` must
-   * resolve to exactly one winner; losers receive `invalid_grant`.
-   * Successful consume returns the **decrypted** payload.
+   * Single-use, atomic compare-and-swap: return and delete the
+   * ciphertext blob in one logical operation. Concurrent calls with the
+   * same `code` must resolve to exactly one winner; losers receive
+   * `invalid_grant`. The caller (`domain/token.exchangeCode`) decrypts
+   * the returned blob.
    */
-  consumeCode(code: string): Promise<Result<CodePayload>>
+  consumeCode(code: string): Promise<Result<string>>
 
   /**
    * Persist a refresh-token payload. Strong, atomic. New tokens issued

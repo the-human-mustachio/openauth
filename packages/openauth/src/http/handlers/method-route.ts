@@ -56,6 +56,7 @@ export function makeMethodRouteHandler(deps: HttpDeps) {
       {
         sessionStore: deps.sessionStore,
         tokenStore: deps.tokenStore,
+        keyStore: deps.keyStore,
         ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
         methodCache: deps.methodCache,
         clock: deps.clock,

@@ -6,7 +6,11 @@ import {
   MemoryKeyStore,
   MemoryTokenStore,
 } from "../../src/adapters/memory"
-import { exchangeCode, hashClientSecret } from "../../src/domain/token"
+import {
+  exchangeCode,
+  hashClientSecret,
+  saveEncryptedCode,
+} from "../../src/domain/token"
 import { refreshTokens } from "../../src/domain/refresh"
 import type { CodePayload } from "../../src/types/token"
 import { asTenantId } from "../../src/types/tenant"
@@ -64,7 +68,7 @@ describe("exchangeCode: happy path", () => {
   test("issues access + refresh, audits token_issued", async () => {
     const f = await withFixture()
     const payload = basePayload()
-    await f.tokenStore.saveCode("code-1", payload, 60_000)
+    await saveEncryptedCode("code-1", payload, 60_000, { keyStore: f.keyStore, tokenStore: f.tokenStore })
     const r = await exchangeCode(
       {
         grantType: "authorization_code",
@@ -99,7 +103,7 @@ describe("exchangeCode: happy path", () => {
 describe("exchangeCode: failure paths", () => {
   test("rejects already-consumed code", async () => {
     const f = await withFixture()
-    await f.tokenStore.saveCode("code-2", basePayload(), 60_000)
+    await saveEncryptedCode("code-2", basePayload(), 60_000, { keyStore: f.keyStore, tokenStore: f.tokenStore })
     await f.tokenStore.consumeCode("code-2") // consume once
     const r = await exchangeCode(
       {
@@ -123,7 +127,7 @@ describe("exchangeCode: failure paths", () => {
 
   test("rejects client_id mismatch", async () => {
     const f = await withFixture()
-    await f.tokenStore.saveCode("code-3", basePayload(), 60_000)
+    await saveEncryptedCode("code-3", basePayload(), 60_000, { keyStore: f.keyStore, tokenStore: f.tokenStore })
     const r = await exchangeCode(
       {
         grantType: "authorization_code",
@@ -146,7 +150,7 @@ describe("exchangeCode: failure paths", () => {
 
   test("rejects redirect_uri mismatch", async () => {
     const f = await withFixture()
-    await f.tokenStore.saveCode("code-4", basePayload(), 60_000)
+    await saveEncryptedCode("code-4", basePayload(), 60_000, { keyStore: f.keyStore, tokenStore: f.tokenStore })
     const r = await exchangeCode(
       {
         grantType: "authorization_code",
@@ -170,7 +174,7 @@ describe("exchangeCode: failure paths", () => {
     const f = await withFixture()
     const payload = basePayload()
     payload.clientPkce = { challenge: "ch", method: "S256" }
-    await f.tokenStore.saveCode("code-5", payload, 60_000)
+    await saveEncryptedCode("code-5", payload, 60_000, { keyStore: f.keyStore, tokenStore: f.tokenStore })
     const r = await exchangeCode(
       {
         grantType: "authorization_code",
@@ -196,7 +200,7 @@ describe("exchangeCode: failure paths", () => {
       clientType: "confidential",
       secret: "topsecret",
     })
-    await f.tokenStore.saveCode("code-6", basePayload(), 60_000)
+    await saveEncryptedCode("code-6", basePayload(), 60_000, { keyStore: f.keyStore, tokenStore: f.tokenStore })
     const r = await exchangeCode(
       {
         grantType: "authorization_code",
@@ -222,7 +226,7 @@ describe("exchangeCode: failure paths", () => {
       clientType: "confidential",
       secret: "topsecret",
     })
-    await f.tokenStore.saveCode("code-7", basePayload(), 60_000)
+    await saveEncryptedCode("code-7", basePayload(), 60_000, { keyStore: f.keyStore, tokenStore: f.tokenStore })
     const r = await exchangeCode(
       {
         grantType: "authorization_code",
@@ -245,7 +249,7 @@ describe("exchangeCode: failure paths", () => {
 
   test("success callback throw → server_error", async () => {
     const f = await withFixture()
-    await f.tokenStore.saveCode("code-8", basePayload(), 60_000)
+    await saveEncryptedCode("code-8", basePayload(), 60_000, { keyStore: f.keyStore, tokenStore: f.tokenStore })
     const r = await exchangeCode(
       {
         grantType: "authorization_code",
@@ -282,7 +286,7 @@ describe("refreshTokens: rotation", () => {
   test("rotates the token; second use of old token detects reuse", async () => {
     const f = await withFixture()
     const payload = basePayload()
-    await f.tokenStore.saveCode("c", payload, 60_000)
+    await saveEncryptedCode("c", payload, 60_000, { keyStore: f.keyStore, tokenStore: f.tokenStore })
 
     const issued = await exchangeCode(
       {
@@ -343,7 +347,7 @@ describe("refreshTokens: rotation", () => {
     const f = await withFixture()
     const payload = basePayload()
     payload.scopes = ["openid", "email"]
-    await f.tokenStore.saveCode("c", payload, 60_000)
+    await saveEncryptedCode("c", payload, 60_000, { keyStore: f.keyStore, tokenStore: f.tokenStore })
     const issued = await exchangeCode(
       {
         grantType: "authorization_code",

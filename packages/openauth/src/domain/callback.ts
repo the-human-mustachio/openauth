@@ -19,6 +19,7 @@
  * registered redirect URIs.
  */
 import type { ConfigStore } from "../ports/config-store"
+import type { KeyStore } from "../ports/key-store"
 import type { SessionStore } from "../ports/session-store"
 import type { TokenStore } from "../ports/token-store"
 import type { AuditLog } from "../ports/audit-log"
@@ -33,6 +34,7 @@ import type { StateKeyRing, TenantContext } from "../types/tenant"
 import { randomToken } from "./crypto"
 import { MethodCache } from "./method-cache"
 import { dispatchMethod } from "./method-dispatch"
+import { saveEncryptedCode } from "./token"
 import { verifyStateEnvelope } from "./state-envelope"
 import { AUTH_CODE_TTL_MS } from "./authorize"
 
@@ -61,6 +63,8 @@ export type HandleCallbackDeps = {
   configStore: ConfigStore
   sessionStore: SessionStore
   tokenStore: TokenStore
+  /** Needed for at-rest encryption of the code payload — see `domain/token.ts`. */
+  keyStore: KeyStore
   auditLog?: AuditLog
   methodCache: MethodCache
   stateKeys: StateKeyRing
@@ -187,7 +191,7 @@ async function translate(
     case "success": {
       const code = (deps.newCodeId ?? randomToken)()
       const now = deps.clock()
-      const saved = await deps.tokenStore.saveCode(
+      const saved = await saveEncryptedCode(
         code,
         {
           tenantId: flow.tenantId,
@@ -205,6 +209,7 @@ async function translate(
           expiresAt: now + AUTH_CODE_TTL_MS,
         },
         AUTH_CODE_TTL_MS,
+        { keyStore: deps.keyStore, tokenStore: deps.tokenStore },
       )
       if (isErr(saved)) return err(saved.error)
       return ok({

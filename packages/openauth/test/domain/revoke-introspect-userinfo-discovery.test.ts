@@ -6,7 +6,7 @@ import {
   MemoryKeyStore,
   MemoryTokenStore,
 } from "../../src/adapters/memory"
-import { exchangeCode } from "../../src/domain/token"
+import { exchangeCode, saveEncryptedCode } from "../../src/domain/token"
 import { revokeAllForSubject, revokeToken } from "../../src/domain/revoke"
 import { introspect } from "../../src/domain/introspect"
 import { userinfo } from "../../src/domain/userinfo"
@@ -62,7 +62,10 @@ async function fixture() {
 }
 
 async function issueTokens(f: Awaited<ReturnType<typeof fixture>>) {
-  await f.tokenStore.saveCode("c", basePayload(), 60_000)
+  await saveEncryptedCode("c", basePayload(), 60_000, {
+    keyStore: f.keyStore,
+    tokenStore: f.tokenStore,
+  })
   const r = await exchangeCode(
     {
       grantType: "authorization_code",

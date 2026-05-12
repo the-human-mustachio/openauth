@@ -29,6 +29,7 @@
  * `MethodResult.challenge.saveMethodState`.
  */
 import type { AuditLog } from "../ports/audit-log"
+import type { KeyStore } from "../ports/key-store"
 import type { SessionStore } from "../ports/session-store"
 import type { TokenStore } from "../ports/token-store"
 import type { AuthError } from "../types/error"
@@ -50,6 +51,7 @@ import { randomId, randomToken } from "./crypto"
 import { MethodCache } from "./method-cache"
 import { dispatchMethod } from "./method-dispatch"
 import { mintStateEnvelope } from "./state-envelope"
+import { saveEncryptedCode } from "./token"
 
 /** Default 10-minute pre-callback flow lifetime per plan §"TTLs". */
 export const DEFAULT_FLOW_TTL_MS = 10 * 60 * 1000
@@ -105,6 +107,8 @@ export type StartAuthorizeInput = {
 export type StartAuthorizeDeps = {
   sessionStore: SessionStore
   tokenStore: TokenStore
+  /** Needed for at-rest encryption of the code payload — see `domain/token.ts`. */
+  keyStore: KeyStore
   auditLog?: AuditLog
   methodCache: MethodCache
   stateKeys: StateKeyRing
@@ -361,7 +365,7 @@ async function issueCodeFromInlineSuccess(
   if (isErr(consumed)) return err(consumed.error)
   const flow = consumed.value
   const now = deps.clock()
-  const saved = await deps.tokenStore.saveCode(
+  const saved = await saveEncryptedCode(
     code,
     {
       tenantId: flow.tenantId,
@@ -379,6 +383,7 @@ async function issueCodeFromInlineSuccess(
       expiresAt: now + AUTH_CODE_TTL_MS,
     },
     AUTH_CODE_TTL_MS,
+    { keyStore: deps.keyStore, tokenStore: deps.tokenStore },
   )
   if (isErr(saved)) return err(saved.error)
   return ok({

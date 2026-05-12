@@ -3,26 +3,26 @@
  * atomic with respect to JS event-loop turns, which is enough for the
  * strong-CAS contract here.
  *
- * Encryption-at-rest is real: code payloads are encrypted via JOSE
- * compact-JWE (A256GCM) before being written to the internal map, and
- * decrypted on consume. Direct inspection of the map shows ciphertext.
+ * Auth-code ciphertext is stored verbatim — encryption is the domain's
+ * job (see `domain/authorize.ts` → `encryptPayload`), so the adapter
+ * never sees plaintext. Inspecting the internal map shows whatever
+ * blob the domain saved.
  */
 import type { KeyStore } from "../../ports/key-store"
 import type { TokenStore } from "../../ports/token-store"
 import { authError } from "../../types/error"
 import type { Result } from "../../types/result"
-import { err, isErr, ok } from "../../types/result"
+import { err, ok } from "../../types/result"
 import type { TenantId } from "../../types/tenant"
-import type { CodePayload, RefreshTokenPayload } from "../../types/token"
+import type { RefreshTokenPayload } from "../../types/token"
 
-import { decryptPayload, encryptPayload } from "../../domain/crypto"
 import type { Clock } from "./clock"
 import { realClock } from "./clock"
 
 const AUTH_CODE_MAX_TTL_MS = 60_000
 
 type StoredCode = {
-  jwe: string
+  ciphertext: string
   expiresAt: number
 }
 
@@ -32,24 +32,26 @@ type StoredRefresh = {
 }
 
 export type MemoryTokenStoreOptions = {
-  keyStore: KeyStore
+  /**
+   * Optional — retained for API stability after M1 moved code-payload
+   * encryption to the domain layer. The adapter no longer touches it.
+   */
+  keyStore?: KeyStore
   clock?: Clock
 }
 
 export class MemoryTokenStore implements TokenStore {
-  #keyStore: KeyStore
   #clock: Clock
   #codes = new Map<string, StoredCode>()
   #refresh = new Map<string, StoredRefresh>()
 
-  constructor(opts: MemoryTokenStoreOptions) {
-    this.#keyStore = opts.keyStore
+  constructor(opts: MemoryTokenStoreOptions = {}) {
     this.#clock = opts.clock ?? realClock
   }
 
   async saveCode(
     code: string,
-    payload: CodePayload,
+    ciphertext: string,
     ttl: number,
   ): Promise<Result<void>> {
     if (ttl <= 0 || ttl > AUTH_CODE_MAX_TTL_MS) {
@@ -59,45 +61,24 @@ export class MemoryTokenStore implements TokenStore {
         ),
       )
     }
-    const keyResult = await this.#keyStore.currentEncryptionKey()
-    if (isErr(keyResult)) return keyResult
-    const keyBytes = keyResult.value.keyRef as Uint8Array
-    let jwe: string
-    try {
-      jwe = await encryptPayload(payload, keyResult.value.kid, keyBytes)
-    } catch (e) {
-      return err(authError.internalError("saveCode: encrypt failed", e))
-    }
-    this.#codes.set(code, { jwe, expiresAt: this.#clock() + ttl })
+    this.#codes.set(code, { ciphertext, expiresAt: this.#clock() + ttl })
     return ok(undefined)
   }
 
-  async consumeCode(code: string): Promise<Result<CodePayload>> {
+  async consumeCode(code: string): Promise<Result<string>> {
     const stored = this.#codes.get(code)
     if (!stored) {
       return err(
         authError.invalidGrant("auth code unknown or already consumed"),
       )
     }
-    // Atomic delete-on-read: remove **before** decrypting so a concurrent
+    // Atomic delete-on-read: remove **before** returning so a concurrent
     // caller cannot observe the same row.
     this.#codes.delete(code)
     if (this.#clock() >= stored.expiresAt) {
       return err(authError.invalidGrant("auth code expired"))
     }
-    let payload: CodePayload
-    try {
-      payload = await decryptPayload<CodePayload>(stored.jwe, async (kid) => {
-        const keyResult = await this.#keyStore.getEncryptionKey(kid)
-        if (isErr(keyResult)) {
-          throw new Error(`unknown encryption kid ${kid}`)
-        }
-        return keyResult.value.keyRef as Uint8Array
-      })
-    } catch (e) {
-      return err(authError.internalError("consumeCode: decrypt failed", e))
-    }
-    return ok(payload)
+    return ok(stored.ciphertext)
   }
 
   async saveRefresh(

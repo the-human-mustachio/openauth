@@ -81,6 +81,7 @@ describe("startAuthorize: validation", () => {
       {
         sessionStore: f.sessionStore,
         tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
         auditLog: f.auditLog,
         methodCache: f.methodCache,
         stateKeys: f.stateKeys,
@@ -104,6 +105,7 @@ describe("startAuthorize: validation", () => {
       {
         sessionStore: f.sessionStore,
         tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
         methodCache: f.methodCache,
         stateKeys: f.stateKeys,
         issuerUrl: "https://idp.example",
@@ -129,6 +131,7 @@ describe("startAuthorize: validation", () => {
       {
         sessionStore: f.sessionStore,
         tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
         methodCache: f.methodCache,
         stateKeys: f.stateKeys,
         issuerUrl: "https://idp.example",
@@ -151,6 +154,7 @@ describe("startAuthorize: validation", () => {
       {
         sessionStore: f.sessionStore,
         tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
         methodCache: f.methodCache,
         stateKeys: f.stateKeys,
         issuerUrl: "https://idp.example",
@@ -175,6 +179,7 @@ describe("startAuthorize: method selection", () => {
       {
         sessionStore: f.sessionStore,
         tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
         methodCache: f.methodCache,
         stateKeys: f.stateKeys,
         issuerUrl: "https://idp.example",
@@ -206,6 +211,7 @@ describe("startAuthorize: method selection", () => {
       {
         sessionStore: f.sessionStore,
         tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
         methodCache: f.methodCache,
         stateKeys: f.stateKeys,
         issuerUrl: "https://idp.example",
@@ -236,6 +242,7 @@ describe("startAuthorize: dispatch outcomes", () => {
       {
         sessionStore: f.sessionStore,
         tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
         auditLog: f.auditLog,
         methodCache: f.methodCache,
         stateKeys: f.stateKeys,
@@ -270,6 +277,7 @@ describe("startAuthorize: dispatch outcomes", () => {
       {
         sessionStore: f.sessionStore,
         tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
         methodCache: f.methodCache,
         stateKeys: f.stateKeys,
         issuerUrl: "https://idp.example",

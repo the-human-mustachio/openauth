@@ -93,6 +93,7 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
       {
         sessionStore: deps.sessionStore,
         tokenStore: deps.tokenStore,
+        keyStore: deps.keyStore,
         methodCache: deps.methodCache,
         stateKeys: deps.stateKeys,
         issuerUrl: c.get("issuerUrl"),

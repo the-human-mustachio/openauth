@@ -221,7 +221,11 @@ describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
       context: null,
       expiresAt: now + 1,
     }
-    await tokenStore.saveCode("the-code", codePayload, 60_000)
+    const { saveEncryptedCode } = await import("../../src/domain/token")
+    await saveEncryptedCode("the-code", codePayload, 60_000, {
+      keyStore,
+      tokenStore,
+    })
     now += 120_000 // past auth-code TTL
 
     const tokenRes = await idp.handle(

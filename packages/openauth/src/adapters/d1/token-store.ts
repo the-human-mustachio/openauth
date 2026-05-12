@@ -7,14 +7,13 @@
  * `primarySession(db)` so reads always see the latest write — per AD8 + the
  * D1 read-replication caveat in `ports/CONSISTENCY.md`.
  */
-import { decryptPayload, encryptPayload } from "../../domain/crypto"
 import type { KeyStore } from "../../ports/key-store"
 import type { TokenStore } from "../../ports/token-store"
 import { authError } from "../../types/error"
 import type { Result } from "../../types/result"
-import { err, isErr, ok } from "../../types/result"
+import { err, ok } from "../../types/result"
 import type { TenantId } from "../../types/tenant"
-import type { CodePayload, RefreshTokenPayload } from "../../types/token"
+import type { RefreshTokenPayload } from "../../types/token"
 
 import { primarySession } from "./session"
 import type { AnyD1Database } from "./types"
@@ -23,24 +22,26 @@ const AUTH_CODE_MAX_TTL_MS = 60_000
 
 export type D1TokenStoreOptions = {
   db: AnyD1Database
-  keyStore: KeyStore
+  /**
+   * Optional — retained for API stability after M1 moved code-payload
+   * encryption to the domain layer. The adapter no longer touches it.
+   */
+  keyStore?: KeyStore
   clock?: () => number
 }
 
 export class D1TokenStore implements TokenStore {
   #db: AnyD1Database
-  #keyStore: KeyStore
   #clock: () => number
 
   constructor(opts: D1TokenStoreOptions) {
     this.#db = opts.db
-    this.#keyStore = opts.keyStore
     this.#clock = opts.clock ?? (() => Date.now())
   }
 
   async saveCode(
     code: string,
-    payload: CodePayload,
+    ciphertext: string,
     ttl: number,
   ): Promise<Result<void>> {
     if (ttl <= 0 || ttl > AUTH_CODE_MAX_TTL_MS) {
@@ -50,25 +51,13 @@ export class D1TokenStore implements TokenStore {
         ),
       )
     }
-    const keyResult = await this.#keyStore.currentEncryptionKey()
-    if (isErr(keyResult)) return keyResult
-    let jwe: string
-    try {
-      jwe = await encryptPayload(
-        payload,
-        keyResult.value.kid,
-        keyResult.value.keyRef as Uint8Array,
-      )
-    } catch (e) {
-      return err(authError.internalError("saveCode: encrypt failed", e))
-    }
     const expiresAt = this.#clock() + ttl
     try {
       await primarySession(this.#db)
         .prepare(
           `INSERT INTO openauth_codes (code, ciphertext, expires_at) VALUES (?1, ?2, ?3)`,
         )
-        .bind(code, jwe, expiresAt)
+        .bind(code, ciphertext, expiresAt)
         .run()
     } catch (e) {
       return err(authError.internalError("saveCode: insert failed", e))
@@ -76,7 +65,7 @@ export class D1TokenStore implements TokenStore {
     return ok(undefined)
   }
 
-  async consumeCode(code: string): Promise<Result<CodePayload>> {
+  async consumeCode(code: string): Promise<Result<string>> {
     let row: { ciphertext: string; expires_at: number } | null
     try {
       row = await primarySession(this.#db)
@@ -96,19 +85,7 @@ export class D1TokenStore implements TokenStore {
     if (this.#clock() >= Number(row.expires_at)) {
       return err(authError.invalidGrant("auth code expired"))
     }
-    try {
-      const payload = await decryptPayload<CodePayload>(
-        row.ciphertext,
-        async (kid) => {
-          const keyResult = await this.#keyStore.getEncryptionKey(kid)
-          if (isErr(keyResult)) throw new Error(`unknown encryption kid ${kid}`)
-          return keyResult.value.keyRef as Uint8Array
-        },
-      )
-      return ok(payload)
-    } catch (e) {
-      return err(authError.internalError("consumeCode: decrypt failed", e))
-    }
+    return ok(row.ciphertext)
   }
 
   async saveRefresh(

@@ -23,9 +23,9 @@ output.
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
 | High | 0 | 12 | 12 |
-| Medium | 11 | 0 | 11 |
+| Medium | 10 | 1 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **17** | **14** | **31** |
+| **Total** | **16** | **15** | **31** |
 
 ---
 
@@ -167,7 +167,7 @@ output.
 
 ### M1 — Encrypt code payloads at the domain boundary, not in each adapter
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** Medium · **Effort:** L
 - **Files:** `packages/openauth/src/adapters/memory/token-store.ts:3261,3284`; `…/postgres/token-store.ts:3441,3485`; `…/dynamo/token-store.ts:3723,3767`; `packages/openauth/src/domain/token.ts:saveCode call sites`; `packages/openauth/src/ports/token-store.ts` (relax `saveCode` to plain bytes / payload)
 - **Problem:** Three adapters import `encryptPayload` / `decryptPayload` from `domain/crypto` and call them inside their `saveCode` / `consumeCode`. A 4th-party adapter could store plaintext and still satisfy the typed port. The encryption invariant is enforced by adapter-author discipline.

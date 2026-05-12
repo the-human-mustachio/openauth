@@ -27,6 +27,7 @@
  *      - `error`     → propagated.
  */
 import type { AuditLog } from "../ports/audit-log"
+import type { KeyStore } from "../ports/key-store"
 import type { SessionStore } from "../ports/session-store"
 import type { TokenStore } from "../ports/token-store"
 import { authError, type AuthError } from "../types/error"
@@ -40,6 +41,7 @@ import { AUTH_CODE_TTL_MS } from "./authorize"
 import { randomToken } from "./crypto"
 import { MethodCache } from "./method-cache"
 import { dispatchMethod, type RouteKey } from "./method-dispatch"
+import { saveEncryptedCode } from "./token"
 
 export type MethodRouteOutput =
   | {
@@ -73,6 +75,8 @@ export type HandleMethodRouteInput = {
 export type HandleMethodRouteDeps = {
   sessionStore: SessionStore
   tokenStore: TokenStore
+  /** Needed for at-rest encryption of the code payload — see `domain/token.ts`. */
+  keyStore: KeyStore
   auditLog?: AuditLog
   methodCache: MethodCache
   clock: () => number
@@ -146,7 +150,7 @@ async function translate(
       const final = consumed.value
       const code = (deps.newCodeId ?? randomToken)()
       const now = deps.clock()
-      const saved = await deps.tokenStore.saveCode(
+      const saved = await saveEncryptedCode(
         code,
         {
           tenantId: final.tenantId,
@@ -164,6 +168,7 @@ async function translate(
           expiresAt: now + AUTH_CODE_TTL_MS,
         },
         AUTH_CODE_TTL_MS,
+        { keyStore: deps.keyStore, tokenStore: deps.tokenStore },
       )
       if (isErr(saved)) return err(saved.error)
       return ok({

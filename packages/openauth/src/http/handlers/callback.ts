@@ -22,6 +22,7 @@ export function makeCallbackHandler(deps: HttpDeps) {
         configStore: deps.configStore,
         sessionStore: deps.sessionStore,
         tokenStore: deps.tokenStore,
+        keyStore: deps.keyStore,
         ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
         methodCache: deps.methodCache,
         stateKeys: deps.stateKeys,

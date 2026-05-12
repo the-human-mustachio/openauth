@@ -12,19 +12,19 @@
  *     resolve to one winner.
  *
  * Layout:
- *   - `pk="code"`,    `sk=<code>`    — auth-code envelope (encrypted-at-rest).
+ *   - `pk="code"`,    `sk=<code>`    — auth-code ciphertext blob (the
+ *       domain encrypts before saveCode; the adapter stores verbatim).
  *   - `pk="refresh"`, `sk=<token>`   — refresh token + JSON payload.
  *       GSI `family-index`:  hash = `family`
  *       GSI `subject-index`: hash = `subject_key` (`<tenant>#<subject>`)
  */
-import { decryptPayload, encryptPayload } from "../../domain/crypto"
 import type { KeyStore } from "../../ports/key-store"
 import type { TokenStore } from "../../ports/token-store"
 import { authError } from "../../types/error"
 import type { Result } from "../../types/result"
-import { err, isErr, ok } from "../../types/result"
+import { err, ok } from "../../types/result"
 import type { TenantId } from "../../types/tenant"
-import type { CodePayload, RefreshTokenPayload } from "../../types/token"
+import type { RefreshTokenPayload } from "../../types/token"
 
 import type { DynamoExecutor } from "./client"
 
@@ -32,24 +32,26 @@ const AUTH_CODE_MAX_TTL_MS = 60_000
 
 export type DynamoTokenStoreOptions = {
   exec: DynamoExecutor
-  keyStore: KeyStore
+  /**
+   * Optional — retained for API stability after M1 moved code-payload
+   * encryption to the domain layer. The adapter no longer touches it.
+   */
+  keyStore?: KeyStore
   clock?: () => number
 }
 
 export class DynamoTokenStore implements TokenStore {
   #exec: DynamoExecutor
-  #keyStore: KeyStore
   #clock: () => number
 
   constructor(opts: DynamoTokenStoreOptions) {
     this.#exec = opts.exec
-    this.#keyStore = opts.keyStore
     this.#clock = opts.clock ?? (() => Date.now())
   }
 
   async saveCode(
     code: string,
-    payload: CodePayload,
+    ciphertext: string,
     ttl: number,
   ): Promise<Result<void>> {
     if (ttl <= 0 || ttl > AUTH_CODE_MAX_TTL_MS) {
@@ -59,25 +61,13 @@ export class DynamoTokenStore implements TokenStore {
         ),
       )
     }
-    const keyResult = await this.#keyStore.currentEncryptionKey()
-    if (isErr(keyResult)) return keyResult
-    let jwe: string
-    try {
-      jwe = await encryptPayload(
-        payload,
-        keyResult.value.kid,
-        keyResult.value.keyRef as Uint8Array,
-      )
-    } catch (e) {
-      return err(authError.internalError("saveCode: encrypt failed", e))
-    }
     const expiresAtMs = this.#clock() + ttl
     try {
       await this.#exec.put({
         item: {
           pk: "code",
           sk: code,
-          ciphertext: jwe,
+          ciphertext,
           expires_at: expiresAtMs,
           // DynamoDB native TTL is in seconds, named conventionally `ttl`.
           // The adapter writes both so operators can enable TTL on the table.
@@ -90,7 +80,7 @@ export class DynamoTokenStore implements TokenStore {
     return ok(undefined)
   }
 
-  async consumeCode(code: string): Promise<Result<CodePayload>> {
+  async consumeCode(code: string): Promise<Result<string>> {
     let row: Record<string, unknown> | undefined
     try {
       row = await this.#exec.delete({ key: { pk: "code", sk: code } })
@@ -105,17 +95,7 @@ export class DynamoTokenStore implements TokenStore {
     if (this.#clock() >= Number(row.expires_at)) {
       return err(authError.invalidGrant("auth code expired"))
     }
-    try {
-      const ciphertext = row.ciphertext as string
-      const payload = await decryptPayload<CodePayload>(ciphertext, async (kid) => {
-        const r = await this.#keyStore.getEncryptionKey(kid)
-        if (isErr(r)) throw new Error(`unknown encryption kid ${kid}`)
-        return r.value.keyRef as Uint8Array
-      })
-      return ok(payload)
-    } catch (e) {
-      return err(authError.internalError("consumeCode: decrypt failed", e))
-    }
+    return ok(String(row.ciphertext))
   }
 
   async saveRefresh(

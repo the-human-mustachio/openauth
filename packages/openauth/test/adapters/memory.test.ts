@@ -33,16 +33,13 @@ describeTokenStore({
   adapterName: "memory",
   async makeStore(clock) {
     const keyStore = new MemoryKeyStore({ clock: clock.now })
-    const tokenStore = new MemoryTokenStore({ keyStore, clock: clock.now })
+    const tokenStore = new MemoryTokenStore({ clock: clock.now })
     return {
       tokenStore,
       keyStore,
-      // The memory adapter stores the JWE on a private field; the whole
-      // instance serializes to a string containing every stored row. That is
-      // sufficient for the "raw bytes contain no plaintext canary" assertion.
-      async inspectRawCode() {
-        return JSON.stringify(tokenStore)
-      },
+      // The memory adapter holds the ciphertext on a private map; the
+      // round-trip assertion in the conformance suite already exercises
+      // verbatim-storage so we don't need a custom raw inspector.
     }
   },
 })

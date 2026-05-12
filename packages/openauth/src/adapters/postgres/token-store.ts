@@ -2,10 +2,10 @@
  * Postgres `TokenStore`.
  *
  * - `consumeCode` is an atomic `DELETE … RETURNING` so concurrent
- *   presentations of the same code resolve to exactly one winner.
- * - Code payloads are encrypted at rest with the active encryption key from
- *   `KeyStore` (JWE A256GCM via `domain/crypto.encryptPayload`). The DB only
- *   ever sees ciphertext.
+ *   presentations of the same code resolve to exactly one winner. The
+ *   ciphertext blob is stored verbatim — `domain/authorize.ts` encrypts
+ *   payloads before they reach the adapter (M1), and `domain/token.ts`
+ *   decrypts after consume. The DB never sees plaintext.
  * - `consumeRefresh` does an atomic `UPDATE … WHERE consumed_at IS NULL
  *   RETURNING payload` so a refresh chain has a single live winner per
  *   generation. Reuse-detection within the configurable window auto-revokes
@@ -20,36 +20,37 @@ import type { KeyStore } from "../../ports/key-store"
 import type { TokenStore } from "../../ports/token-store"
 import { authError } from "../../types/error"
 import type { Result } from "../../types/result"
-import { err, isErr, ok } from "../../types/result"
+import { err, ok } from "../../types/result"
 import type { TenantId } from "../../types/tenant"
-import type { CodePayload, RefreshTokenPayload } from "../../types/token"
+import type { RefreshTokenPayload } from "../../types/token"
 
-import { decryptPayload, encryptPayload } from "../../domain/crypto"
 import type { PostgresExecutor } from "./executor"
 
 const AUTH_CODE_MAX_TTL_MS = 60_000
 
 export type PostgresTokenStoreOptions = {
   exec: PostgresExecutor
-  keyStore: KeyStore
+  /**
+   * Optional — retained for API stability after M1 moved code-payload
+   * encryption to the domain layer. The adapter no longer touches it.
+   */
+  keyStore?: KeyStore
   /** Injectable clock — defaults to `Date.now`. Tests advance it. */
   clock?: () => number
 }
 
 export class PostgresTokenStore implements TokenStore {
   #exec: PostgresExecutor
-  #keyStore: KeyStore
   #clock: () => number
 
   constructor(opts: PostgresTokenStoreOptions) {
     this.#exec = opts.exec
-    this.#keyStore = opts.keyStore
     this.#clock = opts.clock ?? (() => Date.now())
   }
 
   async saveCode(
     code: string,
-    payload: CodePayload,
+    ciphertext: string,
     ttl: number,
   ): Promise<Result<void>> {
     if (ttl <= 0 || ttl > AUTH_CODE_MAX_TTL_MS) {
@@ -59,23 +60,11 @@ export class PostgresTokenStore implements TokenStore {
         ),
       )
     }
-    const keyResult = await this.#keyStore.currentEncryptionKey()
-    if (isErr(keyResult)) return keyResult
-    let jwe: string
-    try {
-      jwe = await encryptPayload(
-        payload,
-        keyResult.value.kid,
-        keyResult.value.keyRef as Uint8Array,
-      )
-    } catch (e) {
-      return err(authError.internalError("saveCode: encrypt failed", e))
-    }
     const expiresAt = this.#clock() + ttl
     try {
       await this.#exec.query(
         `INSERT INTO openauth_codes (code, ciphertext, expires_at) VALUES ($1, $2, $3)`,
-        [code, jwe, expiresAt],
+        [code, ciphertext, expiresAt],
       )
     } catch (e) {
       return err(authError.internalError("saveCode: insert failed", e))
@@ -83,7 +72,7 @@ export class PostgresTokenStore implements TokenStore {
     return ok(undefined)
   }
 
-  async consumeCode(code: string): Promise<Result<CodePayload>> {
+  async consumeCode(code: string): Promise<Result<string>> {
     let row: { ciphertext: string; expires_at: string | number } | undefined
     try {
       const result = await this.#exec.query<{
@@ -105,19 +94,7 @@ export class PostgresTokenStore implements TokenStore {
     if (this.#clock() >= Number(row.expires_at)) {
       return err(authError.invalidGrant("auth code expired"))
     }
-    let payload: CodePayload
-    try {
-      payload = await decryptPayload<CodePayload>(row.ciphertext, async (kid) => {
-        const keyResult = await this.#keyStore.getEncryptionKey(kid)
-        if (isErr(keyResult)) {
-          throw new Error(`unknown encryption kid ${kid}`)
-        }
-        return keyResult.value.keyRef as Uint8Array
-      })
-    } catch (e) {
-      return err(authError.internalError("consumeCode: decrypt failed", e))
-    }
-    return ok(payload)
+    return ok(row.ciphertext)
   }
 
   async saveRefresh(
