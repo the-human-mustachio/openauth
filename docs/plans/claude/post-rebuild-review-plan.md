@@ -22,10 +22,10 @@ output.
 | Tier | Open | Done | Total |
 |---|---|---|---|
 | Critical | 0 | 2 | 2 |
-| High | 10 | 2 | 12 |
+| High | 9 | 3 | 12 |
 | Medium | 11 | 0 | 11 |
 | Low | 6 | 0 | 6 |
-| **Total** | **27** | **4** | **31** |
+| **Total** | **26** | **5** | **31** |
 
 ---
 
@@ -73,7 +73,7 @@ output.
 
 ### H3 — Wrong-client `/revoke` returns `invalid_grant`, leaks token existence
 
-- [ ] **Status:** not started
+- [x] **Status:** done
 - **Severity:** High · **Effort:** S
 - **Files:** `packages/openauth/src/domain/revoke.ts:93-101`
 - **Problem:** Confidential client A presenting a valid token belonging to client B gets `400 invalid_grant`; a successful own-token revoke or an unknown token gets 200. Existence oracle. INTEGRATION.md §13 documents this as intentional — it's wrong. RFC 7009 §2.2 wants a silent no-op.

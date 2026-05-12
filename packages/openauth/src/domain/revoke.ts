@@ -87,15 +87,28 @@ export async function revokeToken(
     }
   }
 
-  // If any client credentials were presented, they must be valid AND
-  // match the token's bound client. Anonymous revoke of a public-client
-  // token is permitted.
+  // If a client_id was presented but it doesn't own the token, RFC 7009
+  // §2.2 still wants a successful no-op response — surfacing
+  // `invalid_grant` here would let a different client probe for token
+  // existence. Audit the attempt so operators can spot abuse.
+  if (req.clientId !== undefined && req.clientId !== payload.clientId) {
+    await audit(deps, {
+      kind: "custom",
+      type: "revoke_wrong_client_attempt",
+      tenantId: payload.tenantId,
+      data: {
+        presentedClientId: req.clientId,
+        tokenClientId: payload.clientId,
+        subjectId: payload.subjectId,
+      },
+      timestamp: deps.clock(),
+    })
+    return ok(undefined)
+  }
+
+  // Credentials presented by the owning client must validate. Anonymous
+  // revoke of a public-client token is permitted.
   if (req.clientId !== undefined) {
-    if (req.clientId !== payload.clientId) {
-      return err(
-        authError.invalidGrant("token was not issued to this client"),
-      )
-    }
     const authErr = await verifyClientCredentials(client, req.clientSecret)
     if (authErr) return err(authErr)
   }

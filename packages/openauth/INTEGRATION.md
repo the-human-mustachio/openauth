@@ -910,7 +910,10 @@ session; the storage shape — a `string` — won't change.)
   returns `{active: false}` to avoid token-existence leaks.
 - **`/revoke` authenticates confidential-client tokens** (RFC 7009 §2.1).
   Public-client tokens can be revoked anonymously. Wrong-client revoke
-  = `400 invalid_grant` without consuming.
+  returns `200` with an empty body (RFC 7009 §2.2 — indistinguishable
+  from an unknown-token revoke so callers cannot probe token existence
+  across clients). The attempt is audited as
+  `kind: "custom", type: "revoke_wrong_client_attempt"`.
 - **Auth-code TTL is fixed at 60 s** by OAuth 2.1 BCP. The library
   refuses larger TTLs at the storage layer.
 - **Refresh-token reuse triggers family revocation.** Detected reuse

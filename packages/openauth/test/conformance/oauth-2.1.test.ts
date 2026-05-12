@@ -784,19 +784,31 @@ describe("Phase 8 — revoke / introspect / client-auth hardening", () => {
     expect(h.auditLog.byKind("token_revoked").length).toBe(before + 1)
   })
 
-  // ─── case 21: revoke wrong client → 400 invalid_grant ───
-  test("21. /revoke with non-owning client → invalid_grant", async () => {
+  // ─── case 21: revoke wrong client → 200 no-op (RFC 7009 §2.2, no
+  //                                                  existence oracle) ───
+  test("21. /revoke with non-owning client → 200 no-op, token preserved", async () => {
     const h = await buildHarness()
     const tokens = await issueTokensFor(h)
+    const before = h.auditLog.byKind("custom").length
     const res = await h.idp.handle(
       formRequest(h.issuerUrl, "/revoke", {
         token: tokens.refresh_token,
         client_id: "rp-impostor", // not the issuing client
       }),
     )
-    expect(res.status).toBe(400)
-    const body = await res.json()
-    expect(body.error).toBe("invalid_grant")
+    // Indistinguishable from "unknown token" response (case 19).
+    expect(res.status).toBe(200)
+    // The token must NOT have been consumed.
+    const tryRefresh = await h.idp.handle(
+      tokenRequest(h.issuerUrl, {
+        grant_type: "refresh_token",
+        refresh_token: tokens.refresh_token,
+        client_id: "rp-1",
+      }),
+    )
+    expect(tryRefresh.status).toBe(200)
+    // The attempt is captured as an audit custom event for ops visibility.
+    expect(h.auditLog.byKind("custom").length).toBe(before + 1)
   })
 
   // ─── case 22: introspect requires client auth (RFC 7662 §2.1) ───
