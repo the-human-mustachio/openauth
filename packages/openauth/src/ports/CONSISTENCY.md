@@ -27,7 +27,10 @@ overspecifies adapters that don't need that on the read-eventual paths
 | `SessionStore` | `saveFlow(flowId, payload, ttl)`                                    | **Strong, atomic.** `ttl == expiresAt - createdAt`.                                                                    | Flow record must be visible on the callback request to `consumeFlow`.                                                                                                                                                                                                |
 | `SessionStore` | `updateFlowMethodState(flowId, state)`                              | **Strong, atomic.** Resolves **before** the user-agent redirect is sent.                                               | Upstream PKCE verifier / nonce must be durably persisted before the redirect, otherwise the callback cannot validate.                                                                                                                                                |
 | `SessionStore` | `consumeFlow(flowId)`                                               | **Strong, atomic delete-on-read** that **returns the full `FlowRecord`** (`CAS` or `DELETE … RETURNING`).              | Single-use; concurrent consumption resolves to one winner. The record is returned so the framework can snapshot fields into the auth-code payload before disposal.                                                                                                   |
+| `SessionStore` | `savePar(uri, payload, ttl)` (optional)                             | **Strong, atomic.** `ttl` default 60 s.                                                                                | RFC 9126 §3 — the PAR record must be visible to the next `consumePar` on any node. One-shot read.                                                                                                                                                                    |
+| `SessionStore` | `consumePar(uri)` (optional)                                        | **Strong, atomic delete-on-read.**                                                                                     | RFC 9126 §4 — `request_uri` is single-use; concurrent presentations of the same uri resolve to one winner. Same semantics as `consumeFlow`.                                                                                                                          |
 | `SessionStore` | `createSession / readSession / revokeSession` (optional long-lived) | **Strong.**                                                                                                            | Session creation must be immediately readable on the next request.                                                                                                                                                                                                   |
+| `TokenStore`   | `recordDpopJti(jti, ttlMs)` (optional)                              | **Strong, atomic record-or-fail.**                                                                                     | RFC 9449 §11.1 — replay protection requires single-use enforcement on the jti within the TTL window. A re-presentation must return `invalid_grant` deterministically. Adapters without this method cannot satisfy DPoP and the verifier surfaces `invalid_dpop_proof`. |
 | `KeyStore`     | `currentSigningKey()` / `currentEncryptionKey()`                    | Strong.                                                                                                                | Active key must be unambiguous.                                                                                                                                                                                                                                      |
 | `KeyStore`     | `signingKeys()` (JWKS)                                              | Eventual OK (with TTL).                                                                                                | Verifiers tolerate brief JWKS lag during rotation.                                                                                                                                                                                                                   |
 | `KeyStore`     | `getEncryptionKey(kid)`                                             | Strong.                                                                                                                | Required to decrypt code payloads encrypted under non-current keys during the overlap window.                                                                                                                                                                        |
@@ -86,3 +89,31 @@ The fixture set covers, at minimum:
 - `ConfigStore` invalidation hook fires within bounded staleness.
 - JWKS overlap window — keys retired during the verification window remain
   in `signingKeys()` until removed.
+- **PAR (`supportsPar: true`)** — `savePar` / `consumePar` round-trip,
+  one-shot consume atomicity, expiry enforcement, ttl-0 rejection.
+- **DPoP jti (`recordDpopJti`)** — first record succeeds, replay within
+  TTL fails with `invalid_grant`, post-TTL the slot is freed for reuse.
+
+## Optional methods and graceful degradation
+
+Several recent ports are **optional** because not every adapter has
+caught up yet:
+
+- `SessionStore.savePar` / `consumePar` — required for RFC 9126 PAR.
+  Without them the framework's `/par` handler returns `invalid_request`
+  with a clear "session adapter does not support PAR" description, and
+  `/authorize?request_uri=...` returns the same. Memory adapter
+  implements; production adapters (Postgres, D1, DO, DynamoDB) follow
+  the same `consumeFlow` pattern and should add it.
+- `TokenStore.recordDpopJti` — required for RFC 9449 DPoP. Without it
+  the DPoP verifier returns `invalid_dpop_proof: "token-store adapter
+  does not support DPoP replay protection"`. Memory adapter
+  implements; production adapters add it the same way `consumeRefresh`
+  uses an atomic write-once primitive.
+
+The framework never advertises a feature in discovery that the wired
+adapters cannot actually serve: `pushed_authorization_request_endpoint`
+and `dpop_signing_alg_values_supported` are advertised unconditionally,
+and clients receive the appropriate error if the adapter doesn't
+support them. Operators who do not run PAR / DPoP should communicate
+that to RPs out-of-band.
