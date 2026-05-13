@@ -1,5 +1,32 @@
 # @\_mustachio/openauth
 
+## 0.11.0
+
+### Minor Changes
+
+- 50f4add: OIDC issuance + standards extensions. Brings the library to full OIDC Core RP compatibility and rounds out the OAuth 2.1 surface deferred in 0.10.0. Third-party RPs that use OIDC client libraries (NextAuth, oidc-client-ts, AppAuth, MSAL) now work end-to-end.
+
+  **What's new:**
+
+  - **`id_token` issuance at `/token`** when the `openid` scope is granted.
+  - **Pairwise subject identifiers** (OIDC Core §8.1) via per-client `sectorIdentifierUri` / `subject_type: "pairwise"`.
+  - **OIDC `claims` request parameter** (OIDC Core §5.5) — RPs can request individual claims at the userinfo / id_token level.
+  - **`customScopeClaims`** — host-supplied vendor scope → claim mapping; surface non-standard scopes (e.g. `groups`, `roles`) into id_tokens without forking the library. §5.4 standard mappings always win on key collision; per-client `scopes` allowlist still gates which scopes a client may request.
+  - **RP-Initiated Logout** at `/end_session` (OpenID Connect RP-Initiated Logout 1.0).
+  - **Pushed Authorization Requests** at `/par` (RFC 9126).
+  - **DPoP — sender-constrained access tokens** (RFC 9449), per-client opt-in, with proof replay detection and a dedicated `dpop_replay_detected` audit event.
+  - **Dynamic Client Registration** at `/register` (RFC 7591), via host-supplied `registerClient` hook.
+  - **Discovery metadata fill-in** — every endpoint, supported algorithm, and feature flag now reflected in `/.well-known/openid-configuration` and `/.well-known/oauth-authorization-server`.
+  - **`/introspect` enrichment** — DPoP `cnf` and OIDC claims surface where applicable.
+  - **Audit-log enrichment** — `token_issued` now carries `idTokenIssued` and `dpopBound` flags; new `dpop_replay_detected` event; OIDC + DPoP event surface widened so SIEM dashboards can filter by feature without parsing tokens.
+
+  **Docs:**
+
+  - New top-level [`QUICKSTART.md`](https://github.com/the-human-mustachio/openauth/blob/master/QUICKSTART.md) — 5-minute clone → install → run → verify path, with an LLM-oriented rules-that-bite section.
+  - `INTEGRATION.md`, `ARCHITECTURE.md`, and `ports/CONSISTENCY.md` brought up to date with the new endpoints + features.
+
+  **Non-breaking.** All additions are opt-in via scope, client config, or new optional `IdPOptions` fields. Audit event enrichment is additive (new event types + new fields on existing types).
+
 ## 0.10.0
 
 ### Minor Changes
@@ -11,6 +38,7 @@
   **Library scope:** server-side IdP library embedded inside a host application. The host owns the console UI, the product data model, RBAC, and admin mutations. The library owns OAuth 2.1 endpoints, per-tenant isolation, the auth-method registry, and the port + adapter stack. See `packages/openauth/INTEGRATION.md` for the end-to-end embedding guide and `packages/openauth/ARCHITECTURE.md` for the mental model.
 
   **What's in:**
+
   - OAuth 2.1 code flow (PKCE required), refresh-token rotation with reuse detection (per-family revoke), `/revoke` (RFC 7009), `/introspect` (RFC 7662), `/userinfo`, `/token-exchange` (RFC 8693), `/.well-known/{openid-configuration,jwks.json,oauth-authorization-server}`.
   - Tenant as a per-request resolution function, not a URL segment. Tenant is opaque to the library — partition key, not business concept.
   - `AuthMethod` as data + handler functions (framework-agnostic). 15 OAuth/OIDC providers ported (google, github, apple, microsoft, discord, facebook, linkedin, slack, spotify, twitch, x, yahoo, jumpcloud, keycloak, cognito) plus password (argon2id), code, m2m, and passkey.
@@ -19,6 +47,7 @@
   - Hardened state envelope (global MAC key, MAC + tenant + nonce + host + path consistency check on every callback), encrypted auth-code payloads at rest, full audit log.
 
   **What's out (deferred to a later release):**
+
   - OIDC `id_token` issuance. The library is OAuth 2.1 complete and ships the OIDC framing (discovery doc, `/userinfo`, `nonce`/`prompt`/`ui_locales` parsing) but does not yet mint an `id_token` at `/token`. Third-party RPs that use OIDC client libraries (NextAuth, oidc-client-ts, AppAuth, MSAL) will not work until that lands. First-party RPs that read identity from the JWT access token's inlined `claim` are unaffected.
   - DPoP, PAR, mTLS hook, dynamic client registration, RP-initiated logout, `prompt` enforcement, `max_age` / `auth_time`.
 
