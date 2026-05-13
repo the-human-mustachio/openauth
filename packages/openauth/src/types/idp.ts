@@ -266,4 +266,6 @@ export type IdP = {
   discovery: (req: Request) => Promise<Response>
   revoke: (req: Request) => Promise<Response>
   introspect: (req: Request) => Promise<Response>
+  /** OIDC RP-Initiated Logout 1.0. */
+  endSession: (req: Request) => Promise<Response>
 }

@@ -88,6 +88,19 @@ export type AuditEvent =
       family: string
     }
   | {
+      /**
+       * Emitted by `/end_session` (OIDC RP-Initiated Logout 1.0 §2) after
+       * processing the logout request — regardless of whether a
+       * `post_logout_redirect_uri` was supplied. `subjectId` is present
+       * when the request carried an `id_token_hint` that successfully
+       * verified; absent otherwise.
+       */
+      kind: "session_logout"
+      tenantId: TenantId
+      clientId?: string
+      subjectId?: string
+    }
+  | {
       kind: "flow_replay_attempt"
       tenantId: TenantId | null
       flowId: string

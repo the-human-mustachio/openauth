@@ -19,6 +19,7 @@ import { Hono } from "hono"
 
 import { makeAuthorizeHandler } from "./handlers/authorize"
 import { makeCallbackHandler } from "./handlers/callback"
+import { makeEndSessionHandler } from "./handlers/end-session"
 import { makeDiscoveryHandler, makeJwksHandler } from "./handlers/metadata"
 import { makeMethodRouteHandler } from "./handlers/method-route"
 import { makeIntrospectHandler, makeRevokeHandler } from "./handlers/revocation"
@@ -61,6 +62,12 @@ export function buildRouter(deps: HttpDeps): Hono<HttpEnv> {
 
   app.post("/revoke", makeRevokeHandler(deps))
   app.post("/introspect", makeIntrospectHandler(deps))
+
+  // OIDC RP-Initiated Logout 1.0. Tenant resolved via the standard
+  // middleware — same partitioning rules as `/authorize`.
+  app.use("/end_session", tenantMiddleware(deps))
+  app.get("/end_session", makeEndSessionHandler(deps))
+  app.post("/end_session", makeEndSessionHandler(deps))
 
   return app
 }

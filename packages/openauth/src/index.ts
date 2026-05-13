@@ -271,5 +271,6 @@ export function createIdP(opts: IdPOptions): IdP {
     discovery: fetch,
     revoke: fetch,
     introspect: fetch,
+    endSession: fetch,
   }
 }

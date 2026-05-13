@@ -19,6 +19,8 @@ export type DiscoveryDocument = {
   jwks_uri: string
   revocation_endpoint: string
   introspection_endpoint: string
+  /** OIDC RP-Initiated Logout 1.0 §2. */
+  end_session_endpoint: string
   response_types_supported: string[]
   grant_types_supported: string[]
   subject_types_supported: string[]
@@ -38,6 +40,7 @@ export type DiscoveryDeps = {
     jwks: string
     revoke: string
     introspect: string
+    endSession: string
   }>
   /** Advertised scopes. Defaults to `["openid", "email", "profile"]`. */
   scopes?: string[]
@@ -54,6 +57,7 @@ export function buildDiscoveryDocument(deps: DiscoveryDeps): DiscoveryDocument {
     jwks_uri: `${base}${p.jwks ?? "/.well-known/jwks.json"}`,
     revocation_endpoint: `${base}${p.revoke ?? "/revoke"}`,
     introspection_endpoint: `${base}${p.introspect ?? "/introspect"}`,
+    end_session_endpoint: `${base}${p.endSession ?? "/end_session"}`,
     response_types_supported: ["code"],
     grant_types_supported: [
       "authorization_code",

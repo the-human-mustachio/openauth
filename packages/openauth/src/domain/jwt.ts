@@ -53,11 +53,20 @@ export async function signIdToken(
  * Same algorithm-confusion defenses as `verifyAccessToken`: only the
  * asymmetric allow-list (`ES256`, `EdDSA`) accepted; `alg: "none"`
  * rejected explicitly.
+ *
+ * `acceptExpired` relaxes the `exp` check — required at `/end_session`
+ * per OIDC RP-Initiated Logout 1.0 §2, where logout often follows token
+ * expiry and the spec permits accepting an expired hint. The signature
+ * + issuer + audience checks remain strict.
  */
 export async function verifyIdToken(
   token: string,
   keys: ReadonlyArray<SigningKey>,
-  options: { issuer?: string; audience?: string } = {},
+  options: {
+    issuer?: string
+    audience?: string
+    acceptExpired?: boolean
+  } = {},
 ): Promise<IdTokenClaims> {
   const algorithms = Array.from(
     new Set(keys.map((k) => k.alg).filter((a) => ASYMMETRIC_ALGS.has(a))),
@@ -87,6 +96,12 @@ export async function verifyIdToken(
       algorithms,
       ...(options.issuer ? { issuer: options.issuer } : {}),
       ...(options.audience ? { audience: options.audience } : {}),
+      // jose checks `exp` against `currentDate + clockTolerance`. A huge
+      // tolerance effectively disables the expiry check while preserving
+      // signature + issuer + audience validation.
+      ...(options.acceptExpired
+        ? { clockTolerance: Number.MAX_SAFE_INTEGER }
+        : {}),
     },
   )
   return payload
