@@ -231,7 +231,9 @@ export async function verifyDpopProof(
   )
   if (isErr(recorded)) {
     return err(
-      authError.invalidDpopProof(`dpop jti "${payload.jti}" replayed`),
+      authError.invalidDpopProof(`dpop jti "${payload.jti}" replayed`, {
+        jti: payload.jti,
+      }),
     )
   }
 

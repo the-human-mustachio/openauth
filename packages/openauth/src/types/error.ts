@@ -55,7 +55,16 @@ export type AuthError =
   // Returned as a 400 with `error="invalid_dpop_proof"` on form-body
   // endpoints; on resource-server endpoints it becomes a 401 with
   // `WWW-Authenticate: DPoP error="invalid_dpop_proof"`.
-  | { code: "invalid_dpop_proof"; description: string }
+  //
+  // `replaySignal`, when present, indicates `recordDpopJti` reported a
+  // jti already seen within the replay window. The HTTP layer uses this
+  // to emit a `dpop_replay_detected` audit event distinct from other
+  // proof failures.
+  | {
+      code: "invalid_dpop_proof"
+      description: string
+      replaySignal?: { jti: string }
+    }
 
 export type AuthErrorCode = AuthError["code"]
 
@@ -126,8 +135,12 @@ export const authError = {
     description,
     ...(cause !== undefined ? { cause } : {}),
   }),
-  invalidDpopProof: (description: string): AuthError => ({
+  invalidDpopProof: (
+    description: string,
+    replaySignal?: { jti: string },
+  ): AuthError => ({
     code: "invalid_dpop_proof",
     description,
+    ...(replaySignal !== undefined ? { replaySignal } : {}),
   }),
 }

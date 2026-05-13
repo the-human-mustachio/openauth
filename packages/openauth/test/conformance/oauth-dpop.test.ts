@@ -608,6 +608,97 @@ describe("RFC 9449 — DPoP conformance", () => {
     expect(err.error).toBe("invalid_token")
   })
 
+  // ─── case DPOP-AUDIT ── §11.1 replay emits dpop_replay_detected event ──
+  test("DPOP-AUDIT. Replay of jti emits a `dpop_replay_detected` audit event", async () => {
+    const tenant = await buildTenant({
+      methods: [{ id: "stub", kind: "stub" }],
+    })
+    const issuerUrl = "https://idp.example"
+    const auditLog = new MemoryAuditLog()
+    const configStore = new MemoryConfigStore({ seed: [tenant] })
+    const keyStore = new MemoryKeyStore({})
+    const tokenStore = new MemoryTokenStore({ keyStore })
+    const sessionStore = new MemorySessionStore({})
+    const idp = createIdP({
+      resolveTenant: async () => ok(asTenantId(tenant.id)),
+      stateKeys: buildStateKeys(),
+      configStore,
+      tokenStore,
+      sessionStore,
+      keyStore,
+      auditLog,
+      issuerUrl,
+      methods: { stub: redirectFactory({ kind: "stub" }) as never },
+      subjects: {} as never,
+      success: async ({ providerSubject }) =>
+        ({
+          type: "user",
+          properties: { userId: providerSubject },
+        }) as never,
+    })
+    const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+    const challenge = await s256Challenge(verifier)
+    const authorize = await idp.handle(
+      new Request(
+        authorizeUrl(issuerUrl, {
+          response_type: "code",
+          client_id: "rp-1",
+          redirect_uri: "https://app.example/callback",
+          scope: "openid",
+          state: "s",
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+        }),
+      ),
+    )
+    const cb = await driveCallback(idp, authorize.headers.get("location")!)
+    const code = new URL(cb.headers.get("location")!).searchParams.get("code")!
+    const dpop = await newDpopKey()
+    const sharedJti = nextJti()
+    const proof = await makeProof({
+      key: dpop,
+      htu: issuerUrl + "/token",
+      htm: "POST",
+      jti: sharedJti,
+    })
+    await idp.handle(
+      new Request(issuerUrl + "/token", {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          dpop: proof,
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          client_id: "rp-1",
+          redirect_uri: "https://app.example/callback",
+          code_verifier: verifier,
+        }).toString(),
+      }),
+    )
+    // Replay the same proof.
+    await idp.handle(
+      new Request(issuerUrl + "/token", {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          dpop: proof,
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          client_id: "rp-1",
+          redirect_uri: "https://app.example/callback",
+          code_verifier: verifier,
+        }).toString(),
+      }),
+    )
+    const replays = auditLog.byKind("dpop_replay_detected")
+    expect(replays.length).toBe(1)
+    expect(replays[0]!.jtiPrefix).toBe(sharedJti.slice(0, 16))
+  })
+
   // ─── case DPOP-12 ── §7 missing ath on RS proof → reject ──
   test("DPOP-12. /userinfo proof without ath claim → invalid_dpop_proof", async () => {
     const h = await buildDpopHarness()

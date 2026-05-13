@@ -668,6 +668,69 @@ describe("RFC 7591 — Dynamic Client Registration", () => {
   })
 })
 
+describe("Audit — OIDC + DPoP event surface", () => {
+  // ─── case POLISH-AUDIT-1 ── token_issued carries idTokenIssued flag ──
+  test("POLISH-AUDIT-1. token_issued audit includes idTokenIssued=true when scope=openid", async () => {
+    const tenant = await buildTenant({
+      methods: [{ id: "stub", kind: "stub" }],
+    })
+    const issuerUrl = "https://idp.example"
+    const auditLog = new MemoryAuditLog()
+    const configStore = new MemoryConfigStore({ seed: [tenant] })
+    const keyStore = new MemoryKeyStore({})
+    const tokenStore = new MemoryTokenStore({ keyStore })
+    const sessionStore = new MemorySessionStore({})
+    const idp = createIdP({
+      resolveTenant: async () => ok(asTenantId(tenant.id)),
+      stateKeys: buildStateKeys(),
+      configStore,
+      tokenStore,
+      sessionStore,
+      keyStore,
+      auditLog,
+      issuerUrl,
+      methods: { stub: redirectFactory({ kind: "stub" }) as never },
+      subjects: {} as never,
+      success: async ({ providerSubject }) =>
+        ({
+          type: "user",
+          properties: { userId: providerSubject },
+        }) as never,
+    })
+    const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+    const challenge = await s256Challenge(verifier)
+    const authorizeRes = await idp.handle(
+      new Request(
+        authorizeUrl(issuerUrl, {
+          response_type: "code",
+          client_id: "rp-1",
+          redirect_uri: "https://app.example/callback",
+          scope: "openid",
+          state: "s",
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+        }),
+      ),
+    )
+    const cb = await driveCallback(idp, authorizeRes.headers.get("location")!)
+    const code = new URL(cb.headers.get("location")!).searchParams.get("code")!
+    await idp.handle(
+      tokenRequest(issuerUrl, {
+        grant_type: "authorization_code",
+        code,
+        client_id: "rp-1",
+        redirect_uri: "https://app.example/callback",
+        code_verifier: verifier,
+      }),
+    )
+    const events = auditLog.byKind("token_issued")
+    expect(events.length).toBe(1)
+    expect(events[0]!.idTokenIssued).toBe(true)
+    // No DPoP proof in this flow.
+    expect(events[0]!.dpopBound).toBeUndefined()
+  })
+})
+
 describe("RFC 7662 — /introspect enrichment", () => {
   // ─── case POLISH-INTRO-1 ── §2.2 token_type indicator ──
   test("POLISH-INTRO-1. Active introspection result includes token_type=Bearer", async () => {

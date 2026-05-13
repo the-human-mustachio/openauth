@@ -65,7 +65,25 @@ export function makeTokenHandler(deps: HttpDeps) {
         },
         { tokenStore: deps.tokenStore },
       )
-      if (isErr(dpopRes)) return tokenEndpointErrorResponse(dpopRes.error)
+      if (isErr(dpopRes)) {
+        // RFC 9449 §11.1 replay → first-class audit event so operators /
+        // SIEM can spot stolen-key probing distinct from generic proof
+        // verification failures.
+        const errVal = dpopRes.error
+        if (
+          errVal.code === "invalid_dpop_proof" &&
+          errVal.replaySignal &&
+          deps.auditLog
+        ) {
+          await deps.auditLog.log({
+            kind: "dpop_replay_detected",
+            tenantId: null,
+            jtiPrefix: errVal.replaySignal.jti.slice(0, 16),
+            timestamp: deps.clock(),
+          })
+        }
+        return tokenEndpointErrorResponse(errVal)
+      }
       dpopJkt = dpopRes.value.jkt
     }
 

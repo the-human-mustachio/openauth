@@ -54,6 +54,10 @@ export type AuditEvent =
       subjectId: string
       /** Hash of the issued refresh token id — never the token itself. */
       refreshTokenIdHash?: string
+      /** OIDC Core §2 — set when the response carried an `id_token`. */
+      idTokenIssued?: boolean
+      /** RFC 9449 — set when the access token is DPoP-bound. */
+      dpopBound?: boolean
     }
   | {
       kind: "token_refreshed"
@@ -99,6 +103,18 @@ export type AuditEvent =
       tenantId: TenantId
       clientId?: string
       subjectId?: string
+    }
+  | {
+      /**
+       * Emitted when a DPoP proof's `jti` is presented within the replay
+       * window (RFC 9449 §11.1). The request was rejected with
+       * `invalid_dpop_proof`. Operators / SIEM use this to spot
+       * stolen-key replay attempts.
+       */
+      kind: "dpop_replay_detected"
+      tenantId: TenantId | null
+      /** First-half of the offending jti so logs can correlate without storing it. */
+      jtiPrefix: string
     }
   | {
       kind: "flow_replay_attempt"

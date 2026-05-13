@@ -411,6 +411,8 @@ export async function mintTokens(args: {
     methodKind: payload.methodKind,
     subjectId,
     refreshTokenIdHash: refresh ? await hashTokenForAudit(refresh) : "",
+    ...(idToken !== undefined ? { idTokenIssued: true } : {}),
+    ...(payload.dpopJkt !== undefined ? { dpopBound: true } : {}),
     timestamp: now,
   })
 
