@@ -268,4 +268,6 @@ export type IdP = {
   introspect: (req: Request) => Promise<Response>
   /** OIDC RP-Initiated Logout 1.0. */
   endSession: (req: Request) => Promise<Response>
+  /** RFC 9126 Pushed Authorization Requests. */
+  par: (req: Request) => Promise<Response>
 }

@@ -28,7 +28,10 @@ import {
   authorizeRedirectErrorResponse,
   isNonRecoverable,
 } from "../errors"
-import { authorizeQuerySchema } from "../schemas/authorize"
+import {
+  authorizeQuerySchema,
+  authorizeRequestUriQuerySchema,
+} from "../schemas/authorize"
 
 export function makeAuthorizeHandler(deps: HttpDeps) {
   return async (c: HttpContext): Promise<Response> => {
@@ -41,7 +44,51 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
 
     const url = new URL(c.req.url)
     const raw = Object.fromEntries(url.searchParams.entries())
-    const parsed = authorizeQuerySchema.safeParse(raw)
+
+    // RFC 9126 §4: rehydrate a PAR record when `request_uri` is present.
+    // The user-agent URL carries only `client_id` + `request_uri`; the
+    // stored params drive the rest of the request through the standard
+    // parser below.
+    let workingRaw: Record<string, string> = raw
+    if (raw.request_uri !== undefined) {
+      const parParsed = authorizeRequestUriQuerySchema.safeParse(raw)
+      if (!parParsed.success) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(
+            parParsed.error.issues[0]?.message ?? "invalid request",
+            parParsed.error.issues[0]?.path[0]?.toString() ?? "request",
+          ),
+        )
+      }
+      if (!deps.sessionStore.consumePar) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(
+            "session adapter does not support PAR",
+            "request_uri",
+          ),
+        )
+      }
+      const par = await deps.sessionStore.consumePar(parParsed.data.request_uri)
+      if (isErr(par)) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(
+            "unknown or expired request_uri",
+            "request_uri",
+          ),
+        )
+      }
+      if (par.value.clientId !== parParsed.data.client_id) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(
+            "request_uri belongs to a different client",
+            "request_uri",
+          ),
+        )
+      }
+      workingRaw = par.value.params
+    }
+
+    const parsed = authorizeQuerySchema.safeParse(workingRaw)
     if (!parsed.success) {
       const first = parsed.error.issues[0]
       const field = first?.path[0]?.toString() ?? "request"
@@ -50,6 +97,20 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
       )
     }
     const q = parsed.data
+
+    // RFC 9126 §2 per-client PAR enforcement: refuse direct `/authorize`
+    // when the client requires PAR and `request_uri` was absent.
+    if (raw.request_uri === undefined) {
+      const client = tenant.config.clients.find((c) => c.id === q.client_id)
+      if (client?.requirePushedAuthorizationRequests) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(
+            "this client requires Pushed Authorization Requests (RFC 9126)",
+            "request_uri",
+          ),
+        )
+      }
+    }
 
     if (q.response_type !== "code") {
       // OAuth 2.1: only `code` is supported. Implicit (`token`) is removed.

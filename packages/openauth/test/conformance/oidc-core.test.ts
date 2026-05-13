@@ -17,6 +17,7 @@ import { asTenantId } from "../../src/types/tenant"
 import { ok } from "../../src/types/result"
 import type { Result } from "../../src/types/result"
 import type { SigningKey } from "../../src/ports/key-store"
+import type { TokenResponse } from "../../src/types/token"
 import {
   MemoryAuditLog,
   MemoryConfigStore,
@@ -44,13 +45,23 @@ function unwrapKeys(res: Result<SigningKey[]>): SigningKey[] {
   return res.value
 }
 
+/**
+ * Narrow `id_token` to `string`. We've already asserted it's present in
+ * the test up-stream — this is the type-system bridge to the verifier,
+ * which accepts only `string`. Throws (failing the test) if the field
+ * wasn't actually present.
+ */
+function requireIdToken(body: TokenResponse): string {
+  if (!body.id_token) throw new Error("expected id_token in TokenResponse")
+  return body.id_token
+}
+
 /** Run the standard authorize→callback→exchange dance and return the JSON body. */
 async function authorizeAndExchange(
   h: Awaited<ReturnType<typeof buildHarness>>,
   authorizeParams: Record<string, string>,
 ): Promise<{
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  body: any
+  body: TokenResponse
   status: number
 }> {
   const authorize = await h.idp.handle(
@@ -80,7 +91,10 @@ async function authorizeAndExchange(
       code_verifier: h.challengePair.verifier,
     }),
   )
-  return { body: await tokenRes.json(), status: tokenRes.status }
+  return {
+    body: (await tokenRes.json()) as TokenResponse,
+    status: tokenRes.status,
+  }
 }
 
 describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
@@ -92,7 +106,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
     expect(body.id_token).toBeString()
 
     const keys = unwrapKeys(await h.keyStore.signingKeys())
-    const claims = await verifyIdToken(body.id_token, keys, {
+    const claims = await verifyIdToken(requireIdToken(body), keys, {
       issuer: h.issuerUrl,
       audience: "rp-1",
     })
@@ -113,7 +127,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
       nonce: "n-0S6_WzA2Mj",
     })
     const keys = unwrapKeys(await h.keyStore.signingKeys())
-    const claims = await verifyIdToken(body.id_token, keys)
+    const claims = await verifyIdToken(requireIdToken(body), keys)
     expect(claims.nonce).toBe("n-0S6_WzA2Mj")
   })
 
@@ -122,7 +136,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
     const h = await buildHarness()
     const { body } = await authorizeAndExchange(h, { scope: "openid" })
     const keys = unwrapKeys(await h.keyStore.signingKeys())
-    const claims = await verifyIdToken(body.id_token, keys)
+    const claims = await verifyIdToken(requireIdToken(body), keys)
     const expected = await computeAtHash(body.access_token)
     expect(claims.at_hash).toBe(expected)
   })
@@ -132,7 +146,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
     const h = await buildHarness()
     const { body } = await authorizeAndExchange(h, { scope: "openid" })
     const keys = unwrapKeys(await h.keyStore.signingKeys())
-    const claims = await verifyIdToken(body.id_token, keys)
+    const claims = await verifyIdToken(requireIdToken(body), keys)
     expect(typeof claims.auth_time).toBe("number")
     expect(claims.auth_time!).toBeGreaterThan(0)
     expect(claims.auth_time!).toBeLessThanOrEqual(claims.iat)
@@ -198,7 +212,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
       }),
     )
     expect(tokenRes.status).toBe(200)
-    const body = await tokenRes.json()
+    const body = (await tokenRes.json()) as TokenResponse
     expect(body.access_token).toBeString()
     expect(body.id_token).toBeUndefined()
   })
@@ -213,19 +227,21 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
     expect(initial.body.id_token).toBeString()
 
     const keys = unwrapKeys(await h.keyStore.signingKeys())
-    const initialClaims = await verifyIdToken(initial.body.id_token, keys)
+    const initialClaims = await verifyIdToken(requireIdToken(initial.body), keys)
     expect(initialClaims.nonce).toBe("orig-nonce")
 
-    const refreshed = await h.idp
+    const initialRefresh = initial.body.refresh_token
+    if (!initialRefresh) throw new Error("expected refresh_token")
+    const refreshed = (await h.idp
       .handle(
         tokenRequest(h.issuerUrl, {
           grant_type: "refresh_token",
-          refresh_token: initial.body.refresh_token,
+          refresh_token: initialRefresh,
         }),
       )
-      .then((r) => r.json())
+      .then((r) => r.json())) as TokenResponse
     expect(refreshed.id_token).toBeString()
-    const refreshedClaims = await verifyIdToken(refreshed.id_token, keys)
+    const refreshedClaims = await verifyIdToken(requireIdToken(refreshed), keys)
     // OIDC Core §12: auth_time SHOULD NOT advance on refresh — the user
     // hasn't re-authenticated.
     expect(initialClaims.auth_time).toBeDefined()
@@ -293,7 +309,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
     )
     const cb = await driveCallback(idp, authorize.headers.get("location")!)
     const code = new URL(cb.headers.get("location")!).searchParams.get("code")!
-    const tokenBody = await idp
+    const tokenBody = (await idp
       .handle(
         tokenRequest(issuerUrl, {
           grant_type: "authorization_code",
@@ -303,10 +319,10 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
           code_verifier: verifier,
         }),
       )
-      .then((r) => r.json())
+      .then((r) => r.json())) as TokenResponse
 
     const keys = unwrapKeys(await keyStore.signingKeys())
-    const claims = await verifyIdToken(tokenBody.id_token, keys)
+    const claims = await verifyIdToken(requireIdToken(tokenBody), keys)
     expect(claims.email).toBe("ada@example.com")
     expect(claims.email_verified).toBe(true)
     // `name` is gated by `profile` scope, NOT `email`. We did not grant
@@ -320,7 +336,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
       }),
     )
     expect(userinfoRes.status).toBe(200)
-    const userinfo = await userinfoRes.json()
+    const userinfo = (await userinfoRes.json()) as Record<string, unknown>
     expect(userinfo.email).toBe("ada@example.com")
     expect(userinfo.email_verified).toBe(true)
     expect(userinfo.name).toBeUndefined()
@@ -376,7 +392,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
     )
     const cb = await driveCallback(idp, authorize.headers.get("location")!)
     const code = new URL(cb.headers.get("location")!).searchParams.get("code")!
-    const tokenBody = await idp
+    const tokenBody = (await idp
       .handle(
         tokenRequest(issuerUrl, {
           grant_type: "authorization_code",
@@ -386,20 +402,20 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
           code_verifier: verifier,
         }),
       )
-      .then((r) => r.json())
+      .then((r) => r.json())) as TokenResponse
 
     const keys = unwrapKeys(await keyStore.signingKeys())
-    const claims = await verifyIdToken(tokenBody.id_token, keys)
+    const claims = await verifyIdToken(requireIdToken(tokenBody), keys)
     expect(claims.email).toBeUndefined()
     expect(claims.email_verified).toBeUndefined()
 
-    const userinfo = await idp
+    const userinfo = (await idp
       .handle(
         new Request(issuerUrl + "/userinfo", {
           headers: { authorization: `Bearer ${tokenBody.access_token}` },
         }),
       )
-      .then((r) => r.json())
+      .then((r) => r.json())) as Record<string, unknown>
     expect(userinfo.email).toBeUndefined()
     expect(userinfo.email_verified).toBeUndefined()
   })
@@ -450,7 +466,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
     )
     const cb = await driveCallback(idp, authorize.headers.get("location")!)
     const code = new URL(cb.headers.get("location")!).searchParams.get("code")!
-    const body = await idp
+    const body = (await idp
       .handle(
         tokenRequest(issuerUrl, {
           grant_type: "authorization_code",
@@ -460,10 +476,10 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
           code_verifier: verifier,
         }),
       )
-      .then((r) => r.json())
+      .then((r) => r.json())) as TokenResponse
 
     const keys = unwrapKeys(await keyStore.signingKeys())
-    const claims = await verifyIdToken(body.id_token, keys)
+    const claims = await verifyIdToken(requireIdToken(body), keys)
     expect(claims.amr).toEqual(["pwd"])
   })
 

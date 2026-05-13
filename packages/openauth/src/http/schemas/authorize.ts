@@ -32,6 +32,12 @@ const scopeParam = z
   )
   .pipe(z.array(z.string().regex(SCOPE_TOKEN, "invalid scope token")))
 
+/**
+ * Standard `/authorize` query schema. Used both for direct calls and as
+ * the validation target after a PAR record is rehydrated — the PAR'd
+ * params are passed through this same parser so semantic checks stay in
+ * a single place.
+ */
 export const authorizeQuerySchema = z
   .object({
     response_type: z.string({
@@ -52,6 +58,23 @@ export const authorizeQuerySchema = z
     prompt: csv.optional(),
     ui_locales: csv.optional(),
     nonce: z.string().optional(),
+  })
+  .passthrough()
+
+/**
+ * RFC 9126 §4: when `request_uri` is presented, the user-agent's
+ * `/authorize` URL is allowed to carry only `client_id` and
+ * `request_uri`; the rest of the parameter set must come from the
+ * stored PAR record.
+ */
+export const authorizeRequestUriQuerySchema = z
+  .object({
+    client_id: z
+      .string({ required_error: "missing client_id" })
+      .min(1, "empty client_id"),
+    request_uri: z
+      .string({ required_error: "missing request_uri" })
+      .min(1),
   })
   .passthrough()
 

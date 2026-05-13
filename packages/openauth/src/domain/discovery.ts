@@ -21,6 +21,14 @@ export type DiscoveryDocument = {
   introspection_endpoint: string
   /** OIDC RP-Initiated Logout 1.0 §2. */
   end_session_endpoint: string
+  /** RFC 9126 §5. */
+  pushed_authorization_request_endpoint: string
+  /**
+   * RFC 9126 §5. True iff every client on this tenant is required to use
+   * PAR. We advertise `false` at the tenant level — the per-client toggle
+   * is read at request time.
+   */
+  require_pushed_authorization_requests: boolean
   response_types_supported: string[]
   grant_types_supported: string[]
   subject_types_supported: string[]
@@ -41,6 +49,7 @@ export type DiscoveryDeps = {
     revoke: string
     introspect: string
     endSession: string
+    par: string
   }>
   /** Advertised scopes. Defaults to `["openid", "email", "profile"]`. */
   scopes?: string[]
@@ -58,6 +67,8 @@ export function buildDiscoveryDocument(deps: DiscoveryDeps): DiscoveryDocument {
     revocation_endpoint: `${base}${p.revoke ?? "/revoke"}`,
     introspection_endpoint: `${base}${p.introspect ?? "/introspect"}`,
     end_session_endpoint: `${base}${p.endSession ?? "/end_session"}`,
+    pushed_authorization_request_endpoint: `${base}${p.par ?? "/par"}`,
+    require_pushed_authorization_requests: false,
     response_types_supported: ["code"],
     grant_types_supported: [
       "authorization_code",

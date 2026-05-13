@@ -93,7 +93,11 @@ export type {
   SigningKey,
 } from "./ports/key-store"
 export type { MethodStore } from "./ports/method-store"
-export type { SessionRecord, SessionStore } from "./ports/session-store"
+export type {
+  ParRecord,
+  SessionRecord,
+  SessionStore,
+} from "./ports/session-store"
 export type { TokenStore } from "./ports/token-store"
 
 /**
@@ -272,5 +276,6 @@ export function createIdP(opts: IdPOptions): IdP {
     revoke: fetch,
     introspect: fetch,
     endSession: fetch,
+    par: fetch,
   }
 }

@@ -22,6 +22,7 @@ import { makeCallbackHandler } from "./handlers/callback"
 import { makeEndSessionHandler } from "./handlers/end-session"
 import { makeDiscoveryHandler, makeJwksHandler } from "./handlers/metadata"
 import { makeMethodRouteHandler } from "./handlers/method-route"
+import { makeParHandler } from "./handlers/par"
 import { makeIntrospectHandler, makeRevokeHandler } from "./handlers/revocation"
 import { makeTokenHandler } from "./handlers/token"
 import { makeUserinfoHandler } from "./handlers/userinfo"
@@ -68,6 +69,10 @@ export function buildRouter(deps: HttpDeps): Hono<HttpEnv> {
   app.use("/end_session", tenantMiddleware(deps))
   app.get("/end_session", makeEndSessionHandler(deps))
   app.post("/end_session", makeEndSessionHandler(deps))
+
+  // RFC 9126 Pushed Authorization Requests.
+  app.use("/par", tenantMiddleware(deps))
+  app.post("/par", makeParHandler(deps))
 
   return app
 }

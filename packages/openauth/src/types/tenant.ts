@@ -134,6 +134,12 @@ export type PublicClientConfig = {
    * `/end_session` endpoint refuses any `post_logout_redirect_uri`.
    */
   postLogoutRedirectUris?: string[]
+  /**
+   * RFC 9126 §2: when `true`, the client MUST use Pushed Authorization
+   * Requests; a direct `GET /authorize` call without `request_uri` is
+   * rejected with `invalid_request`.
+   */
+  requirePushedAuthorizationRequests?: boolean
   /** Phase 8. */
   dpopRequired?: boolean
 }
@@ -157,6 +163,12 @@ export type ConfidentialClientConfig = {
    * logout (OIDC RP-Initiated Logout 1.0 §2). Exact-match.
    */
   postLogoutRedirectUris?: string[]
+  /**
+   * RFC 9126 §2: when `true`, the client MUST use Pushed Authorization
+   * Requests; a direct `GET /authorize` call without `request_uri` is
+   * rejected with `invalid_request`.
+   */
+  requirePushedAuthorizationRequests?: boolean
   /** Phase 8. */
   dpopRequired?: boolean
 }

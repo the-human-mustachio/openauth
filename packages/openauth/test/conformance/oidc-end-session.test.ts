@@ -21,6 +21,7 @@ import {
 } from "../../src/adapters/memory"
 import { s256Challenge } from "../../src/domain/pkce"
 import { verifyIdToken } from "../../src/domain/jwt"
+import type { TokenResponse } from "../../src/types/token"
 
 import {
   authorizeUrl,
@@ -92,7 +93,7 @@ async function loginAndGetTokens(opts: {
   )
   const cb = await driveCallback(idp, authorize.headers.get("location")!)
   const code = new URL(cb.headers.get("location")!).searchParams.get("code")!
-  const tokens = await idp
+  const tokens = (await idp
     .handle(
       tokenRequest(issuerUrl, {
         grant_type: "authorization_code",
@@ -102,9 +103,15 @@ async function loginAndGetTokens(opts: {
         code_verifier: verifier,
       }),
     )
-    .then((r) => r.json())
+    .then((r) => r.json())) as TokenResponse
 
   return { idp, tokens, auditLog, tokenStore, keyStore, issuerUrl }
+}
+
+/** Narrow `id_token` to `string` for tests that require it. */
+function requireIdToken(t: TokenResponse): string {
+  if (!t.id_token) throw new Error("expected id_token")
+  return t.id_token
 }
 
 describe("OIDC RP-Initiated Logout 1.0 — /end_session conformance", () => {
@@ -114,7 +121,7 @@ describe("OIDC RP-Initiated Logout 1.0 — /end_session conformance", () => {
       postLogoutRedirectUris: ["https://app.example/post-logout"],
     })
     const url = new URL(h.issuerUrl + "/end_session")
-    url.searchParams.set("id_token_hint", h.tokens.id_token)
+    url.searchParams.set("id_token_hint", requireIdToken(h.tokens))
     url.searchParams.set(
       "post_logout_redirect_uri",
       "https://app.example/post-logout",
@@ -133,7 +140,7 @@ describe("OIDC RP-Initiated Logout 1.0 — /end_session conformance", () => {
       postLogoutRedirectUris: ["https://app.example/post-logout"],
     })
     const url = new URL(h.issuerUrl + "/end_session")
-    url.searchParams.set("id_token_hint", h.tokens.id_token)
+    url.searchParams.set("id_token_hint", requireIdToken(h.tokens))
     url.searchParams.set(
       "post_logout_redirect_uri",
       "https://evil.example/steal",
@@ -149,17 +156,19 @@ describe("OIDC RP-Initiated Logout 1.0 — /end_session conformance", () => {
       postLogoutRedirectUris: ["https://app.example/post-logout"],
     })
     // First confirm the refresh token still works.
+    const initialRefresh = h.tokens.refresh_token
+    if (!initialRefresh) throw new Error("expected initial refresh_token")
     const preCheck = await h.idp.handle(
       tokenRequest(h.issuerUrl, {
         grant_type: "refresh_token",
-        refresh_token: h.tokens.refresh_token,
+        refresh_token: initialRefresh,
       }),
     )
     expect(preCheck.status).toBe(200)
-    const fresh = await preCheck.json()
+    const fresh = (await preCheck.json()) as TokenResponse
 
     const url = new URL(h.issuerUrl + "/end_session")
-    url.searchParams.set("id_token_hint", fresh.id_token)
+    url.searchParams.set("id_token_hint", requireIdToken(fresh))
     url.searchParams.set(
       "post_logout_redirect_uri",
       "https://app.example/post-logout",
@@ -168,10 +177,12 @@ describe("OIDC RP-Initiated Logout 1.0 — /end_session conformance", () => {
     expect(logout.status).toBe(302)
 
     // The (rotated) refresh token must now be revoked.
+    const rotatedRefresh = fresh.refresh_token
+    if (!rotatedRefresh) throw new Error("expected rotated refresh_token")
     const postCheck = await h.idp.handle(
       tokenRequest(h.issuerUrl, {
         grant_type: "refresh_token",
-        refresh_token: fresh.refresh_token,
+        refresh_token: rotatedRefresh,
       }),
     )
     expect(postCheck.status).toBe(400)
@@ -183,7 +194,7 @@ describe("OIDC RP-Initiated Logout 1.0 — /end_session conformance", () => {
     const res = await h.idp.handle(
       new Request(h.issuerUrl + "/.well-known/openid-configuration"),
     )
-    const doc = await res.json()
+    const doc = (await res.json()) as Record<string, unknown>
     expect(doc.end_session_endpoint).toBe(h.issuerUrl + "/end_session")
   })
 
@@ -197,14 +208,14 @@ describe("OIDC RP-Initiated Logout 1.0 — /end_session conformance", () => {
     // with `acceptExpired: true` doesn't reject the in-date token, and
     // that the endpoint behavior matches.
     const keys = unwrapKeys(await h.keyStore.signingKeys())
-    const claims = await verifyIdToken(h.tokens.id_token, keys, {
+    const claims = await verifyIdToken(requireIdToken(h.tokens), keys, {
       acceptExpired: true,
       issuer: h.issuerUrl,
     })
     expect(claims.sub).toBeString()
 
     const url = new URL(h.issuerUrl + "/end_session")
-    url.searchParams.set("id_token_hint", h.tokens.id_token)
+    url.searchParams.set("id_token_hint", requireIdToken(h.tokens))
     url.searchParams.set(
       "post_logout_redirect_uri",
       "https://app.example/post-logout",
@@ -219,7 +230,7 @@ describe("OIDC RP-Initiated Logout 1.0 — /end_session conformance", () => {
       postLogoutRedirectUris: ["https://app.example/post-logout"],
     })
     const body = new URLSearchParams({
-      id_token_hint: h.tokens.id_token,
+      id_token_hint: requireIdToken(h.tokens),
       post_logout_redirect_uri: "https://app.example/post-logout",
       state: "x",
     })
@@ -242,7 +253,7 @@ describe("OIDC RP-Initiated Logout 1.0 — /end_session conformance", () => {
       postLogoutRedirectUris: ["https://app.example/post-logout"],
     })
     const url = new URL(h.issuerUrl + "/end_session")
-    url.searchParams.set("id_token_hint", h.tokens.id_token)
+    url.searchParams.set("id_token_hint", requireIdToken(h.tokens))
     url.searchParams.set("client_id", "different-rp")
     const res = await h.idp.handle(new Request(url.toString()))
     expect(res.status).toBe(400)
@@ -262,7 +273,7 @@ describe("OIDC RP-Initiated Logout 1.0 — /end_session conformance", () => {
       postLogoutRedirectUris: ["https://app.example/post-logout"],
     })
     const url = new URL(h.issuerUrl + "/end_session")
-    url.searchParams.set("id_token_hint", h.tokens.id_token)
+    url.searchParams.set("id_token_hint", requireIdToken(h.tokens))
     url.searchParams.set(
       "post_logout_redirect_uri",
       "https://app.example/post-logout",

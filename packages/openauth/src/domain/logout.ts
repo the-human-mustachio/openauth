@@ -87,9 +87,10 @@ export async function endSession(
       hintSubject = claims.sub
       hintAud = claims.aud
     } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e)
       return err(
         authError.invalidRequest(
-          `id_token_hint failed signature/issuer verification: ${(e as Error).message}`,
+          `id_token_hint failed signature/issuer verification: ${reason}`,
           "id_token_hint",
         ),
       )
