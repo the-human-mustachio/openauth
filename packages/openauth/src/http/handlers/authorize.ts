@@ -17,7 +17,10 @@ import { isErr } from "../../types/result"
 import { startAuthorize } from "../../domain/authorize"
 import { asTenantId } from "../../types/tenant"
 import { authError } from "../../types/error"
-import type { AuthorizationRequest } from "../../types/authorization"
+import type {
+  AuthorizationRequest,
+  ClaimsRequest,
+} from "../../types/authorization"
 import type { PickerContext, PickerMethod } from "../../types/picker"
 import { renderPicker as renderDefaultPicker } from "../../ui/picker"
 
@@ -121,6 +124,17 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
       })
     }
 
+    let claimsRequest: ClaimsRequest | undefined
+    if (q.claims !== undefined) {
+      const parsedClaims = parseClaimsParameter(q.claims)
+      if (!parsedClaims.ok) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(parsedClaims.error, "claims"),
+        )
+      }
+      claimsRequest = parsedClaims.value
+    }
+
     const request: AuthorizationRequest = {
       tenantId: asTenantId(tenant.id),
       clientId: q.client_id,
@@ -139,6 +153,7 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
       ...(q.prompt !== undefined ? { prompt: q.prompt } : {}),
       ...(q.ui_locales !== undefined ? { uiLocales: q.ui_locales } : {}),
       ...(q.nonce !== undefined ? { nonce: q.nonce } : {}),
+      ...(claimsRequest !== undefined ? { claimsRequest } : {}),
     }
 
     const result = await startAuthorize(
@@ -248,6 +263,71 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
       }
     }
   }
+}
+
+/**
+ * Parse + validate the OIDC Core §5.5 `claims` parameter. Accepts a
+ * JSON string; verifies it's an object whose `userinfo` / `id_token`
+ * values, if present, are objects mapping claim names to `null` or
+ * `{essential?, value?, values?}` entries. Returns a discriminated
+ * `{ok, value}` shape so the caller can map failure → `invalid_request`
+ * without dragging the AuthError import into this helper.
+ */
+function parseClaimsParameter(
+  raw: string,
+): { ok: true; value: ClaimsRequest } | { ok: false; error: string } {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (e) {
+    return {
+      ok: false,
+      error: `claims parameter is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, error: "claims parameter must be a JSON object" }
+  }
+  const obj = parsed as Record<string, unknown>
+  const result: ClaimsRequest = {}
+  for (const section of ["userinfo", "id_token"] as const) {
+    const v = obj[section]
+    if (v === undefined) continue
+    if (!v || typeof v !== "object" || Array.isArray(v)) {
+      return {
+        ok: false,
+        error: `claims.${section} must be a JSON object`,
+      }
+    }
+    const sectionMap: Record<
+      string,
+      { essential?: boolean; value?: unknown; values?: unknown[] } | null
+    > = {}
+    for (const [name, entry] of Object.entries(v)) {
+      if (entry === null) {
+        sectionMap[name] = null
+        continue
+      }
+      if (typeof entry !== "object" || Array.isArray(entry)) {
+        return {
+          ok: false,
+          error: `claims.${section}.${name} must be null or a JSON object`,
+        }
+      }
+      const e = entry as Record<string, unknown>
+      const normalized: {
+        essential?: boolean
+        value?: unknown
+        values?: unknown[]
+      } = {}
+      if (typeof e.essential === "boolean") normalized.essential = e.essential
+      if ("value" in e) normalized.value = e.value
+      if (Array.isArray(e.values)) normalized.values = e.values
+      sectionMap[name] = normalized
+    }
+    result[section] = sectionMap
+  }
+  return { ok: true, value: result }
 }
 
 function clearFlowCookie() {

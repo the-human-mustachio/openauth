@@ -6,6 +6,7 @@
  * Per AD9, access tokens are JWTs (ES256 by default, Ed25519 optional per
  * AD11) and refresh tokens are opaque server-side records.
  */
+import type { ClaimsRequest } from "./authorization"
 import type { SubjectClaim } from "./subject"
 import type { TenantId } from "./tenant"
 
@@ -49,6 +50,8 @@ export type CodePayload = {
    * across refresh-token rotations.
    */
   authTime: number
+  /** OIDC Core §5.5 — RP-requested claims; honored at id_token + /userinfo. */
+  claimsRequest?: ClaimsRequest
   /** Auth-code TTL is 60 s — framework refuses anything longer. */
   expiresAt: number
 }
@@ -151,6 +154,13 @@ export type AccessTokenClaims = {
   scope?: string
   /** DPoP confirmation claim (Phase 8). */
   cnf?: { jkt: string }
+  /**
+   * OIDC Core §5.5 — list of claim names the RP requested for the
+   * `/userinfo` response via the `claims` parameter. The resource server
+   * surface uses this to bypass scope-gating per §5.5; it is empty /
+   * absent when the RP did not use the `claims` parameter.
+   */
+  uic?: string[]
   /** The structured subject (matches `SubjectClaim`). Inlined for resource servers. */
   claim: SubjectClaim
 }
@@ -192,6 +202,11 @@ export type RefreshTokenPayload = {
    * = the token is plain Bearer and Bearer is acceptable on refresh.
    */
   dpopJkt?: string
+  /**
+   * OIDC Core §12 — the original RP-requested claims, preserved so
+   * refresh-grant id_token + /userinfo responses keep returning them.
+   */
+  claimsRequest?: ClaimsRequest
   /** Wall-clock issuance and absolute-expiry timestamps. */
   issuedAt: number
   expiresAt: number

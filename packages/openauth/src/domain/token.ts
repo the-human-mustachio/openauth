@@ -258,6 +258,12 @@ export async function mintTokens(args: {
      * rotation re-enforces sender constraint.
      */
     dpopJkt?: string
+    /**
+     * OIDC Core §5.5 — RP-requested claims from `/authorize`. Carried
+     * into the id_token and forward across refresh rotations (§12) so
+     * later /userinfo calls keep returning the requested fields.
+     */
+    claimsRequest?: import("../types/authorization").ClaimsRequest
   }
   family: string
   /**
@@ -293,6 +299,9 @@ export async function mintTokens(args: {
   if (isErr(keyRes)) return err(keyRes.error)
   const signingKey = keyRes.value
 
+  const userinfoClaimNames = Object.keys(
+    payload.claimsRequest?.userinfo ?? {},
+  )
   const claims: AccessTokenClaims = {
     iss: deps.issuerUrl,
     sub: subjectId,
@@ -307,6 +316,7 @@ export async function mintTokens(args: {
     ...(payload.dpopJkt !== undefined
       ? { cnf: { jkt: payload.dpopJkt } }
       : {}),
+    ...(userinfoClaimNames.length > 0 ? { uic: userinfoClaimNames } : {}),
   }
 
   let accessToken: string
@@ -342,6 +352,9 @@ export async function mintTokens(args: {
       // OIDC Core §12 (refresh does not re-authenticate the user).
       authTime: payload.authTime ?? Math.floor(now / 1000),
       ...(payload.dpopJkt !== undefined ? { dpopJkt: payload.dpopJkt } : {}),
+      ...(payload.claimsRequest !== undefined
+        ? { claimsRequest: payload.claimsRequest }
+        : {}),
       issuedAt: now,
       expiresAt: now + refreshTtl,
     }
@@ -365,6 +378,9 @@ export async function mintTokens(args: {
       now,
       methodKind: payload.methodKind,
       accessToken,
+      ...(payload.claimsRequest !== undefined
+        ? { claimsRequest: payload.claimsRequest }
+        : {}),
     })
     try {
       idToken = await signIdToken(

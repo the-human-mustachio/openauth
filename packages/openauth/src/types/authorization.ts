@@ -37,6 +37,31 @@ export type AuthorizationRequest = {
   uiLocales?: string[]
   /** Standard OIDC. */
   nonce?: string
+  /**
+   * OIDC Core §5.5 — RP-requested claims, parsed from the `claims`
+   * parameter's JSON value. The library currently honors claim **names**
+   * (additive, bypasses scope gating) but does not enforce the
+   * `essential` / `value` / `values` qualifiers.
+   */
+  claimsRequest?: ClaimsRequest
+}
+
+/**
+ * OIDC Core §5.5 `claims` parameter. Each section maps claim name to an
+ * optional qualifier object (`{essential, value, values}`) or `null`
+ * meaning "just request the claim without qualifiers".
+ */
+export type ClaimsRequest = {
+  /** Claims to include in the `/userinfo` response. */
+  userinfo?: Record<string, ClaimRequestEntry | null>
+  /** Claims to include in the `id_token`. */
+  id_token?: Record<string, ClaimRequestEntry | null>
+}
+
+export type ClaimRequestEntry = {
+  essential?: boolean
+  value?: unknown
+  values?: unknown[]
 }
 
 /**

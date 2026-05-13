@@ -23,6 +23,7 @@
  * via the host claim hook (Phase E).
  */
 import { base64url, sha256, utf8 } from "./crypto"
+import type { ClaimsRequest } from "../types/authorization"
 import type { IdTokenClaims, ScopedProfileClaims } from "../types/token"
 import type { SubjectClaim } from "../types/subject"
 
@@ -90,9 +91,16 @@ export async function computeAtHash(accessToken: string): Promise<string> {
 
 /**
  * Filter a `SubjectClaim.properties` record down to claims granted by the
- * requested OIDC scopes. Returns a typed `ScopedProfileClaims` ready to
- * spread into the id_token or `/userinfo` response. Properties not named
- * by any granted scope's claim list are dropped.
+ * requested OIDC scopes, then optionally augment with claim names the RP
+ * specifically requested via the OIDC Core §5.5 `claims` parameter.
+ * Returns a typed `ScopedProfileClaims` ready to spread into the id_token
+ * or `/userinfo` response. Properties not named by any granted scope or
+ * explicit claim request are dropped.
+ *
+ * `extra` is the set of claim names the RP requested via `claims`
+ * parameter for THIS surface (id_token vs userinfo). Listing a name in
+ * `extra` bypasses scope gating per §5.5 ("works without the requestor
+ * having to include the scope value").
  *
  * Host-supplied values are trusted to match their declared OIDC types
  * — schemas live on `IdPOptions.subjects`, not here. The narrowing cast
@@ -102,6 +110,7 @@ export async function computeAtHash(accessToken: string): Promise<string> {
 export function pickScopedClaims(
   claim: SubjectClaim,
   scopes: ReadonlyArray<string>,
+  extra: ReadonlyArray<string> = [],
 ): ScopedProfileClaims {
   const props = (claim as { properties: Record<string, unknown> }).properties
   if (!props || typeof props !== "object") return {}
@@ -111,6 +120,7 @@ export function pickScopedClaims(
     if (!list) continue
     for (const c of list) granted.add(c)
   }
+  for (const name of extra) granted.add(name)
   const out: Record<string, unknown> = {}
   for (const key of granted) {
     if (key in props && props[key] !== undefined) out[key] = props[key]
@@ -138,6 +148,8 @@ export type BuildIdTokenInput = {
   methodKind: string
   /** Pre-signed access token whose `at_hash` is bound into the id_token. */
   accessToken: string
+  /** OIDC Core §5.5 — RP-requested claims (this drives only id_token here). */
+  claimsRequest?: ClaimsRequest
 }
 
 export const DEFAULT_ID_TOKEN_TTL_MS = 5 * 60 * 1000
@@ -156,6 +168,7 @@ export async function buildIdTokenClaims(
 ): Promise<IdTokenClaims> {
   const ttl = input.ttlMs ?? DEFAULT_ID_TOKEN_TTL_MS
   const amr = deriveAmr(input.methodKind)
+  const extraClaims = Object.keys(input.claimsRequest?.id_token ?? {})
   return {
     iss: input.issuerUrl,
     sub: input.subjectId,
@@ -166,7 +179,7 @@ export async function buildIdTokenClaims(
     at_hash: await computeAtHash(input.accessToken),
     ...(input.appNonce !== undefined ? { nonce: input.appNonce } : {}),
     ...(amr ? { amr } : {}),
-    ...pickScopedClaims(input.claim, input.scopes),
+    ...pickScopedClaims(input.claim, input.scopes, extraClaims),
   }
 }
 

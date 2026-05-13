@@ -58,6 +58,12 @@ export const authorizeQuerySchema = z
     prompt: csv.optional(),
     ui_locales: csv.optional(),
     nonce: z.string().optional(),
+    /**
+     * OIDC Core §5.5 — JSON-encoded claims request. Parsing + structural
+     * validation happens in the domain layer; here we just accept any
+     * non-empty string and let the handler parse + reject malformed.
+     */
+    claims: z.string().min(1).optional(),
   })
   .passthrough()
 

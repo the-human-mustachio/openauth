@@ -208,6 +208,9 @@ async function translate(
           providerSubject: result.providerSubject,
           properties: result.properties,
           ...(flow.appNonce !== undefined ? { appNonce: flow.appNonce } : {}),
+          ...(flow.claimsRequest !== undefined
+            ? { claimsRequest: flow.claimsRequest }
+            : {}),
           authTime: Math.floor(now / 1000),
           expiresAt: now + AUTH_CODE_TTL_MS,
         },

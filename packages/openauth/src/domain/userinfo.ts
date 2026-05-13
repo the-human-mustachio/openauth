@@ -144,7 +144,11 @@ export async function userinfo(
   }
 
   const scopes = claims.scope ? claims.scope.split(" ").filter(Boolean) : []
-  const scopedClaims = pickScopedClaims(claim, scopes)
+  // OIDC Core §5.5 — claims the RP requested via `claims=...userinfo:...`
+  // bypass scope gating. Names were captured into `uic` at mint time so
+  // the resource server doesn't need to re-resolve the original /authorize
+  // request.
+  const scopedClaims = pickScopedClaims(claim, scopes, claims.uic ?? [])
 
   return ok({
     sub: claims.sub,

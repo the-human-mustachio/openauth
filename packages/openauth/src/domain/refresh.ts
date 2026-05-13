@@ -185,6 +185,10 @@ export async function refreshTokens(
       authTime: payload.authTime,
       // Preserve DPoP binding across refresh rotation (§6.1).
       ...(payload.dpopJkt !== undefined ? { dpopJkt: payload.dpopJkt } : {}),
+      // Preserve OIDC §5.5 claims-parameter intent across refresh (§12).
+      ...(payload.claimsRequest !== undefined
+        ? { claimsRequest: payload.claimsRequest }
+        : {}),
     },
     family: payload.family,
     deps,
