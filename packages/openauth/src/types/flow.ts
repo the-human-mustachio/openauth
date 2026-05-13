@@ -57,6 +57,13 @@ export type FlowRecord = {
    */
   nonce: string
   /**
+   * Relying party's OIDC `nonce` parameter (OIDC Core §3.1.2.1). Distinct
+   * from `nonce` (which is the framework's CSRF nonce for state-MAC
+   * binding). When present, must be echoed in the issued `id_token`
+   * (OIDC Core §2). Snapshotted into `CodePayload.appNonce` at success.
+   */
+  appNonce?: string
+  /**
    * Relying-party → IdP PKCE. The RP generates the verifier and sends the
    * challenge to `/authorize`. Verified at `/token`.
    * Required for public clients.

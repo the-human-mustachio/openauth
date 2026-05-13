@@ -37,8 +37,102 @@ export type CodePayload = {
   providerSubject: string
   /** Typed-per-method properties from `MethodResult.success`. */
   properties: unknown
+  /**
+   * Relying party's OIDC `nonce` (OIDC Core §3.1.2.1). Snapshotted from
+   * `FlowRecord.appNonce`. Echoed into the issued `id_token` when present.
+   */
+  appNonce?: string
+  /**
+   * Seconds-since-epoch when end-user authentication completed
+   * (OIDC Core §2 `auth_time`). Stamped at the moment the method's
+   * `MethodResult.success` fires. Carried into the `id_token` and forward
+   * across refresh-token rotations.
+   */
+  authTime: number
   /** Auth-code TTL is 60 s — framework refuses anything longer. */
   expiresAt: number
+}
+
+/**
+ * OIDC Core §5.1 `address` claim. Structured object value rather than a
+ * scalar — distinct from the rest of the profile fields.
+ */
+export type AddressClaim = {
+  formatted?: string
+  street_address?: string
+  locality?: string
+  region?: string
+  postal_code?: string
+  country?: string
+}
+
+/**
+ * OIDC Core §5.1 profile / email / phone / address claims, gated by the
+ * `profile` / `email` / `phone` / `address` scopes via §5.4. Reused by
+ * `IdTokenClaims` and the `/userinfo` response so the two surfaces share
+ * exactly one source of truth for scope→claim mapping.
+ *
+ * Every field is optional: presence depends on (a) which scopes were
+ * granted and (b) whether the host populated the matching key in
+ * `SubjectClaim.properties`.
+ */
+export type ScopedProfileClaims = {
+  // `profile` scope
+  name?: string
+  given_name?: string
+  family_name?: string
+  middle_name?: string
+  nickname?: string
+  preferred_username?: string
+  profile?: string
+  picture?: string
+  website?: string
+  gender?: string
+  birthdate?: string
+  zoneinfo?: string
+  locale?: string
+  updated_at?: number
+  // `email` scope
+  email?: string
+  email_verified?: boolean
+  // `phone` scope
+  phone_number?: string
+  phone_number_verified?: boolean
+  // `address` scope
+  address?: AddressClaim
+}
+
+/**
+ * OIDC `id_token` JWT claims this IdP issues at `/token` when `openid`
+ * scope is granted (OIDC Core §2). Distinct from access-token claims:
+ *
+ *  - `aud` is the relying-party `client_id` (not the API audience).
+ *  - `nonce` echoes the RP's `/authorize` `nonce` parameter when present.
+ *  - `auth_time` is stable across refresh-token rotations (OIDC Core §12).
+ *  - `at_hash` is recommended whenever an id_token and access_token are
+ *    returned in the same response (§3.1.3.6).
+ *
+ * Standard OIDC claim names use snake_case on the wire; TypeScript field
+ * names match to keep the marshalling 1:1.
+ */
+export type IdTokenClaims = ScopedProfileClaims & {
+  iss: string
+  sub: string
+  aud: string
+  exp: number
+  iat: number
+  /** Seconds-since-epoch when end-user auth completed. */
+  auth_time?: number
+  /** RP-supplied OIDC nonce, when present. MUST equal the `/authorize` value. */
+  nonce?: string
+  /** Authentication Methods References (RFC 8176). */
+  amr?: string[]
+  /** Authentication Context Class Reference. */
+  acr?: string
+  /** Authorized party — the client_id of the party the id_token is for. */
+  azp?: string
+  /** Access-token hash (OIDC Core §3.1.3.6). */
+  at_hash?: string
 }
 
 /** Access-token JWT claims this IdP issues. */
@@ -85,6 +179,12 @@ export type RefreshTokenPayload = {
   methodId: string
   /** Factory kind (`MethodConfig.kind`) that originated the chain. */
   methodKind: string
+  /**
+   * Seconds-since-epoch when end-user authentication originally completed
+   * (OIDC Core §2 `auth_time`). Stable across refresh-token rotations —
+   * `auth_time` does **not** advance on refresh, only on re-authentication.
+   */
+  authTime: number
   /** Wall-clock issuance and absolute-expiry timestamps. */
   issuedAt: number
   expiresAt: number

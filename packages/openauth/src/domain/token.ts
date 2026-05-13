@@ -47,7 +47,8 @@ import {
   sha256,
   utf8,
 } from "./crypto"
-import { signAccessToken } from "./jwt"
+import { buildIdTokenClaims, shouldIssueIdToken } from "./id-token"
+import { signAccessToken, signIdToken } from "./jwt"
 import { validatePkce } from "./pkce"
 
 /**
@@ -198,7 +199,7 @@ export async function exchangeCode(
     }
   }
 
-  // 8. Mint access + refresh.
+  // 8. Mint access + refresh (+ id_token if `openid` scope was granted).
   const minted = await mintTokens({
     tenant,
     claim,
@@ -219,7 +220,17 @@ export async function mintTokens(args: {
   payload: Pick<
     CodePayload,
     "tenantId" | "clientId" | "methodId" | "methodKind" | "scopes" | "audience"
-  >
+  > & {
+    /**
+     * Present on `authorization_code` and `refresh_token` grants where an
+     * end-user actually authenticated. Absent on `client_credentials`
+     * (no end-user) — and absent means no `id_token` is emitted even if
+     * the requested scopes nominally include `openid`.
+     */
+    authTime?: number
+    /** RP's OIDC `nonce` from `/authorize`, when present. */
+    appNonce?: string
+  }
   family: string
   /**
    * `client_credentials` grants (RFC 6749 §4.4.3) and other paths where a
@@ -295,11 +306,44 @@ export async function mintTokens(args: {
       family,
       methodId: payload.methodId,
       methodKind: payload.methodKind,
+      // Carry the original end-user auth time forward. Refresh-grant
+      // reissue uses this verbatim so `id_token.auth_time` is stable per
+      // OIDC Core §12 (refresh does not re-authenticate the user).
+      authTime: payload.authTime ?? Math.floor(now / 1000),
       issuedAt: now,
       expiresAt: now + refreshTtl,
     }
     const saved = await deps.tokenStore.saveRefresh(refresh, refreshPayload)
     if (isErr(saved)) return err(saved.error)
+  }
+
+  // OIDC id_token issuance — only when the grant carried an end-user
+  // (`authTime` present) AND `openid` scope was granted. Client-credentials
+  // never satisfies the first condition; refresh + code do.
+  let idToken: string | undefined
+  if (payload.authTime !== undefined && shouldIssueIdToken(payload.scopes)) {
+    const idClaims = await buildIdTokenClaims({
+      issuerUrl: deps.issuerUrl,
+      audience: payload.clientId,
+      subjectId,
+      claim,
+      scopes: payload.scopes,
+      authTime: payload.authTime,
+      ...(payload.appNonce !== undefined ? { appNonce: payload.appNonce } : {}),
+      now,
+      methodKind: payload.methodKind,
+      accessToken,
+    })
+    try {
+      idToken = await signIdToken(
+        idClaims,
+        signingKey.privateKeyRef as Parameters<typeof signIdToken>[1],
+        signingKey.alg,
+        signingKey.kid,
+      )
+    } catch (e) {
+      return err(authError.serverError("id_token sign failed", e))
+    }
   }
 
   await safeAudit(deps, {
@@ -318,6 +362,7 @@ export async function mintTokens(args: {
     token_type: "Bearer",
     expires_in: Math.floor(accessTtl / 1000),
     ...(refresh !== undefined ? { refresh_token: refresh } : {}),
+    ...(idToken !== undefined ? { id_token: idToken } : {}),
     scope: payload.scopes.join(" "),
   })
 }

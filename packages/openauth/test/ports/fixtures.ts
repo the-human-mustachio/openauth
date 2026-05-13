@@ -53,6 +53,7 @@ export function makeCodePayload(
     context: null,
     providerSubject: "ps-google-123",
     properties: { email: "ada@example.com" },
+    authTime: Math.floor(Date.now() / 1000),
     expiresAt: Date.now() + 60_000,
     ...overrides,
   }
@@ -74,6 +75,7 @@ export function makeRefreshPayload(
     family: "fam-1",
     methodId: "test-method",
     methodKind: "test-kind",
+    authTime: Math.floor(Date.now() / 1000),
     issuedAt: Date.now(),
     expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
     ...overrides,

@@ -57,8 +57,11 @@ export type {
 
 export type {
   AccessTokenClaims,
+  AddressClaim,
   CodePayload,
+  IdTokenClaims,
   RefreshTokenPayload,
+  ScopedProfileClaims,
   TokenResponse,
 } from "./types/token"
 

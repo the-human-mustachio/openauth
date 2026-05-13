@@ -150,6 +150,11 @@ export async function refreshTokens(
       methodKind: payload.methodKind,
       scopes: requestedScopes,
       audience: payload.audience,
+      // `auth_time` is stable across refresh rotations per OIDC Core §12;
+      // refresh does not re-authenticate the user. `nonce` is deliberately
+      // NOT carried forward — the nonce was bound to the original
+      // `/authorize` request and should not reappear on rotated id_tokens.
+      authTime: payload.authTime,
     },
     family: payload.family,
     deps,
