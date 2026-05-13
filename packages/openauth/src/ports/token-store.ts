@@ -100,4 +100,17 @@ export type TokenStore = {
    * preferred; documented eventual lag acceptable.
    */
   revokeBySubject(tenantId: TenantId, subjectId: string): Promise<Result<void>>
+
+  /**
+   * Optional: DPoP proof replay protection (RFC 9449 §11.1). Atomically
+   * record the proof's `jti` and reject if it's been seen within the TTL
+   * window. Returns `invalid_grant` (with `reuseSignal` omitted) when a
+   * `jti` is already present.
+   *
+   * Adapters without this method cannot satisfy DPoP at the token /
+   * userinfo endpoints; the framework's DPoP verifier returns
+   * `invalid_dpop_proof` when called against such a store. Memory adapter
+   * implements; production adapters follow in subsequent commits.
+   */
+  recordDpopJti?(jti: string, ttlMs: number): Promise<Result<void>>
 }

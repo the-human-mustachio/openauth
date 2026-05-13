@@ -185,6 +185,13 @@ export type RefreshTokenPayload = {
    * `auth_time` does **not** advance on refresh, only on re-authentication.
    */
   authTime: number
+  /**
+   * RFC 7638 JWK thumbprint of the client's DPoP key (RFC 9449 §6.1).
+   * Present when the original token grant was DPoP-bound. Refresh-grant
+   * rotation REQUIRES a fresh DPoP proof whose thumbprint matches; absent
+   * = the token is plain Bearer and Bearer is acceptable on refresh.
+   */
+  dpopJkt?: string
   /** Wall-clock issuance and absolute-expiry timestamps. */
   issuedAt: number
   expiresAt: number

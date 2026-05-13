@@ -17,6 +17,7 @@
  * refresh-token snapshot is authoritative.
  */
 import { clientCredentialsGrant } from "../../domain/client-credentials"
+import { canonicalHtu, verifyDpopProof } from "../../domain/dpop"
 import { exchangeCode } from "../../domain/token"
 import { exchangeToken } from "../../domain/token-exchange"
 import { refreshTokens } from "../../domain/refresh"
@@ -39,10 +40,33 @@ export function makeTokenHandler(deps: HttpDeps) {
       )
     }
 
+    // `Authorization` carries Basic client auth on /token. DPoP travels in
+    // its own `DPoP:` header (RFC 9449 §5) — never inside `Authorization`.
+    // Parsing Basic first lets a confidential client present its secret
+    // alongside a DPoP proof.
     const basic = parseBasicAuth(c.req.header("authorization") ?? null)
     if (basic) {
       body.set("client_id", basic.id)
       body.set("client_secret", basic.secret)
+    }
+
+    // RFC 9449 §5.1 — verify any presented DPoP proof against this
+    // request's actual method + URI. Absent header is fine here (the
+    // grant-specific path enforces `dpopRequired`).
+    const dpopHeader = c.req.header("dpop") ?? null
+    let dpopJkt: string | undefined
+    if (dpopHeader) {
+      const dpopRes = await verifyDpopProof(
+        {
+          proofJwt: dpopHeader,
+          htu: canonicalHtu(c.req.url),
+          htm: "POST",
+          nowSec: Math.floor(deps.clock() / 1000),
+        },
+        { tokenStore: deps.tokenStore },
+      )
+      if (isErr(dpopRes)) return tokenEndpointErrorResponse(dpopRes.error)
+      dpopJkt = dpopRes.value.jkt
     }
 
     const parsed = tokenRequestSchema.safeParse(
@@ -77,6 +101,7 @@ export function makeTokenHandler(deps: HttpDeps) {
           ...(req.code_verifier !== undefined
             ? { codeVerifier: req.code_verifier }
             : {}),
+          ...(dpopJkt !== undefined ? { dpopJkt } : {}),
         },
         {
           configStore: deps.configStore,
@@ -150,6 +175,7 @@ export function makeTokenHandler(deps: HttpDeps) {
           ...(req.client_secret !== undefined
             ? { clientSecret: req.client_secret }
             : {}),
+          ...(dpopJkt !== undefined ? { dpopJkt } : {}),
         },
         {
           configStore: deps.configStore,

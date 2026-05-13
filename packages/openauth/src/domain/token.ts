@@ -89,6 +89,13 @@ export type TokenAuthCodeRequest = {
   clientSecret?: string
   /** Required if the original `/authorize` request had a `code_challenge`. */
   codeVerifier?: string
+  /**
+   * RFC 9449 §6 — the JWK thumbprint of the presented DPoP proof. Set by
+   * the HTTP layer after verifying the `DPoP:` header against this
+   * request's actual method + URI. The domain binds the issued access
+   * token to this thumbprint via `cnf.jkt`.
+   */
+  dpopJkt?: string
 }
 
 export type ExchangeCodeDeps = {
@@ -141,6 +148,17 @@ export async function exchangeCode(
   }
   const authResult = await verifyClientCredentials(client, req.clientSecret)
   if (authResult) return err(authResult)
+
+  // RFC 9449 §5.2 — if the client is configured to require DPoP, a
+  // bearer-only request (no DPoP header → no `dpopJkt` threaded in) is
+  // refused with `invalid_dpop_proof` before any token is minted.
+  if (client.dpopRequired && req.dpopJkt === undefined) {
+    return err(
+      authError.invalidDpopProof(
+        `client "${client.id}" requires DPoP-bound tokens`,
+      ),
+    )
+  }
 
   // 4. Redirect URI binding.
   if (payload.appRedirectUri !== req.redirectUri) {
@@ -203,7 +221,10 @@ export async function exchangeCode(
   const minted = await mintTokens({
     tenant,
     claim,
-    payload,
+    payload: {
+      ...payload,
+      ...(req.dpopJkt !== undefined ? { dpopJkt: req.dpopJkt } : {}),
+    },
     deps,
     family: (deps.newRefreshFamily ?? randomId)(),
   })
@@ -230,6 +251,13 @@ export async function mintTokens(args: {
     authTime?: number
     /** RP's OIDC `nonce` from `/authorize`, when present. */
     appNonce?: string
+    /**
+     * DPoP key thumbprint (RFC 9449 §6.1). When present, the access
+     * token's `cnf.jkt` claim is set and `token_type` flips to `"DPoP"`;
+     * the saved refresh-token payload's `dpopJkt` is set so refresh
+     * rotation re-enforces sender constraint.
+     */
+    dpopJkt?: string
   }
   family: string
   /**
@@ -276,6 +304,9 @@ export async function mintTokens(args: {
     mkind: payload.methodKind,
     scope: payload.scopes.join(" "),
     claim,
+    ...(payload.dpopJkt !== undefined
+      ? { cnf: { jkt: payload.dpopJkt } }
+      : {}),
   }
 
   let accessToken: string
@@ -310,6 +341,7 @@ export async function mintTokens(args: {
       // reissue uses this verbatim so `id_token.auth_time` is stable per
       // OIDC Core §12 (refresh does not re-authenticate the user).
       authTime: payload.authTime ?? Math.floor(now / 1000),
+      ...(payload.dpopJkt !== undefined ? { dpopJkt: payload.dpopJkt } : {}),
       issuedAt: now,
       expiresAt: now + refreshTtl,
     }
@@ -359,7 +391,7 @@ export async function mintTokens(args: {
 
   return ok({
     access_token: accessToken,
-    token_type: "Bearer",
+    token_type: payload.dpopJkt !== undefined ? "DPoP" : "Bearer",
     expires_in: Math.floor(accessTtl / 1000),
     ...(refresh !== undefined ? { refresh_token: refresh } : {}),
     ...(idToken !== undefined ? { id_token: idToken } : {}),

@@ -29,6 +29,8 @@ export type DiscoveryDocument = {
    * is read at request time.
    */
   require_pushed_authorization_requests: boolean
+  /** RFC 9449 §5.1 — DPoP algorithms accepted on proof JWTs. */
+  dpop_signing_alg_values_supported: string[]
   response_types_supported: string[]
   grant_types_supported: string[]
   subject_types_supported: string[]
@@ -69,6 +71,7 @@ export function buildDiscoveryDocument(deps: DiscoveryDeps): DiscoveryDocument {
     end_session_endpoint: `${base}${p.endSession ?? "/end_session"}`,
     pushed_authorization_request_endpoint: `${base}${p.par ?? "/par"}`,
     require_pushed_authorization_requests: false,
+    dpop_signing_alg_values_supported: ["ES256", "EdDSA"],
     response_types_supported: ["code"],
     grant_types_supported: [
       "authorization_code",

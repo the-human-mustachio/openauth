@@ -34,6 +34,13 @@ export type RefreshGrantRequest = {
   /** Confidential clients authenticate at /token. */
   clientId?: string
   clientSecret?: string
+  /**
+   * RFC 9449 §6 — JWK thumbprint of the DPoP proof presented on this
+   * refresh request. MUST match `RefreshTokenPayload.dpopJkt` when the
+   * original grant was DPoP-bound; presence is REQUIRED for bound
+   * tokens, OPTIONAL otherwise.
+   */
+  dpopJkt?: string
 }
 
 export type RefreshTokensDeps = {
@@ -91,6 +98,27 @@ export async function refreshTokens(
     }
   } else if (client.type === "confidential") {
     return err(authError.invalidGrant(INVALID_REFRESH_DESC))
+  }
+
+  // RFC 9449 §5 — when the refresh token is DPoP-bound, verify the
+  // presented DPoP thumbprint matches BEFORE consuming. Consuming first
+  // would burn the token on a wrong-key probe AND trip reuse-detection
+  // on a subsequent legitimate retry with the right key.
+  if (peekedPayload.dpopJkt !== undefined) {
+    if (req.dpopJkt === undefined) {
+      return err(
+        authError.invalidDpopProof(
+          "refresh token is DPoP-bound; request is missing a DPoP proof",
+        ),
+      )
+    }
+    if (req.dpopJkt !== peekedPayload.dpopJkt) {
+      return err(
+        authError.invalidDpopProof(
+          "refresh token DPoP jkt does not match the original binding",
+        ),
+      )
+    }
   }
 
   const consumed = await deps.tokenStore.consumeRefresh(req.refreshToken, {
@@ -155,6 +183,8 @@ export async function refreshTokens(
       // NOT carried forward — the nonce was bound to the original
       // `/authorize` request and should not reappear on rotated id_tokens.
       authTime: payload.authTime,
+      // Preserve DPoP binding across refresh rotation (§6.1).
+      ...(payload.dpopJkt !== undefined ? { dpopJkt: payload.dpopJkt } : {}),
     },
     family: payload.family,
     deps,

@@ -50,6 +50,12 @@ export type AuthError =
   // endpoints. Use for control-flow signalling that should never escape to a
   // standards-compliant client.
   | { code: "internal_error"; description: string; cause?: unknown }
+  // RFC 9449 §5.2 — DPoP proof verification failed (bad signature, htm/htu
+  // mismatch, iat outside window, replayed jti, missing/mismatched cnf.jkt).
+  // Returned as a 400 with `error="invalid_dpop_proof"` on form-body
+  // endpoints; on resource-server endpoints it becomes a 401 with
+  // `WWW-Authenticate: DPoP error="invalid_dpop_proof"`.
+  | { code: "invalid_dpop_proof"; description: string }
 
 export type AuthErrorCode = AuthError["code"]
 
@@ -119,5 +125,9 @@ export const authError = {
     code: "internal_error",
     description,
     ...(cause !== undefined ? { cause } : {}),
+  }),
+  invalidDpopProof: (description: string): AuthError => ({
+    code: "invalid_dpop_proof",
+    description,
   }),
 }

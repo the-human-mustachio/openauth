@@ -31,6 +31,7 @@ function basePayload(): CodePayload {
     context: null,
     providerSubject: "ps-1",
     properties: { handle: "ada" },
+    authTime: Math.floor(Date.now() / 1000),
     expiresAt: Date.now() + 60_000,
   }
 }
@@ -202,10 +203,10 @@ describe("userinfo", () => {
   test("returns inlined subject claims for a valid bearer", async () => {
     const f = await fixture()
     const tokens = await issueTokens(f)
-    const r = await userinfo(tokens.access_token, {
-      keyStore: f.keyStore,
-      issuerUrl: "https://idp.example",
-    })
+    const r = await userinfo(
+      { accessToken: tokens.access_token, scheme: "Bearer" },
+      { keyStore: f.keyStore, issuerUrl: "https://idp.example" },
+    )
     expect(r.ok).toBe(true)
     if (r.ok) {
       expect(r.value.subject_type).toBe("user")
@@ -217,7 +218,10 @@ describe("userinfo", () => {
 
   test("rejects invalid bearer", async () => {
     const f = await fixture()
-    const r = await userinfo("garbage", { keyStore: f.keyStore })
+    const r = await userinfo(
+      { accessToken: "garbage", scheme: "Bearer" },
+      { keyStore: f.keyStore },
+    )
     expect(r.ok).toBe(false)
   })
 })
