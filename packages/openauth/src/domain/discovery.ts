@@ -21,6 +21,8 @@ export type DiscoveryDocument = {
   introspection_endpoint: string
   /** OIDC RP-Initiated Logout 1.0 §2. */
   end_session_endpoint: string
+  /** RFC 7591 §3.1. */
+  registration_endpoint: string
   /** RFC 9126 §5. */
   pushed_authorization_request_endpoint: string
   /**
@@ -64,6 +66,7 @@ export type DiscoveryDeps = {
     introspect: string
     endSession: string
     par: string
+    register: string
   }>
   /** Advertised scopes. Defaults to `["openid", "email", "profile"]`. */
   scopes?: string[]
@@ -83,6 +86,7 @@ export function buildDiscoveryDocument(deps: DiscoveryDeps): DiscoveryDocument {
     revocation_endpoint: `${base}${p.revoke ?? "/revoke"}`,
     introspection_endpoint: `${base}${p.introspect ?? "/introspect"}`,
     end_session_endpoint: `${base}${p.endSession ?? "/end_session"}`,
+    registration_endpoint: `${base}${p.register ?? "/register"}`,
     pushed_authorization_request_endpoint: `${base}${p.par ?? "/par"}`,
     require_pushed_authorization_requests: false,
     dpop_signing_alg_values_supported: ["ES256", "EdDSA"],
@@ -92,7 +96,7 @@ export function buildDiscoveryDocument(deps: DiscoveryDeps): DiscoveryDocument {
       "refresh_token",
       "client_credentials",
     ],
-    subject_types_supported: ["public"],
+    subject_types_supported: ["public", "pairwise"],
     id_token_signing_alg_values_supported: ["ES256", "EdDSA"],
     scopes_supported: deps.scopes ?? ["openid", "email", "profile"],
     claims_supported: [

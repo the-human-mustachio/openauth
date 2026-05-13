@@ -23,6 +23,7 @@ import { makeEndSessionHandler } from "./handlers/end-session"
 import { makeDiscoveryHandler, makeJwksHandler } from "./handlers/metadata"
 import { makeMethodRouteHandler } from "./handlers/method-route"
 import { makeParHandler } from "./handlers/par"
+import { makeRegisterHandler } from "./handlers/register"
 import { makeIntrospectHandler, makeRevokeHandler } from "./handlers/revocation"
 import { makeTokenHandler } from "./handlers/token"
 import { makeUserinfoHandler } from "./handlers/userinfo"
@@ -73,6 +74,12 @@ export function buildRouter(deps: HttpDeps): Hono<HttpEnv> {
   // RFC 9126 Pushed Authorization Requests.
   app.use("/par", tenantMiddleware(deps))
   app.post("/par", makeParHandler(deps))
+
+  // RFC 7591 Dynamic Client Registration. Tenant resolution uses the
+  // standard middleware — partitioned hosts may carve out per-tenant
+  // registration endpoints transparently.
+  app.use("/register", tenantMiddleware(deps))
+  app.post("/register", makeRegisterHandler(deps))
 
   return app
 }

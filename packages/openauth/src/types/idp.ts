@@ -15,6 +15,7 @@ import type { AnyAuthMethodFactory } from "./method"
 import type { Result } from "./result"
 import type { SubjectClaim, SubjectSchema } from "./subject"
 import type {
+  ClientConfig,
   StateKeyRing,
   TenantContext,
   TenantId,
@@ -120,6 +121,69 @@ export type ExchangeAudience = (
 ) => Promise<SubjectClaim | AuthError>
 
 /**
+ * RFC 7591 Dynamic Client Registration request body, normalized to the
+ * library's type system. The framework's `/register` handler parses the
+ * raw JSON, validates structure, then calls the host's `registerClient`
+ * hook with this shape. The host owns persistence — writing through its
+ * own `ConfigStore` — and returns the final `ClientConfig`.
+ */
+export type RegisterClientRequest = {
+  client_name?: string
+  redirect_uris: string[]
+  /** RFC 7591 §2 — defaults to `["authorization_code"]`. */
+  grant_types?: string[]
+  /** RFC 7591 §2 — defaults to `["code"]`. */
+  response_types?: string[]
+  /** RFC 7591 §2 — `"none"` = public client, otherwise confidential. */
+  token_endpoint_auth_method?:
+    | "none"
+    | "client_secret_basic"
+    | "client_secret_post"
+  scope?: string
+  /** OIDC RP-Initiated Logout 1.0 §2. */
+  post_logout_redirect_uris?: string[]
+  /** OIDC Core §8.1. */
+  sector_identifier_uri?: string
+  /** Free-form metadata the host may interpret. */
+  contacts?: string[]
+}
+
+/**
+ * RFC 7591 §3.2.1 response body. Returned verbatim from `/register` when
+ * the host hook produces a `ClientConfig`. `client_secret` is included
+ * only for confidential clients; public clients omit it.
+ */
+export type RegisterClientResponse = {
+  client_id: string
+  client_secret?: string
+  client_id_issued_at: number
+  client_secret_expires_at?: number
+  redirect_uris: string[]
+  grant_types?: string[]
+  response_types?: string[]
+  token_endpoint_auth_method?: string
+  client_name?: string
+}
+
+/**
+ * Optional Dynamic Client Registration hook. Hosts that want to expose
+ * RFC 7591 client provisioning supply this; the framework validates the
+ * wire format, then defers persistence to the host. If absent, the
+ * `/register` endpoint returns `invalid_request` so RPs receive a clear
+ * "not enabled" signal rather than a 404.
+ *
+ * The hook receives the parsed request, the resolved tenant, and the
+ * plaintext client secret (if any) the framework minted — hosts hash it
+ * with `hashClientSecret` before storing on `ClientConfig.secretHash`,
+ * then return the final `ClientConfig` along with the secret in the
+ * `RegisterClientResponse` so the RP can record it.
+ */
+export type RegisterClient = (input: {
+  tenant: TenantContext
+  request: RegisterClientRequest
+}) => Promise<Result<{ client: ClientConfig; secret?: string }, AuthError>>
+
+/**
  * Optional override for the default provider picker shown when an
  * `/authorize` request has multiple enabled methods and no `method_id`.
  *
@@ -214,6 +278,13 @@ export type IdPOptions = {
   renderPicker?: RenderPicker
 
   /**
+   * Optional RFC 7591 Dynamic Client Registration hook. See
+   * `RegisterClient` for the contract. When absent, `/register` rejects
+   * with `invalid_request: "dynamic client registration is not enabled"`.
+   */
+  registerClient?: RegisterClient
+
+  /**
    * Optional hook that builds the `TenantContext.request.custom` blob for
    * each request the framework processes (the initial `/authorize`, the
    * `/cb/*` callback, and any subsequent direct token endpoint hit).
@@ -270,4 +341,6 @@ export type IdP = {
   endSession: (req: Request) => Promise<Response>
   /** RFC 9126 Pushed Authorization Requests. */
   par: (req: Request) => Promise<Response>
+  /** RFC 7591 Dynamic Client Registration. */
+  register: (req: Request) => Promise<Response>
 }

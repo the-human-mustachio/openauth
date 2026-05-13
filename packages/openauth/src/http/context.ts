@@ -18,6 +18,7 @@ import type { AuthError } from "../types/error"
 import type {
   ExchangeAudience,
   PersistUpstreamTokens,
+  RegisterClient,
   RenderPicker,
   SuccessMapInput,
 } from "../types/idp"
@@ -51,6 +52,7 @@ export type HttpDeps = {
   persistUpstreamTokens?: PersistUpstreamTokens
   exchangeAudience?: ExchangeAudience
   renderPicker?: RenderPicker
+  registerClient?: RegisterClient
   /** Builds `TenantContext.request.custom` for every request. See `IdPOptions.buildCustomContext`. */
   buildCustomContext?: (
     req: Request,

@@ -77,6 +77,9 @@ export type {
   IdP,
   IdPOptions,
   PersistUpstreamTokens,
+  RegisterClient,
+  RegisterClientRequest,
+  RegisterClientResponse,
   RenderPicker,
   SuccessEvent,
   SuccessMapInput,
@@ -250,6 +253,7 @@ export function createIdP(opts: IdPOptions): IdP {
       ? { exchangeAudience: opts.exchangeAudience }
       : {}),
     ...(opts.renderPicker ? { renderPicker: opts.renderPicker } : {}),
+    ...(opts.registerClient ? { registerClient: opts.registerClient } : {}),
     ...(opts.buildCustomContext
       ? { buildCustomContext: opts.buildCustomContext }
       : {}),
@@ -277,5 +281,6 @@ export function createIdP(opts: IdPOptions): IdP {
     introspect: fetch,
     endSession: fetch,
     par: fetch,
+    register: fetch,
   }
 }

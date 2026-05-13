@@ -140,6 +140,14 @@ export type PublicClientConfig = {
    * rejected with `invalid_request`.
    */
   requirePushedAuthorizationRequests?: boolean
+  /**
+   * OIDC Core §8.1 — when set, the subject identifier (`sub`) is derived
+   * as a pairwise pseudonym keyed by this string. Two clients sharing
+   * the same `sectorIdentifier` will see the same `sub`; different
+   * values yield different `sub`s for the same end user. Absent =
+   * public subject (sub is identical across all RPs).
+   */
+  sectorIdentifier?: string
   /** Phase 8. */
   dpopRequired?: boolean
 }
@@ -169,6 +177,12 @@ export type ConfidentialClientConfig = {
    * rejected with `invalid_request`.
    */
   requirePushedAuthorizationRequests?: boolean
+  /**
+   * OIDC Core §8.1 — see `PublicClientConfig.sectorIdentifier` for
+   * semantics. Same field; duplicated on each branch because the
+   * `ClientConfig` discriminated union doesn't share optional fields.
+   */
+  sectorIdentifier?: string
   /** Phase 8. */
   dpopRequired?: boolean
 }

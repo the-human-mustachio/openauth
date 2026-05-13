@@ -293,7 +293,16 @@ export async function mintTokens(args: {
       ? tenant.config.refreshTtl * 1000
       : DEFAULT_REFRESH_TTL_MS
   const now = deps.clock()
-  const subjectId = await deriveSubjectId(claim)
+  // OIDC Core §8.1 — `sectorIdentifier` from the receiving client drives
+  // pairwise vs public subject derivation. Look it up off the tenant
+  // config (already loaded by the grant flow). Absent = public.
+  const receivingClient = tenant.config.clients.find(
+    (c) => c.id === payload.clientId,
+  )
+  const subjectId = await deriveSubjectId(
+    claim,
+    receivingClient?.sectorIdentifier,
+  )
 
   const keyRes = await deps.keyStore.currentSigningKey()
   if (isErr(keyRes)) return err(keyRes.error)
@@ -429,11 +438,23 @@ export async function hashClientSecret(plain: string): Promise<string> {
 /**
  * Derive a stable subject id from the issued `SubjectClaim`. Hash inputs
  * are canonicalized so reordered `properties` keys hash identically.
+ *
+ * OIDC Core §8.1 — when `sectorIdentifier` is supplied, the derivation
+ * mixes it in so the resulting `sub` is **pairwise**: identical across
+ * clients sharing that sector, distinct across sectors. Absent =
+ * **public** subject (same `sub` for every RP).
  */
-async function deriveSubjectId(claim: SubjectClaim): Promise<string> {
+async function deriveSubjectId(
+  claim: SubjectClaim,
+  sectorIdentifier?: string,
+): Promise<string> {
   const c = claim as { type: string; properties: Record<string, unknown> }
   const ordered = canonicalize(c.properties)
-  return base64url.encode(await sha256(`${c.type}\0${ordered}`)).slice(0, 22)
+  const seed =
+    sectorIdentifier !== undefined
+      ? `${sectorIdentifier}\0${c.type}\0${ordered}`
+      : `${c.type}\0${ordered}`
+  return base64url.encode(await sha256(seed)).slice(0, 22)
 }
 
 function canonicalize(value: unknown): string {
