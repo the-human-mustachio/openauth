@@ -128,6 +128,26 @@ export type PublicClientConfig = {
   scopes: string[]
   /** Must be `true` for public clients per OAuth 2.1 §2.1.1. */
   pkceRequired: true
+  /**
+   * Registered URIs to which `/end_session` may redirect after RP-initiated
+   * logout (OIDC RP-Initiated Logout 1.0 §2). Exact-match. If absent, the
+   * `/end_session` endpoint refuses any `post_logout_redirect_uri`.
+   */
+  postLogoutRedirectUris?: string[]
+  /**
+   * RFC 9126 §2: when `true`, the client MUST use Pushed Authorization
+   * Requests; a direct `GET /authorize` call without `request_uri` is
+   * rejected with `invalid_request`.
+   */
+  requirePushedAuthorizationRequests?: boolean
+  /**
+   * OIDC Core §8.1 — when set, the subject identifier (`sub`) is derived
+   * as a pairwise pseudonym keyed by this string. Two clients sharing
+   * the same `sectorIdentifier` will see the same `sub`; different
+   * values yield different `sub`s for the same end user. Absent =
+   * public subject (sub is identical across all RPs).
+   */
+  sectorIdentifier?: string
   /** Phase 8. */
   dpopRequired?: boolean
 }
@@ -146,6 +166,23 @@ export type ConfidentialClientConfig = {
    * strongly discouraged; OAuth 2.1 §2.1.1 recommends PKCE for every client.
    */
   pkceRequired: boolean
+  /**
+   * Registered URIs to which `/end_session` may redirect after RP-initiated
+   * logout (OIDC RP-Initiated Logout 1.0 §2). Exact-match.
+   */
+  postLogoutRedirectUris?: string[]
+  /**
+   * RFC 9126 §2: when `true`, the client MUST use Pushed Authorization
+   * Requests; a direct `GET /authorize` call without `request_uri` is
+   * rejected with `invalid_request`.
+   */
+  requirePushedAuthorizationRequests?: boolean
+  /**
+   * OIDC Core §8.1 — see `PublicClientConfig.sectorIdentifier` for
+   * semantics. Same field; duplicated on each branch because the
+   * `ClientConfig` discriminated union doesn't share optional fields.
+   */
+  sectorIdentifier?: string
   /** Phase 8. */
   dpopRequired?: boolean
 }

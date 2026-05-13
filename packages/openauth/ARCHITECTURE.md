@@ -58,18 +58,18 @@ factory kind).
 
 ## Type system — what lives where
 
-| File                     | Purpose                                                                                                                            |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `types/result.ts`        | `Result<T, E>` + `ok` / `err` / `isOk` / `isErr` helpers. The domain returns these instead of throwing.                            |
-| `types/error.ts`         | `AuthError` closed taxonomy + `authError.*` constructor helpers. Maps 1:1 to OAuth 2.0 codes plus framework-internal codes.        |
-| `types/tenant.ts`        | `TenantId` brand, `TenantConfig`, `ClientConfig`, `MethodConfig`, `MethodType`, `TenantContext`, `TenantRecovery`, `StateKeyRing`. |
-| `types/flow.ts`          | `FlowRecord` — single source of truth for in-flight authorization state.                                                           |
-| `types/method.ts`        | `AuthMethod`, `AuthMethodFactory`, `MethodContext`, `MethodResult`, `SetCookie`, `CachePolicy`. **Zero framework imports.**        |
-| `types/authorization.ts` | `AuthorizationRequest`, `AuthorizationState`.                                                                                      |
-| `types/token.ts`         | `CodePayload`, `AccessTokenClaims`, `RefreshTokenPayload`, `TokenResponse`.                                                        |
-| `types/subject.ts`       | `SubjectSchema`, `SubjectPayload`, `SubjectClaim`. Library-agnostic via Standard Schema v1; Zod recommended (AD4).                 |
-| `types/idp.ts`           | Public surface: `IdPOptions`, `IdP`, `SuccessMapInput`, `SuccessEvent`, `FailureEvent`, `PersistUpstreamTokens`.                   |
-| `ports/*.ts`             | Port interfaces. Each carries consistency JSDoc; the canonical contract table is in `ports/CONSISTENCY.md`.                        |
+| File                     | Purpose                                                                                                                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types/result.ts`        | `Result<T, E>` + `ok` / `err` / `isOk` / `isErr` helpers. The domain returns these instead of throwing.                                                                               |
+| `types/error.ts`         | `AuthError` closed taxonomy + `authError.*` constructor helpers. Maps 1:1 to OAuth 2.0 codes plus framework-internal codes.                                                           |
+| `types/tenant.ts`        | `TenantId` brand, `TenantConfig`, `ClientConfig`, `MethodConfig`, `MethodType`, `TenantContext`, `TenantRecovery`, `StateKeyRing`.                                                    |
+| `types/flow.ts`          | `FlowRecord` — single source of truth for in-flight authorization state.                                                                                                              |
+| `types/method.ts`        | `AuthMethod`, `AuthMethodFactory`, `MethodContext`, `MethodResult`, `SetCookie`, `CachePolicy`. **Zero framework imports.**                                                           |
+| `types/authorization.ts` | `AuthorizationRequest`, `AuthorizationState`, `ClaimsRequest` (OIDC Core §5.5).                                                                                                       |
+| `types/token.ts`         | `CodePayload`, `AccessTokenClaims`, `IdTokenClaims`, `ScopedProfileClaims`, `AddressClaim`, `RefreshTokenPayload`, `TokenResponse`.                                                   |
+| `types/subject.ts`       | `SubjectSchema`, `SubjectPayload`, `SubjectClaim`. Library-agnostic via Standard Schema v1; Zod recommended (AD4).                                                                    |
+| `types/idp.ts`           | Public surface: `IdPOptions`, `IdP`, `SuccessMapInput`, `SuccessEvent`, `FailureEvent`, `PersistUpstreamTokens`, `RegisterClient`, `RegisterClientRequest`, `RegisterClientResponse`. |
+| `ports/*.ts`             | Port interfaces. Each carries consistency JSDoc; the canonical contract table is in `ports/CONSISTENCY.md`.                                                                           |
 
 ## The `id` / `kind` split
 
@@ -451,13 +451,128 @@ are host-application concerns:
 
 ## Phase status
 
-| Phase                                | Status      | Notes                                                                                                                                                                                                                                                                                                         |
-| ------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1 — Domain types + project skeleton  | **done**    | All `types/` and `ports/` files populated; `ports/CONSISTENCY.md` written; `createIdP` stub throws.                                                                                                                                                                                                           |
-| 2 — Domain logic + memory adapters   | **done**    | Pure functions over typed ports; in-memory adapter set; full unit suite.                                                                                                                                                                                                                                      |
-| 3 — HTTP adapter (Hono)              | **done**    | Thin Hono layer; tenant middleware; Zod schemas; 17-case hand-built OAuth 2.1 / OIDC conformance matrix green.                                                                                                                                                                                                |
-| 4 — Credential + WebAuthn methods    | **done**    | `password` (argon2id), `code`, `m2m`, `passkey` on the new `AuthMethod` interface.                                                                                                                                                                                                                            |
-| 5 — OAuth / OIDC provider family     | **done**    | 15 OAuth/OIDC providers via `buildOauth2Method` / `buildOidcMethod`; matrix test covers each end-to-end.                                                                                                                                                                                                      |
-| 6 — Real storage adapters            | **done**    | Postgres, D1, Durable Objects, KV (read-eventual paths), DynamoDB, KMS; parameterized port-conformance suite under `test/ports/`.                                                                                                                                                                             |
-| 7 — Library-only scoping             | **done**    | Phase 7 rescoped from "build a console" to "make the embedding contract explicit." See "Embedding pattern" above. Open Question #1 closed.                                                                                                                                                                    |
-| 8 — Standards + production hardening | in progress | Session 1 shipped: PKCE type-system enforcement, RFC 7009 revoke + RFC 7662 introspect client-auth + audience checks, refresh-grant RFC 6749 §6 client-auth, new `TokenStore.peekRefresh` port, 27/27 conformance cases. Remaining: DPoP, PAR, mTLS hook, DCR helper, rate-limiter port, Logger/Tracer ports. |
+| Phase                                | Status      | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — Domain types + project skeleton  | **done**    | All `types/` and `ports/` files populated; `ports/CONSISTENCY.md` written; `createIdP` stub throws.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 2 — Domain logic + memory adapters   | **done**    | Pure functions over typed ports; in-memory adapter set; full unit suite.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 3 — HTTP adapter (Hono)              | **done**    | Thin Hono layer; tenant middleware; Zod schemas; 17-case hand-built OAuth 2.1 / OIDC conformance matrix green.                                                                                                                                                                                                                                                                                                                                                                                              |
+| 4 — Credential + WebAuthn methods    | **done**    | `password` (argon2id), `code`, `m2m`, `passkey` on the new `AuthMethod` interface.                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 5 — OAuth / OIDC provider family     | **done**    | 15 OAuth/OIDC providers via `buildOauth2Method` / `buildOidcMethod`; matrix test covers each end-to-end.                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 6 — Real storage adapters            | **done**    | Postgres, D1, Durable Objects, KV (read-eventual paths), DynamoDB, KMS; parameterized port-conformance suite under `test/ports/`.                                                                                                                                                                                                                                                                                                                                                                           |
+| 7 — Library-only scoping             | **done**    | Phase 7 rescoped from "build a console" to "make the embedding contract explicit." See "Embedding pattern" above. Open Question #1 closed.                                                                                                                                                                                                                                                                                                                                                                  |
+| 8 — Standards + production hardening | in progress | Session 1: PKCE type-system enforcement, RFC 7009 revoke + RFC 7662 introspect client-auth + audience checks, refresh-grant RFC 6749 §6 client-auth, new `TokenStore.peekRefresh` port. Session 2 (OIDC issuance, RFC 9126 PAR, RFC 9449 DPoP, RFC 7591 DCR, OIDC RP-Initiated Logout 1.0, OIDC Core `claims` parameter + pairwise subjects + scope-gated profile claims, discovery metadata fill-in). 480/480 tests, both tsconfigs clean. Remaining: mTLS hook, rate-limiter port, Logger / Tracer ports. |
+
+## OIDC issuance (Session 2)
+
+### `id_token` minting
+
+`/token` issues an OIDC `id_token` whenever the granted scope set
+includes `openid` AND the grant carries an end-user `auth_time`
+(authorization_code and refresh_token grants — `client_credentials`
+never issues one). The token carries:
+
+- `iss`, `sub`, `aud = client_id`, `exp`, `iat` (REQUIRED — OIDC Core §2)
+- `auth_time` — stamped at `MethodResult.success`; **stable** across
+  refresh-grant rotations per §12.
+- `nonce` — echoed verbatim from the `/authorize` request when present
+  (§3.1.2.1). **NOT** carried forward on refresh.
+- `at_hash` — left-half SHA-256 of the issued access token, base64url
+  (§3.1.3.6).
+- `amr` — derived from the originating `methodKind` via a small RFC 8176
+  mapping table (`password→["pwd"]`, `code→["otp"]`, `passkey→["hwk"]`).
+  Federated providers omit `amr` because no standardized AMR value
+  cleanly maps; hosts wanting richer semantics use the claims hook.
+- §5.1 profile claims gated by granted scopes (§5.4 mapping). Both the
+  id_token and `/userinfo` share `pickScopedClaims` so the surfaces
+  agree on what each scope grants.
+- Host-supplied vendor mappings via `IdPOptions.customScopeClaims` are
+  merged on top of §5.4 at scope-gating time. Standard names always
+  win on collision (`email` cannot be silently redefined); the union
+  of host-supplied keys + claim-names is reflected in discovery's
+  `scopes_supported` / `claims_supported`. id_token bakes the resolved
+  claims at mint; `/userinfo` reads `customScopeClaims` live so
+  config-driven vocabulary changes take effect on the next request
+  without re-issuing tokens.
+
+OIDC Core §5.5 `claims` parameter is parsed at `/authorize`, stored on
+`FlowRecord.claimsRequest`, snapshotted into `CodePayload.claimsRequest`
+and `RefreshTokenPayload.claimsRequest`. The names from `claims.id_token`
+are passed as an extra set into the id-token assembler, bypassing scope
+gating. The names from `claims.userinfo` are embedded into the access
+token's `uic` claim so the resource server can apply the same bypass
+without re-resolving the original `/authorize` request.
+
+### Pairwise subjects (§8.1)
+
+When a `ClientConfig.sectorIdentifier` is set, `deriveSubjectId` mixes
+it into the hash seed:
+
+```
+sub = base64url(sha256(`${sectorIdentifier}\0${claim.type}\0${ordered}`))[:22]
+```
+
+Two clients sharing the same `sectorIdentifier` see the same `sub` for
+the same end user; different values yield different `sub`s. Absent =
+public subject (identical across all RPs). Discovery advertises
+`subject_types_supported = ["public", "pairwise"]` unconditionally.
+
+### `/end_session` (RP-Initiated Logout 1.0)
+
+The handler validates the optional `id_token_hint` against the IdP's
+own signing keys with `acceptExpired: true` (spec §2 — logout commonly
+follows token expiry). It cross-checks the `client_id` parameter
+matches the hint's `aud` if both are present, validates
+`post_logout_redirect_uri` against the resolved client's
+`postLogoutRedirectUris` list (exact match — never substring or
+prefix, to defeat open-redirector misuse), revokes the identified
+subject's refresh tokens via `revokeAllForSubject`, emits a
+`session_logout` audit event, and either redirects with `state`
+echoed or returns a 200 plain-text "Logged out" page when no URI was
+supplied.
+
+### Pushed Authorization Requests (RFC 9126)
+
+`POST /par` accepts the standard `/authorize` parameter set in a form
+body plus client auth. The framework persists the request under an
+opaque `urn:ietf:params:oauth:request_uri:<...>` via
+`SessionStore.savePar` (default TTL 60 s), and `/authorize?request_uri=...`
+rehydrates the parameter record through the same Zod parser the direct
+path uses. The user-agent URL after PAR carries only `client_id` and
+`request_uri` — any extra parameters are ignored (§4). Per-client
+`ClientConfig.requirePushedAuthorizationRequests` refuses a direct
+`/authorize` (no `request_uri`) with `invalid_request`.
+
+### DPoP — sender-constrained access tokens (RFC 9449)
+
+The RP/client generates an asymmetric keypair, signs a fresh proof JWT
+per request (`DPoP:` header), and the IdP binds the issued access
+token's `cnf.jkt` to the RFC 7638 thumbprint of the embedded public
+JWK. Refresh tokens carry `RefreshTokenPayload.dpopJkt` so rotation
+re-enforces sender constraint — the refresh handler checks the binding
+**before** consuming, so a no-proof attempt does not burn the token.
+
+`/token` and `/userinfo` accept DPoP-bound tokens (`Authorization:
+DPoP <token>` at the RS, plus a fresh proof whose `ath` equals
+SHA-256(access_token)). Per-client `dpopRequired` refuses bearer-only
+requests before any token is minted. Replay protection lives in
+`TokenStore.recordDpopJti`; a re-presentation within the TTL window
+returns `invalid_dpop_proof` with a typed `replaySignal` and emits a
+`dpop_replay_detected` audit event.
+
+Discovery advertises
+`dpop_signing_alg_values_supported = ["ES256", "EdDSA"]`. Symmetric
+algs and `alg: "none"` are rejected at parse time.
+
+### Dynamic Client Registration (RFC 7591)
+
+`POST /register` accepts a JSON request body, validates structure
+(redirect_uris present + absolute URIs, recognized
+`token_endpoint_auth_method`), and defers persistence to the
+`IdPOptions.registerClient` host hook. The framework mints a
+`client_id` (and `client_secret` for confidential clients) and offers
+both to the host, which writes through its own `ConfigStore` and
+returns the final `ClientConfig`. Response is HTTP 201 per §3.2.1
+with `client_secret_expires_at: 0`. When the hook is not configured,
+the endpoint returns `invalid_request: "dynamic client registration
+is not enabled on this deployment"` so RPs get a clear signal rather
+than a 404.

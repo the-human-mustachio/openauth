@@ -8,7 +8,11 @@
  */
 import { authError } from "../../types/error"
 import type { FlowRecord } from "../../types/flow"
-import type { SessionRecord, SessionStore } from "../../ports/session-store"
+import type {
+  ParRecord,
+  SessionRecord,
+  SessionStore,
+} from "../../ports/session-store"
 import type { Result } from "../../types/result"
 import { err, ok } from "../../types/result"
 import type { Clock } from "./clock"
@@ -16,6 +20,11 @@ import { realClock } from "./clock"
 
 type StoredFlow = {
   record: FlowRecord
+  expiresAt: number
+}
+
+type StoredPar = {
+  record: ParRecord
   expiresAt: number
 }
 
@@ -27,6 +36,7 @@ export class MemorySessionStore implements SessionStore {
   #clock: Clock
   #flows = new Map<string, StoredFlow>()
   #sessions = new Map<string, SessionRecord>()
+  #par = new Map<string, StoredPar>()
 
   constructor(opts: MemorySessionStoreOptions = {}) {
     this.#clock = opts.clock ?? realClock
@@ -124,5 +134,38 @@ export class MemorySessionStore implements SessionStore {
   async revokeSession(sessionId: string): Promise<Result<void>> {
     this.#sessions.delete(sessionId)
     return ok(undefined)
+  }
+
+  async savePar(
+    requestUri: string,
+    payload: ParRecord,
+    ttl: number,
+  ): Promise<Result<void>> {
+    if (ttl <= 0) {
+      return err(
+        authError.internalError(`savePar: ttl must be positive, got ${ttl}`),
+      )
+    }
+    this.#par.set(requestUri, {
+      record: payload,
+      expiresAt: this.#clock() + ttl,
+    })
+    return ok(undefined)
+  }
+
+  async consumePar(requestUri: string): Promise<Result<ParRecord>> {
+    const stored = this.#par.get(requestUri)
+    if (!stored) {
+      return err(
+        authError.unknownState(
+          `par "${requestUri}" unknown or already consumed`,
+        ),
+      )
+    }
+    this.#par.delete(requestUri)
+    if (this.#clock() >= stored.expiresAt) {
+      return err(authError.unknownState(`par "${requestUri}" expired`))
+    }
+    return ok(stored.record)
   }
 }

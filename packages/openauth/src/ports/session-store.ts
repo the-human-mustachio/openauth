@@ -83,6 +83,39 @@ export type SessionStore = {
   ): Promise<Result<void>>
   readSession?(sessionId: string): Promise<Result<SessionRecord>>
   revokeSession?(sessionId: string): Promise<Result<void>>
+
+  /**
+   * Optional: Pushed Authorization Request (RFC 9126) storage. Persists the
+   * pre-parsed `/authorize` parameters under an opaque `request_uri` for
+   * one-shot retrieval at `/authorize` time. Strong consistency + atomic
+   * delete-on-read — same semantics as `saveFlow` / `consumeFlow`.
+   *
+   * Adapters without these methods cannot satisfy `/par`; the framework's
+   * `/par` handler returns `invalid_request` when called against such a
+   * store. Implement both methods together (the framework only exposes
+   * the endpoint when both are present).
+   */
+  savePar?(
+    requestUri: string,
+    payload: ParRecord,
+    ttl: number,
+  ): Promise<Result<void>>
+  consumePar?(requestUri: string): Promise<Result<ParRecord>>
+}
+
+/**
+ * Stored PAR payload. The `params` blob is the raw form/query record from
+ * `POST /par`, kept verbatim so the `/authorize` rehydrate path can feed
+ * it through the same Zod parser the direct path uses.
+ */
+export type ParRecord = {
+  requestUri: string
+  /** Raw key/value record as posted to `/par` (excluding auth fields). */
+  params: Record<string, string>
+  clientId: string
+  /** Wall-clock issuance + absolute expiry (ms). */
+  issuedAt: number
+  expiresAt: number
 }
 
 /** Optional long-lived session payload (used by `createSession` family). */

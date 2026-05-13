@@ -9,7 +9,7 @@
 import type { JWK, KeyLike } from "jose"
 import { importJWK, jwtVerify, SignJWT } from "jose"
 
-import type { AccessTokenClaims } from "../types/token"
+import type { AccessTokenClaims, IdTokenClaims } from "../types/token"
 import type { SigningKey } from "../ports/key-store"
 
 /**
@@ -26,6 +26,85 @@ export async function signAccessToken(
   return new SignJWT(claims as unknown as Record<string, unknown>)
     .setProtectedHeader({ alg, typ: "JWT", kid })
     .sign(privateKey)
+}
+
+/**
+ * Sign an OIDC `id_token` claim set (OIDC Core §2). Header `typ` is
+ * `"JWT"` per common practice; OIDC Core does not mandate `"id_token"`.
+ * The claims object is verified by the caller to include `iss`, `sub`,
+ * `aud`, `exp`, `iat` (REQUIRED per §2).
+ */
+export async function signIdToken(
+  claims: IdTokenClaims,
+  privateKey: KeyLike,
+  alg: string,
+  kid: string,
+): Promise<string> {
+  return new SignJWT(claims as unknown as Record<string, unknown>)
+    .setProtectedHeader({ alg, typ: "JWT", kid })
+    .sign(privateKey)
+}
+
+/**
+ * Verify an OIDC `id_token` against the IdP's published signing keys.
+ * Used at `/end_session` to validate `id_token_hint` and by adjacent
+ * domain code that needs to introspect a previously-issued id_token.
+ *
+ * Same algorithm-confusion defenses as `verifyAccessToken`: only the
+ * asymmetric allow-list (`ES256`, `EdDSA`) accepted; `alg: "none"`
+ * rejected explicitly.
+ *
+ * `acceptExpired` relaxes the `exp` check — required at `/end_session`
+ * per OIDC RP-Initiated Logout 1.0 §2, where logout often follows token
+ * expiry and the spec permits accepting an expired hint. The signature
+ * + issuer + audience checks remain strict.
+ */
+export async function verifyIdToken(
+  token: string,
+  keys: ReadonlyArray<SigningKey>,
+  options: {
+    issuer?: string
+    audience?: string
+    acceptExpired?: boolean
+  } = {},
+): Promise<IdTokenClaims> {
+  const algorithms = Array.from(
+    new Set(keys.map((k) => k.alg).filter((a) => ASYMMETRIC_ALGS.has(a))),
+  )
+  const { payload } = await jwtVerify<IdTokenClaims>(
+    token,
+    async (header) => {
+      if (!header.alg || header.alg === "none") {
+        throw new Error(`verifyIdToken: refusing alg "${header.alg ?? ""}"`)
+      }
+      const match = keys.find((k) => k.kid === header.kid)
+      if (!match) {
+        throw new Error(`verifyIdToken: unknown kid "${header.kid}"`)
+      }
+      if (match.alg !== header.alg) {
+        throw new Error(
+          `verifyIdToken: header.alg "${header.alg}" does not match key alg "${match.alg}"`,
+        )
+      }
+      const imported = await importJWK(
+        match.publicJwk as unknown as JWK,
+        match.alg,
+      )
+      return imported as KeyLike
+    },
+    {
+      algorithms,
+      ...(options.issuer ? { issuer: options.issuer } : {}),
+      ...(options.audience ? { audience: options.audience } : {}),
+      // jose checks `exp` against `currentDate + clockTolerance`. A huge
+      // tolerance effectively disables the expiry check while preserving
+      // signature + issuer + audience validation.
+      ...(options.acceptExpired
+        ? { clockTolerance: Number.MAX_SAFE_INTEGER }
+        : {}),
+    },
+  )
+  return payload
 }
 
 /** Allow-list of asymmetric `alg` values the IdP issues + accepts. */

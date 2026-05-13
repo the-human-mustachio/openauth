@@ -47,7 +47,8 @@ import {
   sha256,
   utf8,
 } from "./crypto"
-import { signAccessToken } from "./jwt"
+import { buildIdTokenClaims, shouldIssueIdToken } from "./id-token"
+import { signAccessToken, signIdToken } from "./jwt"
 import { validatePkce } from "./pkce"
 
 /**
@@ -88,6 +89,13 @@ export type TokenAuthCodeRequest = {
   clientSecret?: string
   /** Required if the original `/authorize` request had a `code_challenge`. */
   codeVerifier?: string
+  /**
+   * RFC 9449 §6 — the JWK thumbprint of the presented DPoP proof. Set by
+   * the HTTP layer after verifying the `DPoP:` header against this
+   * request's actual method + URI. The domain binds the issued access
+   * token to this thumbprint via `cnf.jkt`.
+   */
+  dpopJkt?: string
 }
 
 export type ExchangeCodeDeps = {
@@ -102,6 +110,11 @@ export type ExchangeCodeDeps = {
   newRefreshToken?: () => string
   /** Test override. */
   newRefreshFamily?: () => string
+  /**
+   * Host-supplied vendor scope → claim-names map. Forwarded to `mintTokens`
+   * for id_token + /userinfo scope-gating. See `IdPOptions.customScopeClaims`.
+   */
+  customScopeClaims?: Record<string, ReadonlyArray<string>>
 }
 
 export async function exchangeCode(
@@ -140,6 +153,17 @@ export async function exchangeCode(
   }
   const authResult = await verifyClientCredentials(client, req.clientSecret)
   if (authResult) return err(authResult)
+
+  // RFC 9449 §5.2 — if the client is configured to require DPoP, a
+  // bearer-only request (no DPoP header → no `dpopJkt` threaded in) is
+  // refused with `invalid_dpop_proof` before any token is minted.
+  if (client.dpopRequired && req.dpopJkt === undefined) {
+    return err(
+      authError.invalidDpopProof(
+        `client "${client.id}" requires DPoP-bound tokens`,
+      ),
+    )
+  }
 
   // 4. Redirect URI binding.
   if (payload.appRedirectUri !== req.redirectUri) {
@@ -198,11 +222,14 @@ export async function exchangeCode(
     }
   }
 
-  // 8. Mint access + refresh.
+  // 8. Mint access + refresh (+ id_token if `openid` scope was granted).
   const minted = await mintTokens({
     tenant,
     claim,
-    payload,
+    payload: {
+      ...payload,
+      ...(req.dpopJkt !== undefined ? { dpopJkt: req.dpopJkt } : {}),
+    },
     deps,
     family: (deps.newRefreshFamily ?? randomId)(),
   })
@@ -219,7 +246,30 @@ export async function mintTokens(args: {
   payload: Pick<
     CodePayload,
     "tenantId" | "clientId" | "methodId" | "methodKind" | "scopes" | "audience"
-  >
+  > & {
+    /**
+     * Present on `authorization_code` and `refresh_token` grants where an
+     * end-user actually authenticated. Absent on `client_credentials`
+     * (no end-user) — and absent means no `id_token` is emitted even if
+     * the requested scopes nominally include `openid`.
+     */
+    authTime?: number
+    /** RP's OIDC `nonce` from `/authorize`, when present. */
+    appNonce?: string
+    /**
+     * DPoP key thumbprint (RFC 9449 §6.1). When present, the access
+     * token's `cnf.jkt` claim is set and `token_type` flips to `"DPoP"`;
+     * the saved refresh-token payload's `dpopJkt` is set so refresh
+     * rotation re-enforces sender constraint.
+     */
+    dpopJkt?: string
+    /**
+     * OIDC Core §5.5 — RP-requested claims from `/authorize`. Carried
+     * into the id_token and forward across refresh rotations (§12) so
+     * later /userinfo calls keep returning the requested fields.
+     */
+    claimsRequest?: import("../types/authorization").ClaimsRequest
+  }
   family: string
   /**
    * `client_credentials` grants (RFC 6749 §4.4.3) and other paths where a
@@ -236,6 +286,11 @@ export async function mintTokens(args: {
     issuerUrl: string
     clock: () => number
     newRefreshToken?: () => string
+    /**
+     * Host-supplied vendor scope → claim-names map merged into the
+     * id_token + /userinfo scope-gating. See `IdPOptions.customScopeClaims`.
+     */
+    customScopeClaims?: Record<string, ReadonlyArray<string>>
   }
 }): Promise<Result<TokenResponse, AuthError>> {
   const { tenant, claim, payload, deps, family, skipRefresh } = args
@@ -248,12 +303,22 @@ export async function mintTokens(args: {
       ? tenant.config.refreshTtl * 1000
       : DEFAULT_REFRESH_TTL_MS
   const now = deps.clock()
-  const subjectId = await deriveSubjectId(claim)
+  // OIDC Core §8.1 — `sectorIdentifier` from the receiving client drives
+  // pairwise vs public subject derivation. Look it up off the tenant
+  // config (already loaded by the grant flow). Absent = public.
+  const receivingClient = tenant.config.clients.find(
+    (c) => c.id === payload.clientId,
+  )
+  const subjectId = await deriveSubjectId(
+    claim,
+    receivingClient?.sectorIdentifier,
+  )
 
   const keyRes = await deps.keyStore.currentSigningKey()
   if (isErr(keyRes)) return err(keyRes.error)
   const signingKey = keyRes.value
 
+  const userinfoClaimNames = Object.keys(payload.claimsRequest?.userinfo ?? {})
   const claims: AccessTokenClaims = {
     iss: deps.issuerUrl,
     sub: subjectId,
@@ -265,6 +330,9 @@ export async function mintTokens(args: {
     mkind: payload.methodKind,
     scope: payload.scopes.join(" "),
     claim,
+    ...(payload.authTime !== undefined ? { auth_time: payload.authTime } : {}),
+    ...(payload.dpopJkt !== undefined ? { cnf: { jkt: payload.dpopJkt } } : {}),
+    ...(userinfoClaimNames.length > 0 ? { uic: userinfoClaimNames } : {}),
   }
 
   let accessToken: string
@@ -295,11 +363,54 @@ export async function mintTokens(args: {
       family,
       methodId: payload.methodId,
       methodKind: payload.methodKind,
+      // Carry the original end-user auth time forward. Refresh-grant
+      // reissue uses this verbatim so `id_token.auth_time` is stable per
+      // OIDC Core §12 (refresh does not re-authenticate the user).
+      authTime: payload.authTime ?? Math.floor(now / 1000),
+      ...(payload.dpopJkt !== undefined ? { dpopJkt: payload.dpopJkt } : {}),
+      ...(payload.claimsRequest !== undefined
+        ? { claimsRequest: payload.claimsRequest }
+        : {}),
       issuedAt: now,
       expiresAt: now + refreshTtl,
     }
     const saved = await deps.tokenStore.saveRefresh(refresh, refreshPayload)
     if (isErr(saved)) return err(saved.error)
+  }
+
+  // OIDC id_token issuance — only when the grant carried an end-user
+  // (`authTime` present) AND `openid` scope was granted. Client-credentials
+  // never satisfies the first condition; refresh + code do.
+  let idToken: string | undefined
+  if (payload.authTime !== undefined && shouldIssueIdToken(payload.scopes)) {
+    const idClaims = await buildIdTokenClaims({
+      issuerUrl: deps.issuerUrl,
+      audience: payload.clientId,
+      subjectId,
+      claim,
+      scopes: payload.scopes,
+      authTime: payload.authTime,
+      ...(payload.appNonce !== undefined ? { appNonce: payload.appNonce } : {}),
+      now,
+      methodKind: payload.methodKind,
+      accessToken,
+      ...(payload.claimsRequest !== undefined
+        ? { claimsRequest: payload.claimsRequest }
+        : {}),
+      ...(deps.customScopeClaims !== undefined
+        ? { customScopeClaims: deps.customScopeClaims }
+        : {}),
+    })
+    try {
+      idToken = await signIdToken(
+        idClaims,
+        signingKey.privateKeyRef as Parameters<typeof signIdToken>[1],
+        signingKey.alg,
+        signingKey.kid,
+      )
+    } catch (e) {
+      return err(authError.serverError("id_token sign failed", e))
+    }
   }
 
   await safeAudit(deps, {
@@ -310,14 +421,17 @@ export async function mintTokens(args: {
     methodKind: payload.methodKind,
     subjectId,
     refreshTokenIdHash: refresh ? await hashTokenForAudit(refresh) : "",
+    ...(idToken !== undefined ? { idTokenIssued: true } : {}),
+    ...(payload.dpopJkt !== undefined ? { dpopBound: true } : {}),
     timestamp: now,
   })
 
   return ok({
     access_token: accessToken,
-    token_type: "Bearer",
+    token_type: payload.dpopJkt !== undefined ? "DPoP" : "Bearer",
     expires_in: Math.floor(accessTtl / 1000),
     ...(refresh !== undefined ? { refresh_token: refresh } : {}),
+    ...(idToken !== undefined ? { id_token: idToken } : {}),
     scope: payload.scopes.join(" "),
   })
 }
@@ -336,11 +450,23 @@ export async function hashClientSecret(plain: string): Promise<string> {
 /**
  * Derive a stable subject id from the issued `SubjectClaim`. Hash inputs
  * are canonicalized so reordered `properties` keys hash identically.
+ *
+ * OIDC Core §8.1 — when `sectorIdentifier` is supplied, the derivation
+ * mixes it in so the resulting `sub` is **pairwise**: identical across
+ * clients sharing that sector, distinct across sectors. Absent =
+ * **public** subject (same `sub` for every RP).
  */
-async function deriveSubjectId(claim: SubjectClaim): Promise<string> {
+async function deriveSubjectId(
+  claim: SubjectClaim,
+  sectorIdentifier?: string,
+): Promise<string> {
   const c = claim as { type: string; properties: Record<string, unknown> }
   const ordered = canonicalize(c.properties)
-  return base64url.encode(await sha256(`${c.type}\0${ordered}`)).slice(0, 22)
+  const seed =
+    sectorIdentifier !== undefined
+      ? `${sectorIdentifier}\0${c.type}\0${ordered}`
+      : `${c.type}\0${ordered}`
+  return base64url.encode(await sha256(seed)).slice(0, 22)
 }
 
 function canonicalize(value: unknown): string {

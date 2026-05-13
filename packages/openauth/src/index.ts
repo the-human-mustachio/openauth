@@ -57,8 +57,11 @@ export type {
 
 export type {
   AccessTokenClaims,
+  AddressClaim,
   CodePayload,
+  IdTokenClaims,
   RefreshTokenPayload,
+  ScopedProfileClaims,
   TokenResponse,
 } from "./types/token"
 
@@ -74,6 +77,9 @@ export type {
   IdP,
   IdPOptions,
   PersistUpstreamTokens,
+  RegisterClient,
+  RegisterClientRequest,
+  RegisterClientResponse,
   RenderPicker,
   SuccessEvent,
   SuccessMapInput,
@@ -90,7 +96,11 @@ export type {
   SigningKey,
 } from "./ports/key-store"
 export type { MethodStore } from "./ports/method-store"
-export type { SessionRecord, SessionStore } from "./ports/session-store"
+export type {
+  ParRecord,
+  SessionRecord,
+  SessionStore,
+} from "./ports/session-store"
 export type { TokenStore } from "./ports/token-store"
 
 /**
@@ -243,6 +253,7 @@ export function createIdP(opts: IdPOptions): IdP {
       ? { exchangeAudience: opts.exchangeAudience }
       : {}),
     ...(opts.renderPicker ? { renderPicker: opts.renderPicker } : {}),
+    ...(opts.registerClient ? { registerClient: opts.registerClient } : {}),
     ...(opts.buildCustomContext
       ? { buildCustomContext: opts.buildCustomContext }
       : {}),
@@ -254,6 +265,9 @@ export function createIdP(opts: IdPOptions): IdP {
         : {}),
       ...(opts.cookies?.path !== undefined ? { path: opts.cookies.path } : {}),
     },
+    ...(opts.customScopeClaims !== undefined
+      ? { customScopeClaims: opts.customScopeClaims }
+      : {}),
   }
 
   const app = buildRouter(deps)
@@ -268,5 +282,8 @@ export function createIdP(opts: IdPOptions): IdP {
     discovery: fetch,
     revoke: fetch,
     introspect: fetch,
+    endSession: fetch,
+    par: fetch,
+    register: fetch,
   }
 }

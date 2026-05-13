@@ -47,6 +47,7 @@ describeTokenStore({
 describeSessionStore({
   adapterName: "memory",
   supportsLongLivedSessions: true,
+  supportsPar: true,
   async makeStore(clock) {
     return {
       store: new MemorySessionStore({ clock: clock.now }),

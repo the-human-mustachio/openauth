@@ -50,9 +50,15 @@ export type IntrospectResponse =
       iat: number
       scope?: string
       client_id?: string
+      /** RFC 7662 §2.2 — the token's type indicator. */
+      token_type: "Bearer" | "DPoP"
       tid: string
       mid?: string
       mkind?: string
+      /** Library-specific — subject schema discriminator (e.g. "user", "admin"). */
+      subject_type?: string
+      /** RFC 9449 §6 — present when the access token is DPoP-bound. */
+      cnf?: { jkt: string }
     }
 
 export type IntrospectRequest = {
@@ -129,6 +135,7 @@ export async function introspect(
     return ok({ active: false })
   }
 
+  const subjectType = (claims.claim as { type?: string } | undefined)?.type
   return ok({
     active: true,
     sub: claims.sub,
@@ -138,8 +145,11 @@ export async function introspect(
     iat: claims.iat,
     scope: claims.scope,
     client_id: claims.aud,
+    token_type: claims.cnf?.jkt !== undefined ? "DPoP" : "Bearer",
     tid: claims.tid,
     mid: claims.mid,
     mkind: claims.mkind,
+    ...(subjectType !== undefined ? { subject_type: subjectType } : {}),
+    ...(claims.cnf !== undefined ? { cnf: claims.cnf } : {}),
   })
 }

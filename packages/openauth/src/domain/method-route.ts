@@ -166,6 +166,11 @@ async function translate(
           context: final.context ?? null,
           providerSubject: result.providerSubject,
           properties: result.properties,
+          ...(final.appNonce !== undefined ? { appNonce: final.appNonce } : {}),
+          ...(final.claimsRequest !== undefined
+            ? { claimsRequest: final.claimsRequest }
+            : {}),
+          authTime: Math.floor(now / 1000),
           expiresAt: now + AUTH_CODE_TTL_MS,
         },
         AUTH_CODE_TTL_MS,

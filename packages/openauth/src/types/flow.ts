@@ -19,6 +19,7 @@
  *      needed at `/token` into the auth-code payload; `methodState` is
  *      dropped.
  */
+import type { ClaimsRequest } from "./authorization"
 import type { TenantId } from "./tenant"
 
 export type FlowRecord = {
@@ -56,6 +57,15 @@ export type FlowRecord = {
    * `appState`. Compared at callback against the consumed record.
    */
   nonce: string
+  /**
+   * Relying party's OIDC `nonce` parameter (OIDC Core §3.1.2.1). Distinct
+   * from `nonce` (which is the framework's CSRF nonce for state-MAC
+   * binding). When present, must be echoed in the issued `id_token`
+   * (OIDC Core §2). Snapshotted into `CodePayload.appNonce` at success.
+   */
+  appNonce?: string
+  /** OIDC Core §5.5 — RP-requested claims, parsed at `/authorize`. */
+  claimsRequest?: ClaimsRequest
   /**
    * Relying-party → IdP PKCE. The RP generates the verifier and sends the
    * challenge to `/authorize`. Verified at `/token`.

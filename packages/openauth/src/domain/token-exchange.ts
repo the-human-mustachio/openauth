@@ -74,6 +74,8 @@ export type ExchangeTokenDeps = {
   issuerUrl: string
   clock: () => number
   newRefreshFamily?: () => string
+  /** See `IdPOptions.customScopeClaims`. Forwarded to `mintTokens`. */
+  customScopeClaims?: Record<string, ReadonlyArray<string>>
 }
 
 export async function exchangeToken(
@@ -203,6 +205,15 @@ export async function exchangeToken(
       methodId: subjectClaims.mid ?? "token_exchange",
       methodKind: subjectClaims.mkind ?? "token_exchange",
       scopes: requestedScopes,
+      // Carry the original end-user auth_time across the audience swap.
+      // Per OIDC Core §12, switching audience is NOT a re-authentication
+      // — the user logged in once, and downstream id_token consumers rely
+      // on auth_time being stable to detect actual re-auth events. When
+      // absent (subject was a client_credentials / m2m token), mintTokens
+      // correctly skips id_token issuance.
+      ...(subjectClaims.auth_time !== undefined
+        ? { authTime: subjectClaims.auth_time }
+        : {}),
       ...(subjectClaims.aud !== undefined &&
       subjectClaims.aud !== callerClient.id
         ? { audience: subjectClaims.aud }

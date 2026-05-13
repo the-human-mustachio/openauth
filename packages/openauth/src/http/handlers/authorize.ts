@@ -17,7 +17,10 @@ import { isErr } from "../../types/result"
 import { startAuthorize } from "../../domain/authorize"
 import { asTenantId } from "../../types/tenant"
 import { authError } from "../../types/error"
-import type { AuthorizationRequest } from "../../types/authorization"
+import type {
+  AuthorizationRequest,
+  ClaimsRequest,
+} from "../../types/authorization"
 import type { PickerContext, PickerMethod } from "../../types/picker"
 import { renderPicker as renderDefaultPicker } from "../../ui/picker"
 
@@ -28,7 +31,10 @@ import {
   authorizeRedirectErrorResponse,
   isNonRecoverable,
 } from "../errors"
-import { authorizeQuerySchema } from "../schemas/authorize"
+import {
+  authorizeQuerySchema,
+  authorizeRequestUriQuerySchema,
+} from "../schemas/authorize"
 
 export function makeAuthorizeHandler(deps: HttpDeps) {
   return async (c: HttpContext): Promise<Response> => {
@@ -41,7 +47,51 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
 
     const url = new URL(c.req.url)
     const raw = Object.fromEntries(url.searchParams.entries())
-    const parsed = authorizeQuerySchema.safeParse(raw)
+
+    // RFC 9126 §4: rehydrate a PAR record when `request_uri` is present.
+    // The user-agent URL carries only `client_id` + `request_uri`; the
+    // stored params drive the rest of the request through the standard
+    // parser below.
+    let workingRaw: Record<string, string> = raw
+    if (raw.request_uri !== undefined) {
+      const parParsed = authorizeRequestUriQuerySchema.safeParse(raw)
+      if (!parParsed.success) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(
+            parParsed.error.issues[0]?.message ?? "invalid request",
+            parParsed.error.issues[0]?.path[0]?.toString() ?? "request",
+          ),
+        )
+      }
+      if (!deps.sessionStore.consumePar) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(
+            "session adapter does not support PAR",
+            "request_uri",
+          ),
+        )
+      }
+      const par = await deps.sessionStore.consumePar(parParsed.data.request_uri)
+      if (isErr(par)) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(
+            "unknown or expired request_uri",
+            "request_uri",
+          ),
+        )
+      }
+      if (par.value.clientId !== parParsed.data.client_id) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(
+            "request_uri belongs to a different client",
+            "request_uri",
+          ),
+        )
+      }
+      workingRaw = par.value.params
+    }
+
+    const parsed = authorizeQuerySchema.safeParse(workingRaw)
     if (!parsed.success) {
       const first = parsed.error.issues[0]
       const field = first?.path[0]?.toString() ?? "request"
@@ -51,6 +101,20 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
     }
     const q = parsed.data
 
+    // RFC 9126 §2 per-client PAR enforcement: refuse direct `/authorize`
+    // when the client requires PAR and `request_uri` was absent.
+    if (raw.request_uri === undefined) {
+      const client = tenant.config.clients.find((c) => c.id === q.client_id)
+      if (client?.requirePushedAuthorizationRequests) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(
+            "this client requires Pushed Authorization Requests (RFC 9126)",
+            "request_uri",
+          ),
+        )
+      }
+    }
+
     if (q.response_type !== "code") {
       // OAuth 2.1: only `code` is supported. Implicit (`token`) is removed.
       return authorizeDirectErrorResponse({
@@ -58,6 +122,17 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
         description: `unsupported response_type "${q.response_type}" — OAuth 2.1 is code-only`,
         field: "response_type",
       })
+    }
+
+    let claimsRequest: ClaimsRequest | undefined
+    if (q.claims !== undefined) {
+      const parsedClaims = parseClaimsParameter(q.claims)
+      if (!parsedClaims.ok) {
+        return authorizeDirectErrorResponse(
+          authError.invalidRequest(parsedClaims.error, "claims"),
+        )
+      }
+      claimsRequest = parsedClaims.value
     }
 
     const request: AuthorizationRequest = {
@@ -78,6 +153,7 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
       ...(q.prompt !== undefined ? { prompt: q.prompt } : {}),
       ...(q.ui_locales !== undefined ? { uiLocales: q.ui_locales } : {}),
       ...(q.nonce !== undefined ? { nonce: q.nonce } : {}),
+      ...(claimsRequest !== undefined ? { claimsRequest } : {}),
     }
 
     const result = await startAuthorize(
@@ -187,6 +263,71 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
       }
     }
   }
+}
+
+/**
+ * Parse + validate the OIDC Core §5.5 `claims` parameter. Accepts a
+ * JSON string; verifies it's an object whose `userinfo` / `id_token`
+ * values, if present, are objects mapping claim names to `null` or
+ * `{essential?, value?, values?}` entries. Returns a discriminated
+ * `{ok, value}` shape so the caller can map failure → `invalid_request`
+ * without dragging the AuthError import into this helper.
+ */
+function parseClaimsParameter(
+  raw: string,
+): { ok: true; value: ClaimsRequest } | { ok: false; error: string } {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (e) {
+    return {
+      ok: false,
+      error: `claims parameter is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, error: "claims parameter must be a JSON object" }
+  }
+  const obj = parsed as Record<string, unknown>
+  const result: ClaimsRequest = {}
+  for (const section of ["userinfo", "id_token"] as const) {
+    const v = obj[section]
+    if (v === undefined) continue
+    if (!v || typeof v !== "object" || Array.isArray(v)) {
+      return {
+        ok: false,
+        error: `claims.${section} must be a JSON object`,
+      }
+    }
+    const sectionMap: Record<
+      string,
+      { essential?: boolean; value?: unknown; values?: unknown[] } | null
+    > = {}
+    for (const [name, entry] of Object.entries(v)) {
+      if (entry === null) {
+        sectionMap[name] = null
+        continue
+      }
+      if (typeof entry !== "object" || Array.isArray(entry)) {
+        return {
+          ok: false,
+          error: `claims.${section}.${name} must be null or a JSON object`,
+        }
+      }
+      const e = entry as Record<string, unknown>
+      const normalized: {
+        essential?: boolean
+        value?: unknown
+        values?: unknown[]
+      } = {}
+      if (typeof e.essential === "boolean") normalized.essential = e.essential
+      if ("value" in e) normalized.value = e.value
+      if (Array.isArray(e.values)) normalized.values = e.values
+      sectionMap[name] = normalized
+    }
+    result[section] = sectionMap
+  }
+  return { ok: true, value: result }
 }
 
 function clearFlowCookie() {

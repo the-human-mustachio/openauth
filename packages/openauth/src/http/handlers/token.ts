@@ -17,6 +17,7 @@
  * refresh-token snapshot is authoritative.
  */
 import { clientCredentialsGrant } from "../../domain/client-credentials"
+import { canonicalHtu, verifyDpopProof } from "../../domain/dpop"
 import { exchangeCode } from "../../domain/token"
 import { exchangeToken } from "../../domain/token-exchange"
 import { refreshTokens } from "../../domain/refresh"
@@ -39,10 +40,51 @@ export function makeTokenHandler(deps: HttpDeps) {
       )
     }
 
+    // `Authorization` carries Basic client auth on /token. DPoP travels in
+    // its own `DPoP:` header (RFC 9449 §5) — never inside `Authorization`.
+    // Parsing Basic first lets a confidential client present its secret
+    // alongside a DPoP proof.
     const basic = parseBasicAuth(c.req.header("authorization") ?? null)
     if (basic) {
       body.set("client_id", basic.id)
       body.set("client_secret", basic.secret)
+    }
+
+    // RFC 9449 §5.1 — verify any presented DPoP proof against this
+    // request's actual method + URI. Absent header is fine here (the
+    // grant-specific path enforces `dpopRequired`).
+    const dpopHeader = c.req.header("dpop") ?? null
+    let dpopJkt: string | undefined
+    if (dpopHeader) {
+      const dpopRes = await verifyDpopProof(
+        {
+          proofJwt: dpopHeader,
+          htu: canonicalHtu(c.req.url),
+          htm: "POST",
+          nowSec: Math.floor(deps.clock() / 1000),
+        },
+        { tokenStore: deps.tokenStore },
+      )
+      if (isErr(dpopRes)) {
+        // RFC 9449 §11.1 replay → first-class audit event so operators /
+        // SIEM can spot stolen-key probing distinct from generic proof
+        // verification failures.
+        const errVal = dpopRes.error
+        if (
+          errVal.code === "invalid_dpop_proof" &&
+          errVal.replaySignal &&
+          deps.auditLog
+        ) {
+          await deps.auditLog.log({
+            kind: "dpop_replay_detected",
+            tenantId: null,
+            jtiPrefix: errVal.replaySignal.jti.slice(0, 16),
+            timestamp: deps.clock(),
+          })
+        }
+        return tokenEndpointErrorResponse(errVal)
+      }
+      dpopJkt = dpopRes.value.jkt
     }
 
     const parsed = tokenRequestSchema.safeParse(
@@ -77,6 +119,7 @@ export function makeTokenHandler(deps: HttpDeps) {
           ...(req.code_verifier !== undefined
             ? { codeVerifier: req.code_verifier }
             : {}),
+          ...(dpopJkt !== undefined ? { dpopJkt } : {}),
         },
         {
           configStore: deps.configStore,
@@ -89,6 +132,9 @@ export function makeTokenHandler(deps: HttpDeps) {
             : {}),
           issuerUrl: c.get("issuerUrl"),
           clock: deps.clock,
+          ...(deps.customScopeClaims !== undefined
+            ? { customScopeClaims: deps.customScopeClaims }
+            : {}),
         },
       )
       if (isErr(result)) return tokenEndpointErrorResponse(result.error)
@@ -133,6 +179,9 @@ export function makeTokenHandler(deps: HttpDeps) {
             : {}),
           issuerUrl: c.get("issuerUrl"),
           clock: deps.clock,
+          ...(deps.customScopeClaims !== undefined
+            ? { customScopeClaims: deps.customScopeClaims }
+            : {}),
         },
         tenantRes.value,
       )
@@ -150,6 +199,7 @@ export function makeTokenHandler(deps: HttpDeps) {
           ...(req.client_secret !== undefined
             ? { clientSecret: req.client_secret }
             : {}),
+          ...(dpopJkt !== undefined ? { dpopJkt } : {}),
         },
         {
           configStore: deps.configStore,
@@ -158,6 +208,9 @@ export function makeTokenHandler(deps: HttpDeps) {
           ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
           issuerUrl: c.get("issuerUrl"),
           clock: deps.clock,
+          ...(deps.customScopeClaims !== undefined
+            ? { customScopeClaims: deps.customScopeClaims }
+            : {}),
         },
       )
       if (isErr(refreshResult))
@@ -195,6 +248,9 @@ export function makeTokenHandler(deps: HttpDeps) {
           : {}),
         issuerUrl: c.get("issuerUrl"),
         clock: deps.clock,
+        ...(deps.customScopeClaims !== undefined
+          ? { customScopeClaims: deps.customScopeClaims }
+          : {}),
       },
     )
     if (isErr(exchangeResult)) {

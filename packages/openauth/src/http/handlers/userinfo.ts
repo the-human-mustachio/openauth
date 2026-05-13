@@ -1,7 +1,10 @@
 /**
  * OIDC `/userinfo` handler (OIDC Core §5.3). Accepts `GET` or `POST` per
- * the spec.
+ * the spec. Supports both `Authorization: Bearer ...` (RFC 6750) and
+ * `Authorization: DPoP ...` (RFC 9449) — the domain layer enforces the
+ * proof match against the access token's `cnf.jkt` when bound.
  */
+import { canonicalHtu } from "../../domain/dpop"
 import { userinfo } from "../../domain/userinfo"
 import { isErr } from "../../types/result"
 
@@ -9,44 +12,43 @@ import type { HttpContext, HttpDeps } from "../context"
 
 export function makeUserinfoHandler(deps: HttpDeps) {
   return async (c: HttpContext): Promise<Response> => {
-    const bearer = extractBearer(c.req.header("authorization") ?? null)
-    if (!bearer) {
-      const r = new Response(
-        JSON.stringify({
-          error: "invalid_token",
-          error_description: "missing bearer token",
-        }),
-        {
-          status: 401,
-          headers: {
-            "content-type": "application/json",
-            "www-authenticate": 'Bearer realm="userinfo"',
-          },
-        },
+    const auth = extractAuthorization(c.req.header("authorization") ?? null)
+    if (!auth) {
+      return wwwAuthenticateResponse(
+        "Bearer",
+        "invalid_token",
+        "missing bearer / DPoP token",
+        401,
       )
-      return r
     }
 
-    const res = await userinfo(bearer, {
-      keyStore: deps.keyStore,
-      issuerUrl: c.get("issuerUrl"),
-    })
+    const dpopProof = c.req.header("dpop") ?? undefined
+    const res = await userinfo(
+      {
+        accessToken: auth.token,
+        scheme: auth.scheme,
+        ...(dpopProof !== undefined ? { dpopProof } : {}),
+        htu: canonicalHtu(c.req.url),
+        htm: c.req.method.toUpperCase(),
+        nowSec: Math.floor(deps.clock() / 1000),
+      },
+      {
+        keyStore: deps.keyStore,
+        tokenStore: deps.tokenStore,
+        issuerUrl: c.get("issuerUrl"),
+        ...(deps.customScopeClaims !== undefined
+          ? { customScopeClaims: deps.customScopeClaims }
+          : {}),
+      },
+    )
     if (isErr(res)) {
-      // OIDC userinfo returns 401 on invalid token (vs. 400 elsewhere).
-      const err = res.error
-      return new Response(
-        JSON.stringify({
-          error: "invalid_token",
-          error_description: err.description,
-        }),
-        {
-          status: 401,
-          headers: {
-            "content-type": "application/json",
-            "www-authenticate": `Bearer error="invalid_token"`,
-          },
-        },
-      )
+      const error = res.error
+      const scheme = auth.scheme
+      const wireError =
+        error.code === "invalid_dpop_proof"
+          ? "invalid_dpop_proof"
+          : "invalid_token"
+      return wwwAuthenticateResponse(scheme, wireError, error.description, 401)
     }
 
     return new Response(JSON.stringify(res.value), {
@@ -59,8 +61,30 @@ export function makeUserinfoHandler(deps: HttpDeps) {
   }
 }
 
-function extractBearer(header: string | null): string | null {
+function extractAuthorization(
+  header: string | null,
+): { scheme: "Bearer" | "DPoP"; token: string } | null {
   if (!header) return null
-  const m = /^Bearer\s+(.+)$/i.exec(header)
-  return m?.[1] ?? null
+  const m = /^(Bearer|DPoP)\s+(.+)$/i.exec(header)
+  if (!m || !m[1] || !m[2]) return null
+  const scheme = m[1].toLowerCase() === "dpop" ? "DPoP" : "Bearer"
+  return { scheme, token: m[2] }
+}
+
+function wwwAuthenticateResponse(
+  scheme: "Bearer" | "DPoP",
+  error: string,
+  description: string,
+  status: number,
+): Response {
+  return new Response(
+    JSON.stringify({ error, error_description: description }),
+    {
+      status,
+      headers: {
+        "content-type": "application/json",
+        "www-authenticate": `${scheme} error="${error}"`,
+      },
+    },
+  )
 }

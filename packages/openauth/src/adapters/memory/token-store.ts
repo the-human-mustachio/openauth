@@ -43,6 +43,8 @@ export class MemoryTokenStore implements TokenStore {
   #clock: Clock
   #codes = new Map<string, StoredCode>()
   #refresh = new Map<string, StoredRefresh>()
+  /** DPoP proof `jti` replay-protection map. Value is expiry timestamp. */
+  #dpopJtis = new Map<string, number>()
 
   constructor(opts: MemoryTokenStoreOptions = {}) {
     this.#clock = opts.clock ?? realClock
@@ -160,6 +162,20 @@ export class MemoryTokenStore implements TokenStore {
         this.#refresh.delete(token)
       }
     }
+    return ok(undefined)
+  }
+
+  async recordDpopJti(jti: string, ttlMs: number): Promise<Result<void>> {
+    const now = this.#clock()
+    // Sweep expired entries opportunistically — keeps the map bounded
+    // under sustained load without a separate GC pass.
+    for (const [k, exp] of this.#dpopJtis) {
+      if (exp <= now) this.#dpopJtis.delete(k)
+    }
+    if (this.#dpopJtis.has(jti)) {
+      return err(authError.invalidGrant(`dpop jti "${jti}" replayed`))
+    }
+    this.#dpopJtis.set(jti, now + ttlMs)
     return ok(undefined)
   }
 }

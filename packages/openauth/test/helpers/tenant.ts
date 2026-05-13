@@ -19,6 +19,7 @@ export type BuildTenantOpts = {
   redirectUri?: string
   scopes?: string[]
   pkceRequired?: boolean
+  postLogoutRedirectUris?: string[]
   methods?: Array<{
     id: string
     kind: string
@@ -49,6 +50,9 @@ export async function buildTenant(
       grantTypes,
       scopes,
       pkceRequired: opts.pkceRequired ?? true,
+      ...(opts.postLogoutRedirectUris !== undefined
+        ? { postLogoutRedirectUris: opts.postLogoutRedirectUris }
+        : {}),
     }
   } else {
     client = {
@@ -59,6 +63,9 @@ export async function buildTenant(
       grantTypes,
       scopes,
       pkceRequired: true,
+      ...(opts.postLogoutRedirectUris !== undefined
+        ? { postLogoutRedirectUris: opts.postLogoutRedirectUris }
+        : {}),
     }
   }
 

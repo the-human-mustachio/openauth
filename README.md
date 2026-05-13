@@ -5,6 +5,10 @@ your host application — the host owns the console, the data model, and
 RBAC; this library owns the identity endpoints, per-tenant isolation, and
 the standards posture.
 
+> 🚀 **In a hurry?** Jump to [**QUICKSTART.md**](QUICKSTART.md) — a
+> 5-minute clone → install → run → verify path, with a dense
+> rules-that-bite section for LLM agents.
+
 - **Library, not a service.** Mounts inside your existing app. No
   separate admin HTTP surface; the host imports port adapters in-process.
 - **Multi-tenant from day one.** `TenantId` is an opaque partition key.
@@ -112,14 +116,16 @@ That's a complete IdP: `/authorize`, `/token`, `/cb/*`, `/userinfo`,
 `/revoke`, `/introspect`, `/.well-known/*` over Postgres with password +
 Google sign-in.
 
-For the full host-side embedding guide — the four host contracts
-(`resolveTenant`, `ConfigStore`, `success`, `subjects`), method
-configuration, mounting under a prefix, behavioral contracts, hardening
-rules — see [`packages/openauth/INTEGRATION.md`](packages/openauth/INTEGRATION.md).
+Next steps:
 
-For the architectural picture — tenant recovery, flow lifecycle, port
-consistency, embedding pattern — see
-[`packages/openauth/ARCHITECTURE.md`](packages/openauth/ARCHITECTURE.md).
+- **5-minute path** (runnable example + rules for AI agents):
+  [`QUICKSTART.md`](QUICKSTART.md)
+- **Full embedding guide** — four host contracts, method
+  configuration, mounting under a prefix, behavioral contracts,
+  hardening: [`packages/openauth/INTEGRATION.md`](packages/openauth/INTEGRATION.md)
+- **Architectural picture** — tenant recovery, flow lifecycle, port
+  consistency, embedding pattern:
+  [`packages/openauth/ARCHITECTURE.md`](packages/openauth/ARCHITECTURE.md)
 
 ## Relying-party client
 

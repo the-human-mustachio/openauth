@@ -21,6 +21,8 @@ export type SessionStoreSuiteOptions = {
   }>
   /** Some adapters (KV-style) do not implement long-lived sessions. */
   supportsLongLivedSessions?: boolean
+  /** Set true when the adapter implements `savePar` / `consumePar`. */
+  supportsPar?: boolean
 }
 
 export function describeSessionStore(opts: SessionStoreSuiteOptions): void {
@@ -132,6 +134,90 @@ export function describeSessionStore(opts: SessionStoreSuiteOptions): void {
         expect(result.ok).toBe(false)
       })
     })
+
+    if (opts.supportsPar) {
+      describe("pushed authorization requests (RFC 9126)", () => {
+        const PAR_TTL = 60_000
+        test("savePar + consumePar returns the full record once", async () => {
+          if (!store.savePar || !store.consumePar) return
+          const uri = `urn:ietf:params:oauth:request_uri:${uniqueSuffix("u")}`
+          const now = clock.now()
+          const record = {
+            requestUri: uri,
+            params: {
+              response_type: "code",
+              client_id: "rp-1",
+              redirect_uri: "https://app.example/cb",
+              scope: "openid",
+              state: "s",
+            },
+            clientId: "rp-1",
+            issuedAt: now,
+            expiresAt: now + PAR_TTL,
+          }
+          const saved = await store.savePar(uri, record, PAR_TTL)
+          expect(saved.ok).toBe(true)
+          const first = await store.consumePar(uri)
+          expect(first.ok).toBe(true)
+          if (first.ok) {
+            expect(first.value.requestUri).toBe(uri)
+            expect(first.value.clientId).toBe("rp-1")
+            expect(first.value.params.scope).toBe("openid")
+          }
+          // One-shot — second consume must fail.
+          const second = await store.consumePar(uri)
+          expect(second.ok).toBe(false)
+          if (!second.ok) expect(second.error.code).toBe("unknown_state")
+        })
+
+        test("consumePar on unknown uri returns unknown_state", async () => {
+          if (!store.consumePar) return
+          const r = await store.consumePar(
+            `urn:ietf:params:oauth:request_uri:${uniqueSuffix("missing")}`,
+          )
+          expect(r.ok).toBe(false)
+          if (!r.ok) expect(r.error.code).toBe("unknown_state")
+        })
+
+        test("expired par record not returned", async () => {
+          if (!store.savePar || !store.consumePar) return
+          const uri = `urn:ietf:params:oauth:request_uri:${uniqueSuffix("e")}`
+          const now = clock.now()
+          await store.savePar(
+            uri,
+            {
+              requestUri: uri,
+              params: {},
+              clientId: "rp-1",
+              issuedAt: now,
+              expiresAt: now + 1000,
+            },
+            1000,
+          )
+          clock.advance(2000)
+          const consumed = await store.consumePar(uri)
+          expect(consumed.ok).toBe(false)
+        })
+
+        test("savePar rejects ttl <= 0", async () => {
+          if (!store.savePar) return
+          const uri = `urn:ietf:params:oauth:request_uri:${uniqueSuffix("0")}`
+          const now = clock.now()
+          const r = await store.savePar(
+            uri,
+            {
+              requestUri: uri,
+              params: {},
+              clientId: "rp-1",
+              issuedAt: now,
+              expiresAt: now,
+            },
+            0,
+          )
+          expect(r.ok).toBe(false)
+        })
+      })
+    }
 
     if (opts.supportsLongLivedSessions) {
       describe("long-lived sessions", () => {

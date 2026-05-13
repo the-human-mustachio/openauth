@@ -16,9 +16,14 @@ import { isErr } from "../../types/result"
 import type { HttpContext, HttpDeps } from "../context"
 import { tokenEndpointErrorResponse } from "../errors"
 
-export function makeDiscoveryHandler(_deps: HttpDeps) {
+export function makeDiscoveryHandler(deps: HttpDeps) {
   return async (c: HttpContext): Promise<Response> => {
-    const doc = buildDiscoveryDocument({ issuerUrl: c.get("issuerUrl") })
+    const doc = buildDiscoveryDocument({
+      issuerUrl: c.get("issuerUrl"),
+      ...(deps.customScopeClaims !== undefined
+        ? { customScopeClaims: deps.customScopeClaims }
+        : {}),
+    })
     return new Response(JSON.stringify(doc), {
       status: 200,
       headers: {

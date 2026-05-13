@@ -79,6 +79,16 @@ import {
   type SuccessMapInput,
   type StateKeyRing,
   type StateKey,
+  // OIDC token-response types — accept these from the library when you
+  // proxy /token responses through host-side middleware.
+  type IdTokenClaims,
+  type ScopedProfileClaims,
+  type AddressClaim,
+  // Dynamic Client Registration (RFC 7591) — implement the hook if you
+  // want to expose `POST /register` on your IdP.
+  type RegisterClient,
+  type RegisterClientRequest,
+  type RegisterClientResponse,
 } from "@_mustachio/openauth"
 
 // Built-in method factories
@@ -533,8 +543,9 @@ Bun.serve({
 ```
 
 That's a complete IdP. It serves `/authorize`, `/token`, `/cb/*`,
-`/userinfo`, `/revoke`, `/introspect`, `/.well-known/*` over Postgres
-with password + Google sign-in.
+`/userinfo`, `/revoke`, `/introspect`, `/end_session`, `/par`,
+`/register`, `/.well-known/*` over Postgres with password + Google
+sign-in.
 
 ---
 
@@ -550,8 +561,11 @@ type IdP = {
   userinfo: (req: Request) => Promise<Response>
   jwks: (req: Request) => Promise<Response>
   discovery: (req: Request) => Promise<Response>
-  revoke?: (req: Request) => Promise<Response>
-  introspect?: (req: Request) => Promise<Response>
+  revoke: (req: Request) => Promise<Response>
+  introspect: (req: Request) => Promise<Response>
+  endSession: (req: Request) => Promise<Response> // OIDC RP-Initiated Logout 1.0
+  par: (req: Request) => Promise<Response> // RFC 9126 Pushed Authorization Requests
+  register: (req: Request) => Promise<Response> // RFC 7591 Dynamic Client Registration
 }
 ```
 
@@ -929,11 +943,29 @@ const events = await sql`
 Audit event kinds the library emits:
 
 ```
-authorize_started, authorize_completed, authorize_rejected,
+# Authorize lifecycle
+authorize_started, authorize_succeeded, authorize_failed,
 flow_replay_attempt, flow_tenant_mismatch, flow_callback_mismatch,
 unrecoverable_flow,
-token_issued, token_refreshed, token_revoked, refresh_reuse_detected
+
+# Token lifecycle
+token_issued, token_refreshed, token_exchanged, token_revoked,
+refresh_reuse_detected,
+
+# Config / method loading
+factory_id_mismatch, invalid_method_config, unknown_method_kind,
+
+# OIDC + DPoP (Phase 8 Session 2)
+session_logout,         # OIDC RP-Initiated Logout 1.0
+dpop_replay_detected,   # RFC 9449 §11.1
+
+# Host-emitted
+custom
 ```
+
+`token_issued` additionally carries optional `idTokenIssued` and
+`dpopBound` boolean flags so dashboards can filter by feature without
+re-parsing the access token.
 
 ---
 
@@ -1040,18 +1072,258 @@ in front of it, raise scope before integrating:
 > unauthenticated endpoints and per-client buckets for `/token` are the
 > usual minimum.
 
-- **DPoP (RFC 9449)** — sender-constrained tokens. Bearer tokens only
-  for now.
-- **PAR (RFC 9126)** — pushed authorization requests.
 - **mTLS client auth (RFC 8705)** — relies on a host-side
   `extractClientCert(req)` hook that doesn't exist yet.
-- **Dynamic Client Registration (RFC 7591)** — host-callable helper
-  pattern, not landed yet.
 - **Rate-limiter port** — see the callout above. Until this lands, the
   library has no defense against high-volume abuse on its
   unauthenticated endpoints.
 - **Logger / Tracer ports** — wrap `idp.handle` with your own
   request-logging middleware until structured ports land.
+
+### What landed in Phase 8 Session 2
+
+The OIDC issuance + standards features below are **shipped** and
+documented in §15a–e below:
+
+- **OIDC `id_token` issuance** with `nonce`, `auth_time`, `at_hash`,
+  `amr`, scope-gated profile claims. Refresh-grant reissue with stable
+  `auth_time`.
+- **`/end_session`** (OIDC RP-Initiated Logout 1.0) — id_token_hint
+  verify, post_logout_redirect_uri validation, subject revocation.
+- **PAR** (RFC 9126) — `/par` endpoint, `request_uri` rehydrate,
+  per-client `requirePushedAuthorizationRequests` enforcement.
+- **DPoP** (RFC 9449) — sender-constrained tokens; `cnf.jkt` on
+  access tokens; refresh-bound rotation; `/userinfo` proof matching;
+  jti replay protection.
+- **`claims` parameter** (OIDC Core §5.5) — additive claim grant
+  bypassing scope gating for id_token + `/userinfo`; preserved across
+  refresh rotation.
+- **Pairwise subjects** (§8.1) — per-client `sectorIdentifier`.
+- **Dynamic Client Registration** (RFC 7591) — host-hook driven
+  `/register` endpoint.
+
+### 15a. OIDC `id_token` issuance
+
+When an RP requests `scope=openid`, the `/token` response includes an
+`id_token` alongside the access token:
+
+```ts
+const tokens = await fetch("https://idp.example/token", {
+  method: "POST",
+  body: new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    client_id: "rp-1",
+    redirect_uri: "https://app.example/callback",
+    code_verifier,
+  }),
+}).then((r) => r.json())
+// tokens.id_token is a signed JWT carrying iss, sub, aud=client_id,
+// exp, iat, auth_time, optional nonce, at_hash, amr, and §5.1 profile
+// claims gated by granted scopes.
+```
+
+`auth_time` is stamped at end-user authentication and remains stable
+across refresh-grant rotations (OIDC Core §12). `nonce` is echoed
+verbatim from the `/authorize` request and is **NOT** carried forward
+on refresh.
+
+Scope→claim mapping follows OIDC Core §5.4 exactly:
+
+- `profile` → `name`, `given_name`, `family_name`, `preferred_username`,
+  `picture`, `locale`, etc.
+- `email` → `email`, `email_verified`.
+- `phone` → `phone_number`, `phone_number_verified`.
+- `address` → `address` (structured object).
+
+Populate the values in your `success` callback's
+`SubjectClaim.properties`; the framework picks up only the names that
+match the granted scopes.
+
+**Custom vendor scopes.** Use `IdPOptions.customScopeClaims` to expose
+host-specific identity vocabulary alongside the §5.4 mapping:
+
+```ts
+createIdP({
+  // ...
+  customScopeClaims: {
+    tenant: ["tenant_id", "tenant_role", "tenant_roles"],
+    org: ["organization_id", "org_role"],
+  },
+})
+```
+
+The keys are added to discovery's `scopes_supported`; the union of
+values is added to `claims_supported`. A client requesting
+`scope=openid tenant` will receive `tenant_id` / `tenant_role` /
+`tenant_roles` in the id_token AND `/userinfo` — sourced from
+`SubjectClaim.properties` like the standard claims.
+
+The standard §5.4 mapping always wins on key collision: an entry for
+`email` is silently ignored, so a custom scope can never quietly
+redefine what `email` grants. A client must list a custom scope in
+`ClientConfig.scopes` to be allowed to request it (the existing
+per-client allowlist applies unchanged).
+
+> ⚠️ Note: id_token claims are baked in at mint time; `/userinfo`
+> reads `customScopeClaims` from your IdP config at request time.
+> Changing the map between issuance and userinfo means existing
+> id_tokens carry the old shape while subsequent `/userinfo` calls
+> reflect the new mapping. This is normal JWT immutability — clients
+> caching id_token claims should re-fetch `/userinfo` after a config
+> bump if they need agreement.
+
+### 15b. `/end_session` (RP-Initiated Logout)
+
+Register `postLogoutRedirectUris` on each `ClientConfig`:
+
+```ts
+const client: ClientConfig = {
+  id: "rp-1",
+  name: "Acme",
+  type: "confidential",
+  secretHash: await hashClientSecret(secret),
+  redirectUris: ["https://app.example/cb"],
+  grantTypes: ["authorization_code", "refresh_token"],
+  scopes: ["openid", "email"],
+  pkceRequired: true,
+  postLogoutRedirectUris: ["https://app.example/post-logout"],
+}
+```
+
+RP usage:
+
+```
+GET /end_session?
+  id_token_hint=<previously-issued-id-token>
+  &post_logout_redirect_uri=https://app.example/post-logout
+  &state=optional-rp-state
+```
+
+The IdP validates the `id_token_hint` signature (expiry is tolerated
+per spec — logout commonly follows expiry), validates
+`post_logout_redirect_uri` against the registered list (exact match —
+never substring; defends against open redirect), revokes the
+identified subject's refresh tokens via `revokeAllForSubject`, emits a
+`session_logout` audit event, and 302s back to the RP with `state`
+echoed.
+
+### 15c. PAR — Pushed Authorization Requests
+
+PAR moves the `/authorize` parameter set off the front channel.
+Confidential clients authenticate to `POST /par`; the IdP returns a
+short-lived `request_uri` which the RP includes in `/authorize`:
+
+```
+POST /par
+Authorization: Basic <id:secret>
+Content-Type: application/x-www-form-urlencoded
+
+response_type=code&client_id=rp-1&redirect_uri=...&scope=openid&...
+
+→ HTTP 201
+{
+  "request_uri": "urn:ietf:params:oauth:request_uri:abc...",
+  "expires_in": 60
+}
+```
+
+Then:
+
+```
+GET /authorize?client_id=rp-1&request_uri=urn:ietf:params:oauth:request_uri:abc...
+```
+
+`request_uri` is **one-shot**: a second `/authorize` with the same URI
+fails with `invalid_request`. To require PAR for a client:
+
+```ts
+const client: ClientConfig = {
+  // ... as above
+  requirePushedAuthorizationRequests: true,
+}
+```
+
+Direct `/authorize` without `request_uri` is then rejected.
+
+### 15d. DPoP — Sender-Constrained Tokens
+
+A DPoP-aware RP generates an asymmetric keypair, signs a fresh proof
+JWT on each request, and the IdP binds the issued access token's
+`cnf.jkt` to the public key's RFC 7638 thumbprint:
+
+```
+POST /token
+DPoP: <jwt-with-typ:"dpop+jwt",alg:"ES256",jwk:{...}; payload {htu, htm, iat, jti}>
+Content-Type: application/x-www-form-urlencoded
+...
+
+→ {
+  "token_type": "DPoP",
+  "access_token": "<jwt-with-cnf-jkt>",
+  "refresh_token": "<dpop-bound-opaque>",
+  ...
+}
+```
+
+Resource servers use `Authorization: DPoP <token>` plus a fresh proof
+with `ath = base64url(sha256(access_token))`. Refresh-grant rotation
+requires a matching proof — a mismatched key returns
+`invalid_dpop_proof` without burning the refresh token. To require
+DPoP for a client:
+
+```ts
+const client: ClientConfig = {
+  // ... as above
+  dpopRequired: true,
+}
+```
+
+`/token` then refuses bearer-only requests with `invalid_dpop_proof`.
+
+### 15e. Dynamic Client Registration (RFC 7591)
+
+Provide the optional hook on `IdPOptions`:
+
+```ts
+createIdP({
+  // ...
+  registerClient: async ({ tenant, request }) => {
+    // Validate against your own policy
+    if (!request.client_name) {
+      return err(authError.invalidRequest("client_name required"))
+    }
+    const id = `dyn-${randomUUID()}`
+    const isPublic = request.token_endpoint_auth_method === "none"
+    let secret: string | undefined
+    let secretHash = ""
+    if (!isPublic) {
+      secret = randomBytes(32).toString("base64url")
+      secretHash = await hashClientSecret(secret)
+    }
+    // Persist via your ConfigStore (host responsibility)
+    await db.clients.insert({
+      tenantId: tenant.id,
+      id,
+      name: request.client_name,
+      type: isPublic ? "public" : "confidential",
+      secretHash,
+      redirectUris: request.redirect_uris,
+    })
+    return ok({
+      client: {
+        /* the ClientConfig you just persisted */
+      },
+      ...(secret ? { secret } : {}),
+    })
+  },
+})
+```
+
+Absent hook → `/register` returns 400 `invalid_request: "dynamic
+client registration is not enabled"`. Per-tenant policy (require
+sector_identifier, restrict grant_types, throttle registration rate)
+lives in the host hook, not the library.
 
 All of these are designed to be **additive when they ship**: new
 optional fields on `IdPOptions`, new optional methods on existing
