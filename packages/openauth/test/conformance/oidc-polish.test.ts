@@ -24,11 +24,7 @@ import { verifyIdToken } from "../../src/domain/jwt"
 import type { Result } from "../../src/types/result"
 import type { SigningKey } from "../../src/ports/key-store"
 
-import {
-  authorizeUrl,
-  driveCallback,
-  tokenRequest,
-} from "../helpers/idp"
+import { authorizeUrl, driveCallback, tokenRequest } from "../helpers/idp"
 import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
@@ -509,9 +505,11 @@ describe("OIDC Core §8.1 — pairwise subjects", () => {
 })
 
 describe("RFC 7591 — Dynamic Client Registration", () => {
-  async function buildRegisterHarness(opts: {
-    withHook?: boolean
-  } = {}) {
+  async function buildRegisterHarness(
+    opts: {
+      withHook?: boolean
+    } = {},
+  ) {
     const tenant = await buildTenant({
       methods: [{ id: "stub", kind: "stub" }],
     })
@@ -551,7 +549,10 @@ describe("RFC 7591 — Dynamic Client Registration", () => {
                     name: input.request.client_name ?? id,
                     type: "public" as const,
                     redirectUris: input.request.redirect_uris,
-                    grantTypes: ["authorization_code", "refresh_token"] as const,
+                    grantTypes: [
+                      "authorization_code",
+                      "refresh_token",
+                    ] as const,
                     scopes: ["openid"],
                     pkceRequired: true as const,
                   } as never)
@@ -561,7 +562,10 @@ describe("RFC 7591 — Dynamic Client Registration", () => {
                     type: "confidential" as const,
                     secretHash,
                     redirectUris: input.request.redirect_uris,
-                    grantTypes: ["authorization_code", "refresh_token"] as const,
+                    grantTypes: [
+                      "authorization_code",
+                      "refresh_token",
+                    ] as const,
                     scopes: ["openid"],
                     pkceRequired: true,
                   } as never)
@@ -814,8 +818,10 @@ describe("OIDC vendor scope extension — customScopeClaims", () => {
     })
     const tokens = await issueTokens(h, "openid tenant")
     const keys = unwrapKeys(await h.keyStore.signingKeys())
-    const claims = (await verifyIdToken(requireIdToken(tokens), keys)) as
-      Record<string, unknown>
+    const claims = (await verifyIdToken(
+      requireIdToken(tokens),
+      keys,
+    )) as Record<string, unknown>
     expect(claims.tenant_id).toBe("acme")
     expect(claims.tenant_role).toBe("admin")
     // email/email_verified are NOT requested via standard `email` scope,
@@ -855,8 +861,10 @@ describe("OIDC vendor scope extension — customScopeClaims", () => {
     )
     const tokens = await issueTokens(h, "openid email")
     const keys = unwrapKeys(await h.keyStore.signingKeys())
-    const claims = (await verifyIdToken(requireIdToken(tokens), keys)) as
-      Record<string, unknown>
+    const claims = (await verifyIdToken(
+      requireIdToken(tokens),
+      keys,
+    )) as Record<string, unknown>
     // Standard §5.4 mapping survives — email claim is present.
     expect(claims.email).toBe("ada@example.com")
     expect(claims.email_verified).toBe(true)

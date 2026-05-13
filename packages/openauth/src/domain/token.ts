@@ -318,9 +318,7 @@ export async function mintTokens(args: {
   if (isErr(keyRes)) return err(keyRes.error)
   const signingKey = keyRes.value
 
-  const userinfoClaimNames = Object.keys(
-    payload.claimsRequest?.userinfo ?? {},
-  )
+  const userinfoClaimNames = Object.keys(payload.claimsRequest?.userinfo ?? {})
   const claims: AccessTokenClaims = {
     iss: deps.issuerUrl,
     sub: subjectId,
@@ -333,9 +331,7 @@ export async function mintTokens(args: {
     scope: payload.scopes.join(" "),
     claim,
     ...(payload.authTime !== undefined ? { auth_time: payload.authTime } : {}),
-    ...(payload.dpopJkt !== undefined
-      ? { cnf: { jkt: payload.dpopJkt } }
-      : {}),
+    ...(payload.dpopJkt !== undefined ? { cnf: { jkt: payload.dpopJkt } } : {}),
     ...(userinfoClaimNames.length > 0 ? { uic: userinfoClaimNames } : {}),
   }
 

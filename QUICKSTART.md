@@ -229,11 +229,11 @@ a symbol isn't exported there, it isn't public.
 
 ## Where to go next
 
-| You want to…                                            | Read                                                                                         |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Embed the library in a host app                         | [`packages/openauth/INTEGRATION.md`](packages/openauth/INTEGRATION.md)                       |
-| Understand the mental model + flow lifecycle            | [`packages/openauth/ARCHITECTURE.md`](packages/openauth/ARCHITECTURE.md)                     |
-| See per-port consistency requirements                   | [`packages/openauth/src/ports/CONSISTENCY.md`](packages/openauth/src/ports/CONSISTENCY.md)   |
-| Read a runnable steel-thread                            | [`examples/embed-postgres/`](examples/embed-postgres/)                                       |
-| See the phased rebuild plan + design decisions          | [`docs/plans/claude/idp-rebuild-plan.md`](docs/plans/claude/idp-rebuild-plan.md)             |
-| Crib from conformance tests                             | `packages/openauth/test/conformance/oauth-2.1.test.ts`                                       |
+| You want to…                                   | Read                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Embed the library in a host app                | [`packages/openauth/INTEGRATION.md`](packages/openauth/INTEGRATION.md)                     |
+| Understand the mental model + flow lifecycle   | [`packages/openauth/ARCHITECTURE.md`](packages/openauth/ARCHITECTURE.md)                   |
+| See per-port consistency requirements          | [`packages/openauth/src/ports/CONSISTENCY.md`](packages/openauth/src/ports/CONSISTENCY.md) |
+| Read a runnable steel-thread                   | [`examples/embed-postgres/`](examples/embed-postgres/)                                     |
+| See the phased rebuild plan + design decisions | [`docs/plans/claude/idp-rebuild-plan.md`](docs/plans/claude/idp-rebuild-plan.md)           |
+| Crib from conformance tests                    | `packages/openauth/test/conformance/oauth-2.1.test.ts`                                     |

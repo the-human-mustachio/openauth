@@ -45,7 +45,9 @@ export function makeUserinfoHandler(deps: HttpDeps) {
       const error = res.error
       const scheme = auth.scheme
       const wireError =
-        error.code === "invalid_dpop_proof" ? "invalid_dpop_proof" : "invalid_token"
+        error.code === "invalid_dpop_proof"
+          ? "invalid_dpop_proof"
+          : "invalid_token"
       return wwwAuthenticateResponse(scheme, wireError, error.description, 401)
     }
 

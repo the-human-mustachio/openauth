@@ -23,11 +23,7 @@ import { s256Challenge } from "../../src/domain/pkce"
 import { verifyIdToken } from "../../src/domain/jwt"
 import type { TokenResponse } from "../../src/types/token"
 
-import {
-  authorizeUrl,
-  driveCallback,
-  tokenRequest,
-} from "../helpers/idp"
+import { authorizeUrl, driveCallback, tokenRequest } from "../helpers/idp"
 import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
@@ -42,9 +38,7 @@ function unwrapKeys(res: Result<SigningKey[]>): SigningKey[] {
  * `postLogoutRedirectUris`, run a full code-flow auth, exchange for
  * tokens, and return the issued tokens + helpers.
  */
-async function loginAndGetTokens(opts: {
-  postLogoutRedirectUris?: string[]
-}) {
+async function loginAndGetTokens(opts: { postLogoutRedirectUris?: string[] }) {
   const tenant = await buildTenant({
     methods: [{ id: "stub", kind: "stub" }],
     ...(opts.postLogoutRedirectUris !== undefined
@@ -290,9 +284,7 @@ describe("OIDC RP-Initiated Logout 1.0 — /end_session conformance", () => {
   test("LOGOUT-10. /end_session with a structurally-broken id_token_hint → 400", async () => {
     const h = await loginAndGetTokens({})
     const res = await h.idp.handle(
-      new Request(
-        h.issuerUrl + "/end_session?id_token_hint=not.a.real.jwt",
-      ),
+      new Request(h.issuerUrl + "/end_session?id_token_hint=not.a.real.jwt"),
     )
     expect(res.status).toBe(400)
   })

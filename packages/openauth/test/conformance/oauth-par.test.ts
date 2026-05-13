@@ -26,16 +26,19 @@ import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
 
-async function buildPublicHarness(opts: {
-  requirePar?: boolean
-} = {}) {
+async function buildPublicHarness(
+  opts: {
+    requirePar?: boolean
+  } = {},
+) {
   const tenant = await buildTenant({
     methods: [{ id: "stub", kind: "stub" }],
   })
   // Apply requirePar override directly to the seed config.
   if (opts.requirePar) {
-    ;(tenant.clients[0] as { requirePushedAuthorizationRequests?: boolean })
-      .requirePushedAuthorizationRequests = true
+    ;(
+      tenant.clients[0] as { requirePushedAuthorizationRequests?: boolean }
+    ).requirePushedAuthorizationRequests = true
   }
   const issuerUrl = "https://idp.example"
   const auditLog = new MemoryAuditLog()
@@ -98,7 +101,10 @@ describe("RFC 9126 — Pushed Authorization Requests conformance", () => {
       }),
     )
     expect(res.status).toBe(201)
-    const body = (await res.json()) as { request_uri: string; expires_in: number }
+    const body = (await res.json()) as {
+      request_uri: string
+      expires_in: number
+    }
     expect(body.request_uri).toBeString()
     expect(body.request_uri.startsWith(PAR_URI_PREFIX)).toBe(true)
     expect(typeof body.expires_in).toBe("number")
@@ -298,9 +304,7 @@ describe("RFC 9126 — Pushed Authorization Requests conformance", () => {
       new Request(h.issuerUrl + "/.well-known/openid-configuration"),
     )
     const doc = (await res.json()) as Record<string, unknown>
-    expect(doc.pushed_authorization_request_endpoint).toBe(
-      h.issuerUrl + "/par",
-    )
+    expect(doc.pushed_authorization_request_endpoint).toBe(h.issuerUrl + "/par")
     expect(doc.require_pushed_authorization_requests).toBe(false)
   })
 

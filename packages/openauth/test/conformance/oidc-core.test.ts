@@ -227,7 +227,10 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
     expect(initial.body.id_token).toBeString()
 
     const keys = unwrapKeys(await h.keyStore.signingKeys())
-    const initialClaims = await verifyIdToken(requireIdToken(initial.body), keys)
+    const initialClaims = await verifyIdToken(
+      requireIdToken(initial.body),
+      keys,
+    )
     expect(initialClaims.nonce).toBe("orig-nonce")
 
     const initialRefresh = initial.body.refresh_token

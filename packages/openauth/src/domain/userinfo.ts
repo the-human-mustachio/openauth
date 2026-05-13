@@ -139,7 +139,7 @@ export async function userinfo(
     // confused-deputy can't accidentally rely on RS-side enforcement.
     return err(
       authError.invalidGrant(
-        'access token is not DPoP-bound; use Authorization: Bearer',
+        "access token is not DPoP-bound; use Authorization: Bearer",
       ),
     )
   }

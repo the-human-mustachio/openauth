@@ -91,9 +91,7 @@ export async function pushAuthorizationRequest(
     if (authErr) return err(authErr)
   } else if (req.clientSecret !== undefined) {
     return err(
-      authError.invalidClient(
-        "public client must not present client_secret",
-      ),
+      authError.invalidClient("public client must not present client_secret"),
     )
   }
 

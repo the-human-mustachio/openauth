@@ -78,9 +78,7 @@ export const authorizeRequestUriQuerySchema = z
     client_id: z
       .string({ required_error: "missing client_id" })
       .min(1, "empty client_id"),
-    request_uri: z
-      .string({ required_error: "missing request_uri" })
-      .min(1),
+    request_uri: z.string({ required_error: "missing request_uri" }).min(1),
   })
   .passthrough()
 

@@ -55,7 +55,10 @@ export async function registerNewClient(
   // RFC 7591 §2 — redirect_uris is REQUIRED for any client that uses a
   // redirect-based grant. We accept the field as required at the wire
   // level (schema enforces) and validate non-empty here.
-  if (!Array.isArray(request.redirect_uris) || request.redirect_uris.length === 0) {
+  if (
+    !Array.isArray(request.redirect_uris) ||
+    request.redirect_uris.length === 0
+  ) {
     return err(
       authError.invalidRequest(
         "redirect_uris must be a non-empty array",
@@ -103,10 +106,11 @@ export async function registerNewClient(
     // Default scopes overlap with what the IdP advertises; hosts may
     // override during the hook call before persisting.
     scopes,
-    grantTypes: grantTypes.filter((g): g is "authorization_code" | "refresh_token" | "client_credentials" =>
-      g === "authorization_code" ||
-      g === "refresh_token" ||
-      g === "client_credentials",
+    grantTypes: grantTypes.filter(
+      (g): g is "authorization_code" | "refresh_token" | "client_credentials" =>
+        g === "authorization_code" ||
+        g === "refresh_token" ||
+        g === "client_credentials",
     ),
     ...(request.post_logout_redirect_uris !== undefined
       ? { postLogoutRedirectUris: request.post_logout_redirect_uris }
@@ -147,7 +151,9 @@ export async function registerNewClient(
   const issuedAt = Math.floor(deps.clock() / 1000)
   return ok({
     client_id: persisted.id,
-    ...(persistedSecret !== undefined ? { client_secret: persistedSecret } : {}),
+    ...(persistedSecret !== undefined
+      ? { client_secret: persistedSecret }
+      : {}),
     client_id_issued_at: issuedAt,
     // RFC 7591 §3.2.1: `0` = no expiry.
     client_secret_expires_at: 0,

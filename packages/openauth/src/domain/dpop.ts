@@ -26,7 +26,12 @@
  * The thumbprint (`jkt`) is computed via RFC 7638 over the public JWK.
  */
 import type { JWK, KeyLike } from "jose"
-import { calculateJwkThumbprint, decodeProtectedHeader, importJWK, jwtVerify } from "jose"
+import {
+  calculateJwkThumbprint,
+  decodeProtectedHeader,
+  importJWK,
+  jwtVerify,
+} from "jose"
 
 import type { TokenStore } from "../ports/token-store"
 import { authError, type AuthError } from "../types/error"

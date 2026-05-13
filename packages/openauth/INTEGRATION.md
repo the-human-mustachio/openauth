@@ -1311,7 +1311,9 @@ createIdP({
       redirectUris: request.redirect_uris,
     })
     return ok({
-      client: { /* the ClientConfig you just persisted */ },
+      client: {
+        /* the ClientConfig you just persisted */
+      },
       ...(secret ? { secret } : {}),
     })
   },

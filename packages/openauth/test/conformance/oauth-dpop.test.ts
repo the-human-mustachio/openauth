@@ -83,11 +83,13 @@ async function makeProof(opts: ProofOpts): Promise<string> {
     .sign(opts.key.privateKey)
 }
 
-async function buildDpopHarness(opts: {
-  dpopRequired?: boolean
-  clientType?: "public" | "confidential"
-  clientSecret?: string
-} = {}) {
+async function buildDpopHarness(
+  opts: {
+    dpopRequired?: boolean
+    clientType?: "public" | "confidential"
+    clientSecret?: string
+  } = {},
+) {
   const tenant = await buildTenant({
     methods: [{ id: "stub", kind: "stub" }],
     ...(opts.clientType !== undefined ? { clientType: opts.clientType } : {}),
@@ -142,10 +144,7 @@ async function authorize(
       }),
     ),
   )
-  const cb = await driveCallback(
-    h.idp,
-    authorizeRes.headers.get("location")!,
-  )
+  const cb = await driveCallback(h.idp, authorizeRes.headers.get("location")!)
   return new URL(cb.headers.get("location")!).searchParams.get("code")!
 }
 
