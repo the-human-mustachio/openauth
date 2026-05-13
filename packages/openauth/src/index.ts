@@ -265,6 +265,9 @@ export function createIdP(opts: IdPOptions): IdP {
         : {}),
       ...(opts.cookies?.path !== undefined ? { path: opts.cookies.path } : {}),
     },
+    ...(opts.customScopeClaims !== undefined
+      ? { customScopeClaims: opts.customScopeClaims }
+      : {}),
   }
 
   const app = buildRouter(deps)

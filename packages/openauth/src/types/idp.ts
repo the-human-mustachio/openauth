@@ -306,6 +306,25 @@ export type IdPOptions = {
   ) => Record<string, unknown> | Promise<Record<string, unknown>>
 
   /**
+   * Optional vendor scope → claim-names map. Merged on top of OIDC Core
+   * §5.4 when building the id_token + `/userinfo` response. Lets a host
+   * expose its own identity vocabulary (`tenant_id`, `org_role`, etc.)
+   * via custom scope names. The standard §5.4 mapping always wins on
+   * collision, so an entry for `email` is silently ignored.
+   *
+   * Per-client scope allowlist still applies — a client must list a
+   * custom scope in `ClientConfig.scopes` to be allowed to request it.
+   *
+   * ```ts
+   * customScopeClaims: {
+   *   tenant: ["tenant_id", "tenant_role", "tenant_roles"],
+   *   org: ["organization_id", "org_role"],
+   * }
+   * ```
+   */
+  customScopeClaims?: Record<string, ReadonlyArray<string>>
+
+  /**
    * Optional override for the framework's `Set-Cookie` defaults.
    *
    * Production deployments should rely on the built-in defaults

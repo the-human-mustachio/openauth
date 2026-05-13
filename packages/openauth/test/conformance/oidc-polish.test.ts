@@ -731,6 +731,158 @@ describe("Audit — OIDC + DPoP event surface", () => {
   })
 })
 
+describe("OIDC vendor scope extension — customScopeClaims", () => {
+  async function buildHarnessWithCustomScopes(
+    customScopeClaims: Record<string, ReadonlyArray<string>>,
+    allowedScopes: string[] = ["openid", "tenant"],
+  ) {
+    const tenant = await buildTenant({
+      scopes: allowedScopes,
+      methods: [{ id: "stub", kind: "stub" }],
+    })
+    const issuerUrl = "https://idp.example"
+    const auditLog = new MemoryAuditLog()
+    const configStore = new MemoryConfigStore({ seed: [tenant] })
+    const keyStore = new MemoryKeyStore({})
+    const tokenStore = new MemoryTokenStore({ keyStore })
+    const sessionStore = new MemorySessionStore({})
+    const idp = createIdP({
+      resolveTenant: async () => ok(asTenantId(tenant.id)),
+      stateKeys: buildStateKeys(),
+      configStore,
+      tokenStore,
+      sessionStore,
+      keyStore,
+      auditLog,
+      issuerUrl,
+      methods: { stub: redirectFactory({ kind: "stub" }) as never },
+      subjects: {} as never,
+      success: async ({ providerSubject }) =>
+        ({
+          type: "user",
+          properties: {
+            userId: providerSubject,
+            email: "ada@example.com",
+            email_verified: true,
+            tenant_id: "acme",
+            tenant_role: "admin",
+          },
+        }) as never,
+      customScopeClaims,
+    })
+    return { idp, issuerUrl, keyStore }
+  }
+
+  async function issueTokens(
+    h: { idp: ReturnType<typeof createIdP>; issuerUrl: string },
+    scopeStr: string,
+  ): Promise<TokenResponse> {
+    const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+    const challenge = await s256Challenge(verifier)
+    const authorizeRes = await h.idp.handle(
+      new Request(
+        authorizeUrl(h.issuerUrl, {
+          response_type: "code",
+          client_id: "rp-1",
+          redirect_uri: "https://app.example/callback",
+          scope: scopeStr,
+          state: "s",
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+        }),
+      ),
+    )
+    const cb = await driveCallback(h.idp, authorizeRes.headers.get("location")!)
+    const code = new URL(cb.headers.get("location")!).searchParams.get("code")!
+    return (await h.idp
+      .handle(
+        tokenRequest(h.issuerUrl, {
+          grant_type: "authorization_code",
+          code,
+          client_id: "rp-1",
+          redirect_uri: "https://app.example/callback",
+          code_verifier: verifier,
+        }),
+      )
+      .then((r) => r.json())) as TokenResponse
+  }
+
+  // ─── case POLISH-CUSTOM-1 ── custom scope grants custom claim in id_token ──
+  test("POLISH-CUSTOM-1. scope=openid+tenant grants tenant_id + tenant_role in id_token", async () => {
+    const h = await buildHarnessWithCustomScopes({
+      tenant: ["tenant_id", "tenant_role"],
+    })
+    const tokens = await issueTokens(h, "openid tenant")
+    const keys = unwrapKeys(await h.keyStore.signingKeys())
+    const claims = (await verifyIdToken(requireIdToken(tokens), keys)) as
+      Record<string, unknown>
+    expect(claims.tenant_id).toBe("acme")
+    expect(claims.tenant_role).toBe("admin")
+    // email/email_verified are NOT requested via standard `email` scope,
+    // and are NOT part of the `tenant` custom mapping — they must be absent.
+    expect(claims.email).toBeUndefined()
+  })
+
+  // ─── case POLISH-CUSTOM-2 ── custom claim appears on /userinfo too ──
+  test("POLISH-CUSTOM-2. /userinfo returns the same custom claims granted by the custom scope", async () => {
+    const h = await buildHarnessWithCustomScopes({
+      tenant: ["tenant_id", "tenant_role"],
+    })
+    const tokens = await issueTokens(h, "openid tenant")
+    const userinfoRes = await h.idp.handle(
+      new Request(h.issuerUrl + "/userinfo", {
+        headers: { authorization: `Bearer ${tokens.access_token}` },
+      }),
+    )
+    expect(userinfoRes.status).toBe(200)
+    const body = (await userinfoRes.json()) as Record<string, unknown>
+    expect(body.tenant_id).toBe("acme")
+    expect(body.tenant_role).toBe("admin")
+  })
+
+  // ─── case POLISH-CUSTOM-3 ── standard mapping wins on collision ──
+  test("POLISH-CUSTOM-3. Host's customScopeClaims.email mapping is ignored; standard §5.4 wins", async () => {
+    // Allow both `email` and `tenant` scopes on the client so we can
+    // request the standard email scope; the host attempts (illegally)
+    // to redefine what `email` scope grants. The framework MUST ignore
+    // the override and return only the §5.4 claim names.
+    const h = await buildHarnessWithCustomScopes(
+      {
+        email: ["tenant_id", "tenant_role"], // ← attempted shadow
+        tenant: ["tenant_id"],
+      },
+      ["openid", "email", "tenant"],
+    )
+    const tokens = await issueTokens(h, "openid email")
+    const keys = unwrapKeys(await h.keyStore.signingKeys())
+    const claims = (await verifyIdToken(requireIdToken(tokens), keys)) as
+      Record<string, unknown>
+    // Standard §5.4 mapping survives — email claim is present.
+    expect(claims.email).toBe("ada@example.com")
+    expect(claims.email_verified).toBe(true)
+    // The shadow attempt must NOT leak tenant_role / tenant_id via the
+    // `email` scope. They were granted by neither scope here.
+    expect(claims.tenant_role).toBeUndefined()
+    expect(claims.tenant_id).toBeUndefined()
+  })
+
+  // ─── case POLISH-CUSTOM-4 ── discovery advertises custom scope + claims ──
+  test("POLISH-CUSTOM-4. Discovery advertises custom scopes + claim names", async () => {
+    const h = await buildHarnessWithCustomScopes({
+      tenant: ["tenant_id", "tenant_role"],
+      org: ["organization_id"],
+    })
+    const doc = (await h.idp
+      .handle(new Request(h.issuerUrl + "/.well-known/openid-configuration"))
+      .then((r) => r.json())) as Record<string, unknown>
+    expect(doc.scopes_supported).toContain("tenant")
+    expect(doc.scopes_supported).toContain("org")
+    expect(doc.claims_supported).toContain("tenant_id")
+    expect(doc.claims_supported).toContain("tenant_role")
+    expect(doc.claims_supported).toContain("organization_id")
+  })
+})
+
 describe("RFC 7662 — /introspect enrichment", () => {
   // ─── case POLISH-INTRO-1 ── §2.2 token_type indicator ──
   test("POLISH-INTRO-1. Active introspection result includes token_type=Bearer", async () => {

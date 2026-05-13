@@ -1140,6 +1140,39 @@ Populate the values in your `success` callback's
 `SubjectClaim.properties`; the framework picks up only the names that
 match the granted scopes.
 
+**Custom vendor scopes.** Use `IdPOptions.customScopeClaims` to expose
+host-specific identity vocabulary alongside the §5.4 mapping:
+
+```ts
+createIdP({
+  // ...
+  customScopeClaims: {
+    tenant: ["tenant_id", "tenant_role", "tenant_roles"],
+    org: ["organization_id", "org_role"],
+  },
+})
+```
+
+The keys are added to discovery's `scopes_supported`; the union of
+values is added to `claims_supported`. A client requesting
+`scope=openid tenant` will receive `tenant_id` / `tenant_role` /
+`tenant_roles` in the id_token AND `/userinfo` — sourced from
+`SubjectClaim.properties` like the standard claims.
+
+The standard §5.4 mapping always wins on key collision: an entry for
+`email` is silently ignored, so a custom scope can never quietly
+redefine what `email` grants. A client must list a custom scope in
+`ClientConfig.scopes` to be allowed to request it (the existing
+per-client allowlist applies unchanged).
+
+> ⚠️ Note: id_token claims are baked in at mint time; `/userinfo`
+> reads `customScopeClaims` from your IdP config at request time.
+> Changing the map between issuance and userinfo means existing
+> id_tokens carry the old shape while subsequent `/userinfo` calls
+> reflect the new mapping. This is normal JWT immutability — clients
+> caching id_token claims should re-fetch `/userinfo` after a config
+> bump if they need agreement.
+
 ### 15b. `/end_session` (RP-Initiated Logout)
 
 Register `postLogoutRedirectUris` on each `ClientConfig`:

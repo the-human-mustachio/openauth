@@ -45,6 +45,12 @@ export type UserinfoDeps = {
   /** Required when DPoP-bound tokens are accepted. */
   tokenStore?: TokenStore
   issuerUrl?: string
+  /**
+   * Host-supplied vendor scope → claim-names map. Merged into the
+   * scope-gated /userinfo response just as it is for id_token. See
+   * `IdPOptions.customScopeClaims`.
+   */
+  customScopeClaims?: Record<string, ReadonlyArray<string>>
 }
 
 export type UserinfoInput = {
@@ -148,7 +154,12 @@ export async function userinfo(
   // bypass scope gating. Names were captured into `uic` at mint time so
   // the resource server doesn't need to re-resolve the original /authorize
   // request.
-  const scopedClaims = pickScopedClaims(claim, scopes, claims.uic ?? [])
+  const scopedClaims = pickScopedClaims(
+    claim,
+    scopes,
+    claims.uic ?? [],
+    deps.customScopeClaims ?? {},
+  )
 
   return ok({
     sub: claims.sub,

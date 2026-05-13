@@ -59,6 +59,8 @@ export type HttpDeps = {
   ) => Record<string, unknown> | Promise<Record<string, unknown>>
   clock: () => number
   cookieDefaults: CookieDefaults
+  /** See `IdPOptions.customScopeClaims`. */
+  customScopeClaims?: Record<string, ReadonlyArray<string>>
 }
 
 /** Per-request variables populated by middleware. */

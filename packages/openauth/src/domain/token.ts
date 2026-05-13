@@ -110,6 +110,11 @@ export type ExchangeCodeDeps = {
   newRefreshToken?: () => string
   /** Test override. */
   newRefreshFamily?: () => string
+  /**
+   * Host-supplied vendor scope → claim-names map. Forwarded to `mintTokens`
+   * for id_token + /userinfo scope-gating. See `IdPOptions.customScopeClaims`.
+   */
+  customScopeClaims?: Record<string, ReadonlyArray<string>>
 }
 
 export async function exchangeCode(
@@ -281,6 +286,11 @@ export async function mintTokens(args: {
     issuerUrl: string
     clock: () => number
     newRefreshToken?: () => string
+    /**
+     * Host-supplied vendor scope → claim-names map merged into the
+     * id_token + /userinfo scope-gating. See `IdPOptions.customScopeClaims`.
+     */
+    customScopeClaims?: Record<string, ReadonlyArray<string>>
   }
 }): Promise<Result<TokenResponse, AuthError>> {
   const { tenant, claim, payload, deps, family, skipRefresh } = args
@@ -322,6 +332,7 @@ export async function mintTokens(args: {
     mkind: payload.methodKind,
     scope: payload.scopes.join(" "),
     claim,
+    ...(payload.authTime !== undefined ? { auth_time: payload.authTime } : {}),
     ...(payload.dpopJkt !== undefined
       ? { cnf: { jkt: payload.dpopJkt } }
       : {}),
@@ -389,6 +400,9 @@ export async function mintTokens(args: {
       accessToken,
       ...(payload.claimsRequest !== undefined
         ? { claimsRequest: payload.claimsRequest }
+        : {}),
+      ...(deps.customScopeClaims !== undefined
+        ? { customScopeClaims: deps.customScopeClaims }
         : {}),
     })
     try {

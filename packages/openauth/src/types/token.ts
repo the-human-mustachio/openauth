@@ -152,6 +152,19 @@ export type AccessTokenClaims = {
   /** Factory kind that originated this token. */
   mkind?: string
   scope?: string
+  /**
+   * Seconds-since-epoch when the end-user originally authenticated
+   * (OIDC Core §2). Stable across refresh-token rotation and across
+   * RFC 8693 token-exchange (§12 — exchanging an audience does NOT
+   * re-authenticate the user). Absent on `client_credentials` grants
+   * where there is no end-user.
+   *
+   * Carried on the access token so RFC 8693 `subject_token` consumers
+   * can propagate it without needing the original id_token. Resource
+   * servers typically ignore it; it's there for the IdP's own
+   * downstream issuance.
+   */
+  auth_time?: number
   /** DPoP confirmation claim (Phase 8). */
   cnf?: { jkt: string }
   /**

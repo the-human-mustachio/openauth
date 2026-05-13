@@ -53,6 +53,8 @@ export type RefreshTokensDeps = {
   /** Reuse-detection window (ms). Default 60 s. */
   reuseWindowMs?: number
   newRefreshToken?: () => string
+  /** See `IdPOptions.customScopeClaims`. Forwarded to `mintTokens`. */
+  customScopeClaims?: Record<string, ReadonlyArray<string>>
 }
 
 export async function refreshTokens(

@@ -54,6 +54,8 @@ export type ClientCredentialsDeps = {
   issuerUrl: string
   clock: () => number
   newRefreshFamily?: () => string
+  /** See `IdPOptions.customScopeClaims`. Forwarded to `mintTokens`. */
+  customScopeClaims?: Record<string, ReadonlyArray<string>>
 }
 
 export async function clientCredentialsGrant(

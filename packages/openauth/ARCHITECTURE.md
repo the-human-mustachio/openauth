@@ -485,6 +485,14 @@ never issues one). The token carries:
 - §5.1 profile claims gated by granted scopes (§5.4 mapping). Both the
   id_token and `/userinfo` share `pickScopedClaims` so the surfaces
   agree on what each scope grants.
+- Host-supplied vendor mappings via `IdPOptions.customScopeClaims` are
+  merged on top of §5.4 at scope-gating time. Standard names always
+  win on collision (`email` cannot be silently redefined); the union
+  of host-supplied keys + claim-names is reflected in discovery's
+  `scopes_supported` / `claims_supported`. id_token bakes the resolved
+  claims at mint; `/userinfo` reads `customScopeClaims` live so
+  config-driven vocabulary changes take effect on the next request
+  without re-issuing tokens.
 
 OIDC Core §5.5 `claims` parameter is parsed at `/authorize`, stored on
 `FlowRecord.claimsRequest`, snapshotted into `CodePayload.claimsRequest`

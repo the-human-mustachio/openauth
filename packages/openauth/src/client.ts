@@ -91,6 +91,14 @@ export interface Tokens {
    * The number of seconds until the access token expires.
    */
   expiresIn: number
+
+  /**
+   * The OIDC `id_token` (signed JWT), present when `scope=openid` was granted.
+   *
+   * Refresh-grant rotation reissues this with a stable `auth_time` per
+   * OIDC Core §12 and deliberately omits the original `nonce`.
+   */
+  idToken?: string
 }
 
 interface ResponseLike {
@@ -178,6 +186,18 @@ export interface AuthorizeOptions {
    * If there's only one provider configured, the user will be redirected to that.
    */
   provider?: string
+  /**
+   * OAuth scopes to request, e.g. `["openid", "email", "profile"]`.
+   *
+   * Pass `openid` to request an `id_token` at `/token` (OIDC Core §2). Pass
+   * `email` / `profile` / `phone` / `address` to opt into the standard §5.4
+   * profile claim sets on the id_token and `/userinfo` response.
+   *
+   * Accepts an array or a pre-joined space-separated string. When omitted,
+   * no `scope` is sent — the IdP's default grant applies, which typically
+   * does NOT include `openid` and therefore does NOT issue an id_token.
+   */
+  scope?: string | string[]
 }
 
 export interface AuthorizeResult {
@@ -588,6 +608,12 @@ export function createClient(input: ClientInput): Client {
       result.searchParams.set("response_type", response)
       result.searchParams.set("state", challenge.state)
       if (opts?.provider) result.searchParams.set("provider", opts.provider)
+      if (opts?.scope !== undefined) {
+        const scope = Array.isArray(opts.scope)
+          ? opts.scope.join(" ")
+          : opts.scope
+        if (scope) result.searchParams.set("scope", scope)
+      }
       if (opts?.pkce && response === "code") {
         const pkce = await generatePKCE()
         result.searchParams.set("code_challenge_method", "S256")
@@ -648,6 +674,9 @@ export function createClient(input: ClientInput): Client {
           access: json.access_token as string,
           refresh: json.refresh_token as string,
           expiresIn: json.expires_in as number,
+          ...(typeof json.id_token === "string"
+            ? { idToken: json.id_token as string }
+            : {}),
         },
       }
     },
@@ -691,6 +720,9 @@ export function createClient(input: ClientInput): Client {
           access: json.access_token as string,
           refresh: json.refresh_token as string,
           expiresIn: json.expires_in as number,
+          ...(typeof json.id_token === "string"
+            ? { idToken: json.id_token as string }
+            : {}),
         },
       }
     },

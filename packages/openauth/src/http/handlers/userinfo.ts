@@ -36,6 +36,9 @@ export function makeUserinfoHandler(deps: HttpDeps) {
         keyStore: deps.keyStore,
         tokenStore: deps.tokenStore,
         issuerUrl: c.get("issuerUrl"),
+        ...(deps.customScopeClaims !== undefined
+          ? { customScopeClaims: deps.customScopeClaims }
+          : {}),
       },
     )
     if (isErr(res)) {

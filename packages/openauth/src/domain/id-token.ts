@@ -102,6 +102,13 @@ export async function computeAtHash(accessToken: string): Promise<string> {
  * `extra` bypasses scope gating per §5.5 ("works without the requestor
  * having to include the scope value").
  *
+ * `customMappings` is a host-supplied scope → claim-names map merged on
+ * top of the OIDC Core §5.4 table. Lets the host expose vendor-specific
+ * identity fields (e.g. `tenant_id`, `org_role`) via a custom scope
+ * (`scope=foo` granting `[tenant_id, …]`). Reserved §5.4 names cannot be
+ * shadowed — the standard mapping always wins on collision so an
+ * `email` scope can't accidentally start meaning something else.
+ *
  * Host-supplied values are trusted to match their declared OIDC types
  * — schemas live on `IdPOptions.subjects`, not here. The narrowing cast
  * is the boundary between "host's responsibility" and "framework's
@@ -111,12 +118,19 @@ export function pickScopedClaims(
   claim: SubjectClaim,
   scopes: ReadonlyArray<string>,
   extra: ReadonlyArray<string> = [],
+  customMappings: Record<string, ReadonlyArray<string>> = {},
 ): ScopedProfileClaims {
   const props = (claim as { properties: Record<string, unknown> }).properties
   if (!props || typeof props !== "object") return {}
+  // Standard §5.4 names take precedence: spread custom first, then
+  // SCOPE_TO_CLAIMS, so a host can't override `email → [email, ...]`.
+  const mappings: Record<string, ReadonlyArray<string>> = {
+    ...customMappings,
+    ...SCOPE_TO_CLAIMS,
+  }
   const granted = new Set<string>()
   for (const scope of scopes) {
-    const list = SCOPE_TO_CLAIMS[scope]
+    const list = mappings[scope]
     if (!list) continue
     for (const c of list) granted.add(c)
   }
@@ -150,6 +164,11 @@ export type BuildIdTokenInput = {
   accessToken: string
   /** OIDC Core §5.5 — RP-requested claims (this drives only id_token here). */
   claimsRequest?: ClaimsRequest
+  /**
+   * Host-supplied vendor scope → claim-names map. Merged on top of OIDC
+   * Core §5.4 at scope-gating time. See `pickScopedClaims`.
+   */
+  customScopeClaims?: Record<string, ReadonlyArray<string>>
 }
 
 export const DEFAULT_ID_TOKEN_TTL_MS = 5 * 60 * 1000
@@ -179,7 +198,12 @@ export async function buildIdTokenClaims(
     at_hash: await computeAtHash(input.accessToken),
     ...(input.appNonce !== undefined ? { nonce: input.appNonce } : {}),
     ...(amr ? { amr } : {}),
-    ...pickScopedClaims(input.claim, input.scopes, extraClaims),
+    ...pickScopedClaims(
+      input.claim,
+      input.scopes,
+      extraClaims,
+      input.customScopeClaims ?? {},
+    ),
   }
 }
 

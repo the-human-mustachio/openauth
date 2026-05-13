@@ -72,11 +72,22 @@ export type DiscoveryDeps = {
   scopes?: string[]
   /** Advertised UI locales. Defaults to `["en"]`. */
   uiLocales?: string[]
+  /**
+   * Host-supplied scope → claim-names map. Each key adds a scope to
+   * `scopes_supported`; the union of values augments `claims_supported`.
+   * Mirrors `IdPOptions.customScopeClaims`.
+   */
+  customScopeClaims?: Record<string, ReadonlyArray<string>>
 }
 
 export function buildDiscoveryDocument(deps: DiscoveryDeps): DiscoveryDocument {
   const base = deps.issuerUrl.replace(/\/+$/, "")
   const p = deps.paths ?? {}
+  const customScopeKeys = Object.keys(deps.customScopeClaims ?? {})
+  const customClaimNames = new Set<string>()
+  for (const list of Object.values(deps.customScopeClaims ?? {})) {
+    for (const name of list) customClaimNames.add(name)
+  }
   return {
     issuer: deps.issuerUrl,
     authorization_endpoint: `${base}${p.authorize ?? "/authorize"}`,
@@ -98,7 +109,10 @@ export function buildDiscoveryDocument(deps: DiscoveryDeps): DiscoveryDocument {
     ],
     subject_types_supported: ["public", "pairwise"],
     id_token_signing_alg_values_supported: ["ES256", "EdDSA"],
-    scopes_supported: deps.scopes ?? ["openid", "email", "profile"],
+    scopes_supported: [
+      ...(deps.scopes ?? ["openid", "email", "profile"]),
+      ...customScopeKeys,
+    ],
     claims_supported: [
       "sub",
       "iss",
@@ -120,6 +134,7 @@ export function buildDiscoveryDocument(deps: DiscoveryDeps): DiscoveryDocument {
       "phone_number",
       "phone_number_verified",
       "address",
+      ...customClaimNames,
     ],
     claims_parameter_supported: true,
     request_parameter_supported: false,

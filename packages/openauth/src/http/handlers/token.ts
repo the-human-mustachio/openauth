@@ -132,6 +132,9 @@ export function makeTokenHandler(deps: HttpDeps) {
             : {}),
           issuerUrl: c.get("issuerUrl"),
           clock: deps.clock,
+          ...(deps.customScopeClaims !== undefined
+            ? { customScopeClaims: deps.customScopeClaims }
+            : {}),
         },
       )
       if (isErr(result)) return tokenEndpointErrorResponse(result.error)
@@ -176,6 +179,9 @@ export function makeTokenHandler(deps: HttpDeps) {
             : {}),
           issuerUrl: c.get("issuerUrl"),
           clock: deps.clock,
+          ...(deps.customScopeClaims !== undefined
+            ? { customScopeClaims: deps.customScopeClaims }
+            : {}),
         },
         tenantRes.value,
       )
@@ -202,6 +208,9 @@ export function makeTokenHandler(deps: HttpDeps) {
           ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
           issuerUrl: c.get("issuerUrl"),
           clock: deps.clock,
+          ...(deps.customScopeClaims !== undefined
+            ? { customScopeClaims: deps.customScopeClaims }
+            : {}),
         },
       )
       if (isErr(refreshResult))
@@ -239,6 +248,9 @@ export function makeTokenHandler(deps: HttpDeps) {
           : {}),
         issuerUrl: c.get("issuerUrl"),
         clock: deps.clock,
+        ...(deps.customScopeClaims !== undefined
+          ? { customScopeClaims: deps.customScopeClaims }
+          : {}),
       },
     )
     if (isErr(exchangeResult)) {
