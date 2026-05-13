@@ -36,6 +36,18 @@ export type DiscoveryDocument = {
   subject_types_supported: string[]
   id_token_signing_alg_values_supported: string[]
   scopes_supported: string[]
+  /** OIDC Core §3 — registered claim names the IdP can return. */
+  claims_supported: string[]
+  /** OIDC Core §5.5 — `claims` request parameter is honored. */
+  claims_parameter_supported: boolean
+  /** OIDC Core §6.1 — JAR (`request` parameter). Not implemented. */
+  request_parameter_supported: boolean
+  /** OIDC Core §6.2 — JAR (`request_uri` parameter). Not implemented. */
+  request_uri_parameter_supported: boolean
+  /** OIDC Core §6.2 — whether `request_uri` values must be pre-registered. */
+  require_request_uri_registration: boolean
+  /** OIDC Core §3.1.2.1 — UI locales the OP can render. */
+  ui_locales_supported?: string[]
   token_endpoint_auth_methods_supported: string[]
   code_challenge_methods_supported: string[]
 }
@@ -55,6 +67,8 @@ export type DiscoveryDeps = {
   }>
   /** Advertised scopes. Defaults to `["openid", "email", "profile"]`. */
   scopes?: string[]
+  /** Advertised UI locales. Defaults to `["en"]`. */
+  uiLocales?: string[]
 }
 
 export function buildDiscoveryDocument(deps: DiscoveryDeps): DiscoveryDocument {
@@ -81,6 +95,33 @@ export function buildDiscoveryDocument(deps: DiscoveryDeps): DiscoveryDocument {
     subject_types_supported: ["public"],
     id_token_signing_alg_values_supported: ["ES256", "EdDSA"],
     scopes_supported: deps.scopes ?? ["openid", "email", "profile"],
+    claims_supported: [
+      "sub",
+      "iss",
+      "aud",
+      "exp",
+      "iat",
+      "auth_time",
+      "nonce",
+      "amr",
+      "at_hash",
+      "email",
+      "email_verified",
+      "name",
+      "given_name",
+      "family_name",
+      "preferred_username",
+      "picture",
+      "locale",
+      "phone_number",
+      "phone_number_verified",
+      "address",
+    ],
+    claims_parameter_supported: true,
+    request_parameter_supported: false,
+    request_uri_parameter_supported: false,
+    require_request_uri_registration: false,
+    ui_locales_supported: deps.uiLocales ?? ["en"],
     token_endpoint_auth_methods_supported: [
       "client_secret_basic",
       "client_secret_post",
