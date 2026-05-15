@@ -13,9 +13,12 @@ and `oidcFactory`. The library accepts SAML assertions from upstream
 corporate IdPs (Okta, Entra, Ping, ADFS, etc.); it does not issue
 assertions. Wrap `@node-saml/node-saml` rather than implement XML-DSig
 ourselves. Gate the export Node-only — `xml-crypto` hard-depends on
-`node:crypto` and there is no realistic edge path. Build in three
-sessions: SP-initiated SSO + verification gauntlet → IdP-initiated SSO +
-SP metadata → Single Logout. Total estimated effort: 6–8 weeks.
+`node:crypto` and there is no realistic edge path. Phases:
+**1** SP-initiated SSO + verification gauntlet (done) → **1.5**
+production-adapter enablement (the deploy gate) → **2** IdP-initiated
+SSO + SP metadata + explicit Recipient → **3** Single Logout. Total
+estimated effort: ~7–9 weeks. See _Status & Resume Point_ for current
+state.
 
 ## Status & Resume Point
 
@@ -24,8 +27,10 @@ SP metadata → Single Logout. Total estimated effort: 6–8 weeks.
 > further down are the detailed ledger; this is the summary + the next
 > action.
 
-**As of 2026-05-15** — branch `feat/saml-sp`, 6 commits ahead of
-`master` (`a994894`..`1509822`), nothing pushed, nothing merged.
+**As of 2026-05-15** — branch `feat/saml-sp`, several commits ahead of
+`master` (run `git log --oneline master..feat/saml-sp` for the exact
+range — it advances with every doc/commit, so it is intentionally not
+frozen here), nothing pushed, nothing merged.
 
 **Done:** SAML Phase 1 (SP-initiated SSO) complete and independently
 security-reviewed. End-to-end working: `/authorize` → IdP →
@@ -41,13 +46,10 @@ adapter implements it.** Postgres / D1 / DynamoDB / Durable-Object
 adapters do not. SAML fail-fasts loudly on those. In-memory = single-
 process dev only.
 
-**Recommended next action (highest leverage toward actually-usable):**
-implement the scratch trio on the production `SessionStore` adapters
-(Postgres, D1, DynamoDB, Durable Object), following the existing
-optional-method pattern (mirror `savePar`/`consumePar`). Then a live
-Okta/Entra integration test. Only after that does Phase 2 (IdP-
-initiated + SP metadata + explicit Recipient check + signed-
-AuthnRequest/KeyStore wiring) and Phase 3 (SLO) make sense.
+**Recommended next action:** **Phase 1.5 — Production adapter
+enablement** (see Phase Plan). It is the highest-leverage step toward
+actually-usable and **blocks Phase 2**. It is a first-class phase, not
+a prose aside, precisely so a resume-from-plan reader cannot skip it.
 
 **Two framework changes SAML drove** (documented in `ARCHITECTURE.md`):
 `MethodContext.methodScratch` (precursor commit `395ec99`) and
@@ -189,9 +191,9 @@ Question #1 in favour of the consistent answer.
 
 ```ts
 import {
-  samlSpFactory,
-  parseSamlIdpMetadata,
-  type SamlSpConfig,
+  samlSpFactory,                    // ✅ shipped
+  parseSamlIdpMetadata,             // ⏳ Phase 2 — not yet exported
+  type SamlSpConfig,                // ✅ shipped
 } from "@_mustachio/openauth/methods/saml-sp"
 ```
 
@@ -280,38 +282,51 @@ type SamlSpProperties = {
 
 ## Repository Layout
 
+Actual structure as built (Phase 1). `(P2)` / `(P3)` mark files a
+later phase will add — they do **not** exist yet.
+
 ```
 packages/openauth/
 ├── src/
 │   └── methods/
 │       └── saml-sp/
-│           ├── factory.ts               # samlSpFactory — kind: "saml-sp"
-│           ├── authnrequest.ts          # build + sign AuthnRequest
-│           ├── acs.ts                   # verify Response, run gauntlet
-│           ├── metadata.ts              # SP metadata XML
-│           ├── replay.ts                # SessionStore-backed replay guard
+│           ├── index.ts                 # Node-only barrel (subpath entry)
+│           ├── factory.ts               # samlSpFactory + Zod configSchema
+│           ├── method.ts                # buildSamlSpMethod — route table
+│           ├── authnrequest.ts          # GET /authorize (unsigned only)
+│           ├── acs.ts                   # GET /callback — verification gauntlet
+│           ├── saml-instance.ts         # node-saml SAML ctor + binding
+│           ├── cache-provider.ts        # methodScratch-backed InResponseTo cache
+│           ├── cert-rotation.ts         # selectActiveCertPems (window filter)
 │           ├── attributes.ts            # SamlAttributeMapping → properties
-│           ├── parse-idp-metadata.ts    # public helper
-│           └── types.ts                 # exported types
+│           ├── types.ts                 # exported public types
+│           ├── metadata.ts              # (P2) SP metadata XML
+│           └── parse-idp-metadata.ts    # (P2) public helper
 └── test/
     ├── methods/saml-sp/
-    │   ├── factory.test.ts
+    │   ├── cert-rotation.test.ts
+    │   ├── config-schema.test.ts
     │   ├── authnrequest.test.ts
-    │   ├── acs.test.ts                  # signature gauntlet, attribute mapping
-    │   ├── attack-xsw.test.ts           # XSW1–XSW8 fixtures
-    │   ├── attack-xxe.test.ts
-    │   ├── attack-comment-truncation.test.ts
-    │   ├── replay.test.ts
-    │   └── fixtures/                    # hand-built Response XML + attack variants
-    └── conformance/
-        └── saml-sp.test.ts              # OASIS-flavored interop cases
+    │   ├── acs.test.ts                  # valid + attack matrix + XXE + replay
+    │   └── fixtures/
+    │       ├── build-response.ts        # signSamlPost-based fixture builder
+    │       ├── idp-{cert,key}.pem       # matched test IdP keypair
+    │       └── attacker-{cert,key}.pem  # wrong-key fixture
+    └── types/
+        ├── saml-sp-no-thirdparty-leaks.test.ts   # compile-time leak guard
+        └── saml-sp-edge-clean-root.test.ts       # source-level isolation scan
 ```
 
+There is **no** `replay.ts` (replay is node-saml's single-use
+`InResponseTo`, not a bespoke guard) and **no**
+`test/conformance/saml-sp.test.ts` — the gauntlet is exercised
+end-to-end inside `test/methods/saml-sp/acs.test.ts` (see
+_Security Gauntlet_). The original plan listed those; they were
+superseded during implementation.
+
 This mirrors the existing pattern: methods are flat under
-`src/methods/` for trivial wrappers and gain their own subdirectory when
-internal structure justifies it (cf. `methods/providers/`). SAML's
-internals (request building, ACS, metadata, replay, attribute mapping)
-justify the subdirectory.
+`src/methods/` for trivial wrappers and gain their own subdirectory
+when internal structure justifies it (cf. `methods/providers/`).
 
 ## Method Plumbing
 
@@ -330,7 +345,7 @@ route key, and metadata/SLS will be served via the credential-style
 | Route key          | Trigger                                       | Behaviour                                                                                                                                  | Status |
 | ------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
 | `GET /authorize`   | Framework dispatch from `/authorize`          | Build AuthnRequest (HTTP-Redirect binding) via node-saml, save `SamlSpState` to `methodState`, `MethodResult.challenge` 302 to IdP SSO.    | **Done** |
-| `GET /callback`    | IdP HTTP-POST to `/cb/<methodId>` (universal) | Verify Response — the full gauntlet. Returns `success` / `denied` / `error`.                                                               | Next increment |
+| `GET /callback`    | IdP HTTP-POST to `/cb/<methodId>` (universal) | Verify Response — the full gauntlet via node-saml. Returns `success` / `denied` / `error`.                                                 | **Done** |
 
 Later sessions add, via the `/m/<methodId>/*` mount:
 
@@ -451,8 +466,10 @@ SP-initiated flow, with the full signature gauntlet locked down.
   `SamlAttributeMapping` → `SamlSpProperties`) — pure, no node-saml
   type leak; `mapProfile` returns a `denied` reason on empty subject.
 - ✅ `methodScratch` addition to `MethodContext` — shipped as a
-  precursor PR. Memory adapter backs it; production adapters add the
-  trio when first deployed against SAML.
+  precursor PR. **Memory adapter only.** Production adapters do NOT
+  implement the scratch trio yet — that is Phase 1.5, the hard
+  production blocker (not done; do not read this ✅ as "scratch works
+  everywhere").
 - ✅ Replay — SP-init covered by node-saml single-use InResponseTo
   (`validateInResponseTo: always` + `methodScratch` cache). Explicit
   assertion-ID dedup deferred to IdP-init (Session 2).
@@ -469,19 +486,27 @@ SP-initiated flow, with the full signature gauntlet locked down.
 - ✅ Leak guard forbids `@node-saml/*` / `xml-crypto` from the root
   (`saml-sp-no-thirdparty-leaks.test.ts` +
   `saml-sp-edge-clean-root.test.ts`).
-- Live integration test (gated behind env-var creds) against an Okta
-  dev tenant; documented in `INTEGRATION.md` § SAML SP. **(After the
-  gauntlet — needs the ACS to be real.)**
+- Live Okta/Entra integration test + `INTEGRATION.md` § SAML SP —
+  **moved to Phase 1.5** (it must run against a production adapter,
+  which doesn't exist until 1.5). Not a Phase 1 deliverable.
 
-**Acceptance criteria:**
+**Acceptance criteria (status reconciled):**
 
-- All 11 gauntlet items have ≥1 failing-fixture test that the verifier
-  rejects.
-- Okta dev tenant integration green end-to-end: AuthnRequest →
-  Response → `MethodResult.success` → host `success` callback fires
-  with mapped `SubjectClaim`.
-- `bunx tsc --noEmit` exits 0 under strict.
-- Edge-import test still passes (no SAML transitive in root bundle).
+- ✅ Gauntlet items each have ≥1 end-to-end test — **except item 6
+  (Recipient)**, which node-saml does not enforce and is explicitly
+  deferred (see _Security Gauntlet_). Items 4/9/11 are covered
+  transitively (valid + XSW + audience cases), not by a dedicated
+  failing fixture; the others have one.
+- ⏳ **Deferred:** Okta/Entra dev-tenant live integration. Verified
+  against `signSamlPost`-signed fixtures only; a real-IdP test is the
+  next step after the production-adapter scratch work (see _Status &
+  Resume Point_).
+- ✅ `bunx tsc --noEmit -p tsconfig.test.json` exits 0 under strict.
+- ✅ Edge-clean guards pass (no SAML transitive reachable from the
+  root entry).
+
+Net: the gauntlet bar is met for what node-saml enforces; the two
+gaps (Recipient, live-IdP test) are tracked, not silent.
 
 **Risks:**
 
@@ -496,30 +521,104 @@ SP-initiated flow, with the full signature gauntlet locked down.
 
 ---
 
-### SAML Phase 2 — IdP-initiated SSO + SP metadata + cert rotation
+### SAML Phase 1.5 — Production adapter enablement (BLOCKS Phase 2)
 
-**Goal:** Cover the Okta-default IdP-initiated flow and publish SP
-metadata that enterprise IdPs can import without manual fiddling.
+**Goal:** Make SAML actually deployable. After Phase 1, SP-initiated
+SSO works correctly but only on the in-memory `SessionStore` (single-
+process dev). This is the single hard blocker between "demoable" and
+"shippable". It is small, mechanical, and must land before Phase 2 —
+building more SAML surface on a non-deployable base is wasted motion.
+
+**Deliverables:**
+
+- Implement the `saveScratch` / `readScratch` / `deleteScratch` trio
+  on every production `SessionStore` adapter: **Postgres, D1,
+  DynamoDB, Durable Object**. Mirror the existing optional-method
+  pattern (`savePar` / `consumePar`) — strong-consistency,
+  TTL-respecting, opaque key/value. Per-adapter notes:
+  - Postgres: one TEXT/JSONB column keyed by the scoped string +
+    `expires_at`; reuse the PAR table pattern.
+  - DynamoDB: item with TTL attribute (native TTL eviction OK; still
+    filter on read for correctness).
+  - D1: same SQL shape as Postgres; honor the read-replication caveat
+    in `ports/CONSISTENCY.md` (scratch is read-after-write
+    sensitive for InResponseTo — primary-pinned / bookmarked reads).
+  - Durable Object: in-DO map keyed by scoped string + expiry.
+- Opt each adapter into the conformance suite:
+  `describeSessionStore({ ..., supportsScratch: true })`. The shared
+  suite already has the scratch cases (added with the precursor) —
+  this just flips the flag per adapter and must pass.
+- `ports/CONSISTENCY.md`: confirm the scratch row's guarantees hold
+  for each backend; add any backend-specific caveat (esp. D1).
+- Live integration test against an Okta **and** an Entra dev tenant,
+  gated behind env-var creds, run against a real production adapter
+  (Postgres is the natural choice). Documented setup in
+  `INTEGRATION.md` § SAML SP. This is where real-IdP quirks
+  (namespace prefixes, signing variants, attribute schemes) surface —
+  fixtures alone do not catch them.
+- `INTEGRATION.md` § SAML SP first cut: install, the Node-only
+  constraint, the scratch-adapter requirement, per-tenant config
+  shape, manual IdP configuration (entityID / ACS URL derivation),
+  attribute-mapping cookbook.
+
+**Acceptance criteria:**
+
+- All four production adapters pass the `supportsScratch` conformance
+  cases.
+- SP-initiated SSO completes end-to-end on Postgres (not just memory)
+  in CI or a documented manual run.
+- At least one real-IdP (Okta or Entra) login verified end-to-end.
+
+**Risks:**
+
+- D1 read-replication lag could make a just-saved InResponseTo invisible
+  at the ACS → spurious auth failures. **Mitigation:** scratch reads use
+  the same primary-pinned / bookmarked path as flow records; covered by
+  the existing D1 consistency certification (`ports/CONSISTENCY.md`).
+
+**Estimated effort:** ~1 week (mechanical; the conformance suite
+already exists, so it is mostly per-adapter SQL/DO plumbing + the
+live-IdP test harness).
+
+---
+
+### SAML Phase 2 — IdP-initiated SSO + SP metadata + explicit Recipient
+
+**Goal:** Cover the Okta-default IdP-initiated flow, publish SP
+metadata enterprise IdPs can import, and close the deferred
+Recipient-binding gap.
+
+> Cert rotation is **already shipped in Phase 1** (`cert-rotation.ts`,
+> `selectActiveCertPems`, with overlap-window tests) — it is *not* a
+> Phase 2 deliverable. The title kept "+ cert rotation" in an earlier
+> draft; corrected here.
 
 **Deliverables:**
 
 - `idpInitiated` config branch + synthetic-flow path (SAML-AD7).
   Documented end-to-end: how the framework synthesizes
-  `FlowRecord.{clientId, redirectUri, scopes}` from `SamlSpConfig.idpInitiated`,
-  what the audit log emits, how this composes with the existing
-  `success` callback.
-- `GET /metadata` route returning standards-compliant SP metadata XML
-  with our entityID, ACS URL, NameIDFormat preference, signing cert
-  (if `signAuthnRequest: true`).
-- Hot cert rotation — `SamlSpConfig.idp.signingCerts` accepts ≥1
-  certs; verifier accepts any cert in its validity window. Tests cover
-  overlap windows.
+  `FlowRecord.{clientId, redirectUri, scopes}` from
+  `SamlSpConfig.idpInitiated`, what the audit log emits, how this
+  composes with the existing `success` callback. Note: this needs a
+  non-`/cb` entry since `handleCallback` requires a pre-existing
+  flow + state envelope (see _Method Plumbing_).
+- **Explicit `SubjectConfirmationData/@Recipient` check** (gauntlet
+  item 6) — read from the verified assertion and compared to the ACS
+  URL. Deferred from Phase 1 because node-saml does not enforce it;
+  Phase 2 already parses assertion structure for IdP-init, so it lands
+  here cheaply.
+- SP metadata XML served via the `/m/<methodId>/metadata` mount
+  (`app.all("/m/*")`, per the corrected _Method Plumbing_ — **not** a
+  `GET /metadata` route key). Includes entityID, ACS URL, NameIDFormat
+  preference, signing cert if applicable. `CachePolicy.sMaxAge = 300`.
 - `parseSamlIdpMetadata(xml)` public helper — pure function, parses
   an IdP metadata XML doc into the `SamlSpConfig.idp` shape so hosts
   can implement "paste metadata URL or XML" UI without owning the XML
   parsing.
+- Signed-AuthnRequest support — resolves how a method reaches a
+  `KeyStore` signing key (deferred from Phase 1 with `signAuthnRequest`).
 - Test suite extensions: `idp-initiated.test.ts`, `metadata.test.ts`,
-  `cert-rotation.test.ts`, `parse-idp-metadata.test.ts`.
+  `recipient.test.ts`, `parse-idp-metadata.test.ts`.
 - `INTEGRATION.md` § SAML SP extended with IdP-initiated configuration
   walkthrough.
 
@@ -590,13 +689,22 @@ production rollout.
 - SAML Phase 1 is **blocked by** the `methodScratch` framework
   addition. That work is small (≤1 day) and lands as a precursor PR
   ahead of Phase 1's main body.
-- SAML Phase 1 → 2 → 3 are strictly sequential; each builds on the
-  previous.
+- SAML Phase 1 → **1.5** → 2 → 3 are strictly sequential. Phase 1.5
+  (production adapter enablement) **blocks** Phase 2 — there is no
+  value in adding IdP-initiated / metadata surface on a base that
+  only runs in single-process memory. Phase 1.5 is mechanical and the
+  conformance suite for it already exists.
 - SAML work is **parallelizable with** remaining IdP Phase 8 sessions
   (DPoP, PAR, mTLS, DCR, rate limiting, logging/tracing) because they
-  touch disjoint code paths. SAML touches `src/methods/`, `src/types/`,
-  `src/http/router.ts` (route mounting), and adds tests; Phase 8
-  sessions touch `src/domain/`.
+  touch mostly disjoint code paths. As built, SAML touched
+  `src/methods/saml-sp/` (new), `src/types/method.ts` +
+  `src/domain/method-dispatch.ts` + `src/ports/session-store.ts` +
+  the memory adapter (the `methodScratch` precursor), and
+  `src/domain/callback.ts` (the general POST-body state recovery). It
+  did **not** modify `src/http/router.ts` — the `/cb/*` and `/m/*`
+  mounts already existed. Phase 8 sessions touch `src/domain/`
+  token/grant code; the one overlap point is `src/domain/callback.ts`,
+  already landed.
 - SCIM is **deferred** until SAML Phase 1 ships (per current
   prioritization discussion). SCIM and SAML are commercially adjacent
   but technically independent; once SAML Phase 1 unblocks the
@@ -626,30 +734,35 @@ production rollout.
 
 ## Conformance Scope
 
-Hand-built test matrix under `test/conformance/saml-sp.test.ts`,
-following the existing pattern (`oauth-dpop.test.ts`,
-`oauth-par.test.ts`, `oidc-core.test.ts`). Cases:
+**Implementation note:** unlike OAuth/OIDC (which use
+`test/conformance/*.test.ts`), the SAML gauntlet lives in
+`test/methods/saml-sp/acs.test.ts` + `cert-rotation.test.ts` +
+`config-schema.test.ts`, driven end-to-end through `dispatchMethod`.
+There is no `test/conformance/saml-sp.test.ts`; the earlier plan
+assumed one. The matrix below is the **cross-phase target**, not a
+single file. Result classification is `success` / `denied` (reason =
+node-saml's message, free-text — **not** typed reason codes) / `error`.
 
-| # | Case                                              | Phase |
-| - | ------------------------------------------------- | ----- |
-| 1 | SP-initiated SSO end-to-end (Okta fixture)        | 1     |
-| 2 | SP-initiated SSO end-to-end (Entra fixture)       | 1     |
-| 3 | Unsolicited Response without `idpInitiated`       | 1     |
-| 4 | Missing signature → `denied: "unsigned"`          | 1     |
-| 5 | Wrong-cert signature → `denied: "signature"`      | 1     |
-| 6 | Audience mismatch → `denied: "audience"`          | 1     |
-| 7 | Recipient mismatch → `denied: "recipient"`        | 1     |
-| 8 | Stale `NotOnOrAfter` → `denied: "expired"`        | 1     |
-| 9 | Replayed assertion ID → `denied: "replay"`        | 1     |
-| 10| XSW2 wrapping attack → `denied: "signature"`      | 1     |
-| 11| XXE entity expansion → parser error               | 1     |
-| 12| IdP-initiated success with `defaultClientId`      | 2     |
-| 13| IdP-initiated with hostile `RelayState`           | 2     |
-| 14| SP metadata XML matches IdP-importer expectations | 2     |
-| 15| Cert rotation: old + new cert both valid          | 2     |
-| 16| Front-channel SLO round-trip                      | 3     |
-| 17| Encrypted assertion off → rejected                | 3     |
-| 18| Encrypted assertion on → accepted                 | 3     |
+| # | Case                                              | Phase | Status |
+| - | ------------------------------------------------- | ----- | ------ |
+| 1 | SP-initiated SSO end-to-end (fixture)             | 1     | ✅ (`signSamlPost` fixture; real Okta/Entra deferred) |
+| 2 | Valid → mapped `SamlSpProperties`                 | 1     | ✅ |
+| 3 | Unsigned assertion → not `success`                | 1     | ✅ |
+| 4 | Wrong-cert signature → not `success`              | 1     | ✅ |
+| 5 | Audience mismatch → not `success`                 | 1     | ✅ |
+| 6 | Stale `NotOnOrAfter` → not `success`              | 1     | ✅ |
+| 7 | XSW wrapping → not `success`                      | 1     | ✅ |
+| 8 | XXE → external entity never expanded into subject | 1     | ✅ |
+| 9 | Replay (same Response twice) → 2nd not `success`  | 1     | ✅ |
+| 10| `signAuthnRequest:true` rejected                  | 1     | ✅ |
+| 11| No cert in validity window → `error`              | 1     | ✅ |
+| 12| `Recipient` mismatch → not `success`              | 2     | ⏳ (node-saml gap; explicit check) |
+| 13| IdP-initiated success with `defaultClientId`      | 2     | ⏳ |
+| 14| IdP-initiated with hostile `RelayState`           | 2     | ⏳ |
+| 15| SP metadata XML matches IdP-importer expectations | 2     | ⏳ |
+| 16| Front-channel SLO round-trip                      | 3     | ⏳ |
+| 17| Encrypted assertion off → rejected                | 3     | ⏳ |
+| 18| Encrypted assertion on → accepted                 | 3     | ⏳ |
 
 OASIS interop suite integration is **not in scope** (matches existing
 posture per `idp-rebuild-plan.md` § Conformance Scope — hand-built
@@ -691,14 +804,24 @@ matrix only).
 
 ## Definition of Done (overall)
 
-- All three sessions shipped, with conformance cases 1–18 green.
+- All phases shipped — **1, 1.5, 2, 3** — with conformance cases 1–18
+  green.
+- **Scratch trio implemented on all four production `SessionStore`
+  adapters** (Postgres, D1, DynamoDB, Durable Object), each opted into
+  the `supportsScratch` conformance cases. (Phase 1.5 — the
+  production-usability gate; explicitly called out because every other
+  DoD box can be ticked while SAML still cannot run outside memory.)
+- Explicit `SubjectConfirmationData/@Recipient` check landed
+  (gauntlet item 6, Phase 2 — the one deliberately-deferred Phase 1
+  gauntlet item).
 - Okta + Entra dev-tenant integration tests in CI (gated behind env
-  creds; documented setup procedure for contributors).
+  creds; documented setup), run against a real production adapter.
 - `INTEGRATION.md` § SAML SP covers: install, Node-only constraint,
-  per-tenant configuration shape, IdP-initiated setup, SLO setup,
-  attribute mapping cookbook.
-- `ARCHITECTURE.md` updated with: SAML-AD1–AD7, `methodScratch`
-  decision, IdP-initiated synthetic-flow note.
+  the scratch-adapter requirement, per-tenant configuration shape,
+  IdP-initiated setup, SLO setup, attribute-mapping cookbook.
+- `ARCHITECTURE.md` updated with: SAML-AD1–AD7, the two framework
+  changes (`methodScratch`, POST-body state recovery), IdP-initiated
+  synthetic-flow note.
 - Public-API leak test forbids `@node-saml/*` and `xml-crypto` types
   from the root entry.
 - Changeset entry following the established "describe by standard/name,
@@ -729,7 +852,11 @@ matrix only).
   `xml-encryption` to the forbidden list. The wrapper translates
   node-saml's `Profile` into our `SamlSpProperties` at the boundary.
 
-## First Concrete Step (kick off Phase 1)
+## First Concrete Step (kick off Phase 1) — historical, all complete
+
+> Superseded by _Status & Resume Point_ (top of doc). Kept for the
+> record; steps 1–4 are all done. Do not act on this section when
+> resuming — read the Status block instead.
 
 1. ✅ Dependency audit complete. Pins selected: `@node-saml/node-saml@5.1.0`,
    `xml-crypto@6.1.2` (transitive, locked by node-saml). Build script
