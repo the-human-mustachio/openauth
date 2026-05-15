@@ -17,6 +17,43 @@ ourselves. Gate the export Node-only — `xml-crypto` hard-depends on
 sessions: SP-initiated SSO + verification gauntlet → IdP-initiated SSO +
 SP metadata → Single Logout. Total estimated effort: 6–8 weeks.
 
+## Status & Resume Point
+
+> **Maintain this block every working session.** It is the first thing
+> to read when resuming with fresh context. The per-phase ✅ markers
+> further down are the detailed ledger; this is the summary + the next
+> action.
+
+**As of 2026-05-15** — branch `feat/saml-sp`, 6 commits ahead of
+`master` (`a994894`..`1509822`), nothing pushed, nothing merged.
+
+**Done:** SAML Phase 1 (SP-initiated SSO) complete and independently
+security-reviewed. End-to-end working: `/authorize` → IdP →
+signed-assertion POST → node-saml verification gauntlet → mapped
+subject → host `success` callback. Review findings all fixed
+(`1509822`). Full suite green; `tsc` strict clean; root entry verified
+edge-clean.
+
+**Not production-usable yet — one hard blocker:** SAML requires a
+`SessionStore` implementing the `saveScratch/readScratch/deleteScratch`
+trio (backs InResponseTo replay protection). **Only the in-memory
+adapter implements it.** Postgres / D1 / DynamoDB / Durable-Object
+adapters do not. SAML fail-fasts loudly on those. In-memory = single-
+process dev only.
+
+**Recommended next action (highest leverage toward actually-usable):**
+implement the scratch trio on the production `SessionStore` adapters
+(Postgres, D1, DynamoDB, Durable Object), following the existing
+optional-method pattern (mirror `savePar`/`consumePar`). Then a live
+Okta/Entra integration test. Only after that does Phase 2 (IdP-
+initiated + SP metadata + explicit Recipient check + signed-
+AuthnRequest/KeyStore wiring) and Phase 3 (SLO) make sense.
+
+**Two framework changes SAML drove** (documented in `ARCHITECTURE.md`):
+`MethodContext.methodScratch` (precursor commit `395ec99`) and
+`handleCallback` POST-body state recovery (`db45ab6`, general — also
+unblocks OAuth `form_post`).
+
 ## Goals
 
 - Pass enterprise procurement "SAML 2.0 support" boxes without asterisks.
