@@ -85,11 +85,15 @@ export function buildSamlInstance(
     idpIssuer: config.idp.entityId,
     audience: binding.spEntityId,
     identifierFormat,
-    // Security posture — strict by default. SP-initiated only for now;
-    // unsolicited Responses require an outstanding InResponseTo.
+    // Security posture. SP-initiated only for now; unsolicited
+    // Responses require an outstanding InResponseTo. A signed
+    // *assertion* is mandatory (identity + conditions + audience all
+    // live in the signed bytes); requiring the outer Response to also
+    // be signed is stricter than the Okta/Entra default and would
+    // reject the majority of real IdPs, so it is not required here.
     validateInResponseTo: ValidateInResponseTo.always,
     wantAssertionsSigned: true,
-    wantAuthnResponseSigned: true,
+    wantAuthnResponseSigned: false,
     acceptedClockSkewMs: (config.clockSkewSeconds ?? 60) * 1000,
     cacheProvider: methodScratchCacheProvider(
       binding.scratch,

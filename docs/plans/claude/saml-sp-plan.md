@@ -316,17 +316,36 @@ factory/type surface stays cheap and the edge-clean guards stay green.
 
 **Resolved decisions from this increment:**
 
-- **`SamlSpState` dropped `authnRequestId`.** `InResponseTo`
-  correlation is handled by node-saml's `CacheProvider`, which we back
-  with `methodScratch` (`cache-provider.ts`). The state record only
-  needs `{ relayState, issuedAt }`. The cache provider gives
-  cross-node correlation for free, which a per-flow `authnRequestId`
-  would not.
+- **`SamlSpState` = `{ relayState, issuedAt, spEntityId, acsUrl }`.**
+  `authnRequestId` was dropped — `InResponseTo` correlation is handled
+  by node-saml's `CacheProvider` (`cache-provider.ts`,
+  `methodScratch`-backed, cross-node for free). `spEntityId` + `acsUrl`
+  were *added*: they are derived at AuthnRequest time (where
+  `ctx.dispatch` is available) and read back at the ACS (where
+  `ctx.dispatch` is `null`) so the assertion's AudienceRestriction is
+  validated against the exact value the IdP saw in the request.
+- **Second framework change: POST-body state recovery.** SP-initiated
+  SAML uses the HTTP-POST binding — the state envelope arrives as
+  `RelayState` in the form body, but `handleCallback` only read
+  `?state=` from the query. Added `extractCallbackState(req)`: query
+  first, then a **cloned** body read (`state` for OAuth `form_post`,
+  `RelayState` for SAML) when the query param is absent. This is a
+  *general* POST-callback fix (also unblocks true OAuth `form_post`),
+  not SAML-specific; the router already declared intent to support
+  `POST /cb/*`. The clone keeps the body intact for the ACS handler.
+  Documented in `ARCHITECTURE.md`. So SAML drove **two** framework
+  changes total: `methodScratch` (precursor) and this.
 - **`methodScratch` shipped as a precursor**, not in-session. The
   `MethodContext.methodScratch` shim (`{ put, get, delete }`, scoped
   `scratch:<tenantId>:<methodId>:`, `SessionStore`-backed) landed
-  ahead of this increment. This was the only framework change SAML
-  drove. Documented in `ARCHITECTURE.md`.
+  ahead of this increment. Documented in `ARCHITECTURE.md`.
+- **`wantAuthnResponseSigned: false`, `wantAssertionsSigned: true`.**
+  Requiring the *assertion* signed is mandatory (identity, Conditions
+  and AudienceRestriction all live in the signed bytes). Also
+  requiring the outer `<Response>` signed is stricter than the
+  Okta/Entra default and would reject the majority of real IdPs, so it
+  is not required. Encrypted-assertion / signed-response options are a
+  later session.
 - **`signAuthnRequest` deferred within Phase 1.** Signing the outbound
   AuthnRequest needs a `KeyStore`-resolved private key, and
   `MethodContext` does not (yet) expose `KeyStore`. The handler
@@ -336,42 +355,39 @@ factory/type surface stays cheap and the edge-clean guards stay green.
   later Phase 1 increment that also decides how methods reach signing
   keys.
 
-## Security Gauntlet (Session 1 acceptance criteria)
+## Security Gauntlet — what enforces each item (post-implementation)
 
-Every assertion that reaches `MethodResult.success` MUST have passed:
+Per SAML-AD1 we do **not** reimplement XML-DSig. The cryptographic
+gauntlet is `@node-saml/node-saml@5.1.0`'s `validatePostResponseAsync`
+(the CVE-2025-54369/54419-hardened path), driven by our strict
+`buildSamlInstance` config. Every gauntlet item below is exercised
+end-to-end through `dispatchMethod` in `test/methods/saml-sp/acs.test.ts`.
 
-1. **XML well-formedness** without DTDs, without external entities (XXE
-   class). Parser configured with `xmldom` options that disable both;
-   covered by `attack-xxe.test.ts` fixtures.
-2. **Signature present** on the Response, the Assertion, or both —
-   configurable per IdP. Missing signature → `denied: "unsigned"`.
-3. **Signature verifies** against one of the configured PEM certs
-   within its `notBefore`/`notAfter` window, using
-   `xml-crypto.getSignedReferences()` (XSW-safe path).
-4. **Issuer match** — `<saml:Issuer>` equals configured IdP entityID.
-5. **Audience restriction** — `<saml:AudienceRestriction>` contains our
-   SP entityID.
-6. **Recipient match** — `SubjectConfirmationData/@Recipient` equals
-   our ACS URL.
-7. **InResponseTo match** — node-saml validates `InResponseTo` against
-   the outstanding request id it cached at AuthnRequest time
-   (`methodScratch`-backed `CacheProvider`, `validateInResponseTo:
-   always`). Absent + `idpInitiated` not configured → reject
-   (Session 1) or synthesize flow (Session 2).
-8. **Time conditions** — `Conditions/@NotBefore` and
-   `@NotOnOrAfter` honored within `clockSkewSeconds`.
-9. **Replay** — assertion `ID` not previously seen for this
-   `(tenantId, methodId)`; insert into `methodScratch` with TTL =
-   `NotOnOrAfter - now + clockSkewSeconds`.
-10. **Signed-references-only data extraction** — NameID, attributes,
-    SessionIndex read exclusively from elements present in the
-    `getSignedReferences()` set. Defeats XSW by construction.
-11. **NameID comment safety** — text reads use canonicalized form, not
-    DOM `.textContent` (CVE-2018-0489 class).
+| # | Item | Enforced by | Test |
+| - | ---- | ----------- | ---- |
+| 1 | XML well-formedness / no entity expansion (XXE) | `@xmldom/xmldom` (no external-entity resolution) | `XXE: external entity is never expanded into the subject` |
+| 2 | Signature present | node-saml `wantAssertionsSigned: true` | `attack: unsigned assertion` |
+| 3 | Signature verifies vs configured cert (within rotation window) | node-saml + `selectActiveCertPems` | `attack: signed with wrong key` |
+| 4 | Issuer match | node-saml `idpIssuer` | covered by valid + audience cases |
+| 5 | AudienceRestriction = SP entityID | node-saml `audience` | `attack: audience mismatch` |
+| 6 | SubjectConfirmationData/@Recipient = ACS URL | **NOT enforced by node-saml — deferred** (see below) | — |
+| 7 | InResponseTo single-use | node-saml `validateInResponseTo: always` + `methodScratch` cache | `replay rejected` |
+| 8 | Conditions/SubjectConfirmation timestamps within skew | node-saml `acceptedClockSkewMs` | `attack: expired conditions` |
+| 9 | Replay | for SP-init, subsumed by item 7 (request id is single-use); explicit assertion-ID dedup lands with IdP-init (Session 2) | `replay rejected` |
+| 10 | Signed-references-only extraction (XSW) | node-saml `getVerifiedXml` → `getSignedReferences()`; exactly-one-ID + signature-is-parent checks | `attack: signature-wrapping (XSW)` |
+| 11 | NameID comment safety (CVE-2018-0489 class) | inherited from node-saml's verified-content read | covered by XSW + valid cases |
 
-Each numbered item maps to ≥1 test in `attack-*.test.ts` or
-`acs.test.ts`. Fixtures borrow from the published XSW corpus where
-license permits.
+**Item 6 (Recipient) — deferred, documented.** node-saml validates
+Issuer, AudienceRestriction, Conditions/SubjectConfirmation timestamps
+and InResponseTo, but does **not** validate
+`SubjectConfirmationData/@Recipient`. Audience (= our SP entityID,
+enforced) plus single-use InResponseTo already bind the assertion to
+this SP and this request, so Recipient is defense-in-depth rather than
+the primary binding. An explicit Recipient check (reading the verified
+assertion) is tracked as a Phase 1 follow-up and lands with the
+IdP-initiated work, where assertion-level parsing is needed anyway.
+Shipping a fragile xml2js-shape extractor now would be worse than the
+documented gap.
 
 ## Phase Plan
 
@@ -389,14 +405,20 @@ SP-initiated flow, with the full signature gauntlet locked down.
   binding) via node-saml, 302 to IdP SSO, RelayState = state
   envelope. Unsigned only; `signAuthnRequest: true` rejected with a
   clear error (KeyStore-in-MethodContext is a later increment).
-- `"GET /callback"` ACS route — verification gauntlet items 1–11.
-  SP-init only; unsolicited Responses → reject. **(Next increment.)**
-- Attribute mapping engine (`SamlAttributeMapping` →
-  `SamlSpProperties`). **(Next increment, with the gauntlet.)**
+- ✅ `"GET /callback"` ACS route (`acs.ts`) — gauntlet via node-saml
+  `validatePostResponseAsync`; failures → `denied`, infra faults →
+  `error`, success → mapped `SamlSpProperties`. SP-init only;
+  Recipient (item 6) deferred (documented). Plus the general
+  `handleCallback` POST-body state-recovery fix.
+- ✅ Attribute mapping engine (`attributes.ts`,
+  `SamlAttributeMapping` → `SamlSpProperties`) — pure, no node-saml
+  type leak; `mapProfile` returns a `denied` reason on empty subject.
 - ✅ `methodScratch` addition to `MethodContext` — shipped as a
   precursor PR. Memory adapter backs it; production adapters add the
   trio when first deployed against SAML.
-- Replay guard over `methodScratch`. **(Next increment.)**
+- ✅ Replay — SP-init covered by node-saml single-use InResponseTo
+  (`validateInResponseTo: always` + `methodScratch` cache). Explicit
+  assertion-ID dedup deferred to IdP-init (Session 2).
 - ✅ **node-saml cert-rotation shim** — `selectActiveCertPems`
   (`cert-rotation.ts`), a pure window filter feeding node-saml's
   `idpCert`. Tests: single, overlap, expired-only, inclusive
@@ -404,8 +426,9 @@ SP-initiated flow, with the full signature gauntlet locked down.
 - ✅ Node-only subpath export (`./methods/saml-sp`) + the source-level
   edge-clean scan + the compile-time leak guard.
 - Test suite: ✅ `cert-rotation.test.ts`, ✅ `config-schema.test.ts`,
-  ✅ `authnrequest.test.ts`; `acs.test.ts` + `attack-*.test.ts` land
-  with the gauntlet.
+  ✅ `authnrequest.test.ts`, ✅ `acs.test.ts` (valid + 5-attack matrix
+  + XXE-no-disclosure + replay, end-to-end through `dispatchMethod`
+  with a real node-saml instance and `signSamlPost`-signed fixtures).
 - ✅ Leak guard forbids `@node-saml/*` / `xml-crypto` from the root
   (`saml-sp-no-thirdparty-leaks.test.ts` +
   `saml-sp-edge-clean-root.test.ts`).

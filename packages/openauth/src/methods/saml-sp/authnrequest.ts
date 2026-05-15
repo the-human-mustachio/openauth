@@ -48,13 +48,15 @@ export async function buildAuthnRequestRedirect(
     methodId,
   )
 
+  const acsUrl = ctx.dispatch.callbackUrl
+
   let redirectUrl: string
   try {
     const saml = buildSamlInstance(
       config,
       {
         spEntityId,
-        acsUrl: ctx.dispatch.callbackUrl,
+        acsUrl,
         scratch: ctx.methodScratch,
       },
       Date.now(),
@@ -85,6 +87,8 @@ export async function buildAuthnRequestRedirect(
     saveMethodState: {
       relayState: ctx.dispatch.state,
       issuedAt: Date.now(),
+      spEntityId,
+      acsUrl,
     },
   }
 }

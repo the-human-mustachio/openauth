@@ -126,6 +126,8 @@ test("SAML SP: SamlSpState is plain primitives (no XML Document type)", () => {
   assertAssignable<{
     relayState: string
     issuedAt: number
+    spEntityId: string
+    acsUrl: string
   }>({} as SamlSpState)
   expect(true).toBe(true)
 })

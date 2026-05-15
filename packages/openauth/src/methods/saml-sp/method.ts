@@ -11,13 +11,9 @@
  * POST) always dispatches the `"GET /callback"` route key, so the ACS
  * lives there rather than at a bespoke `/acs` sub-path.
  */
-import { authError } from "../../types/error"
-import type {
-  AuthMethod,
-  MethodContext,
-  MethodResult,
-} from "../../types/method"
+import type { AuthMethod, MethodContext } from "../../types/method"
 
+import { consumeAssertion } from "./acs"
 import { buildAuthnRequestRedirect } from "./authnrequest"
 import type { SamlSpConfig, SamlSpProperties, SamlSpState } from "./types"
 
@@ -33,17 +29,8 @@ export function buildSamlSpMethod(
     routes: {
       "GET /authorize": (ctx: MethodContext<SamlSpState>) =>
         buildAuthnRequestRedirect(ctx, id, config),
-      "GET /callback": async (): Promise<
-        MethodResult<SamlSpProperties, SamlSpState>
-      > => ({
-        kind: "error",
-        error: authError.internalError(
-          "saml-sp: ACS (assertion consumer) is not yet implemented. " +
-            "The SP-initiated AuthnRequest path is live; response " +
-            "verification lands in the next SAML Phase 1 increment. " +
-            "See docs/plans/claude/saml-sp-plan.md.",
-        ),
-      }),
+      "GET /callback": (ctx: MethodContext<SamlSpState>) =>
+        consumeAssertion(ctx, config),
     },
   }
 }

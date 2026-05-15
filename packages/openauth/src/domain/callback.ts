@@ -81,12 +81,40 @@ export type HandleCallbackDeps = {
   ) => Record<string, unknown> | Promise<Record<string, unknown>>
 }
 
+/**
+ * The framework's MAC state envelope normally rides `?state=` on the
+ * upstream redirect. POST-binding callbacks carry it in the form body
+ * instead: OAuth `response_mode=form_post` uses `state`, SAML's
+ * HTTP-POST binding uses `RelayState`. Read the query first (cheap,
+ * the common case) and fall back to a **cloned** body read so the
+ * downstream method handler still gets an unconsumed request body
+ * (it needs it for `code` / `SAMLResponse`).
+ *
+ * Any body-parse failure degrades to "no state" — identical to the
+ * pre-existing behaviour when the query param is absent.
+ */
+async function extractCallbackState(req: Request): Promise<string | null> {
+  const fromQuery = new URL(req.url).searchParams.get("state")
+  if (fromQuery) return fromQuery
+  if (req.method !== "POST") return null
+  const ct = req.headers.get("content-type") ?? ""
+  if (!ct.includes("application/x-www-form-urlencoded")) return null
+  try {
+    const body = await req.clone().text()
+    const form = new URLSearchParams(body)
+    const v = form.get("state") ?? form.get("RelayState")
+    return v && v.length > 0 ? v : null
+  } catch {
+    return null
+  }
+}
+
 export async function handleCallback(
   input: HandleCallbackInput,
   deps: HandleCallbackDeps,
 ): Promise<Result<CallbackOutput, AuthError>> {
   const url = new URL(input.rawRequest.url)
-  const state = url.searchParams.get("state")
+  const state = await extractCallbackState(input.rawRequest)
   if (!state) {
     return err(authError.invalidRequest("missing state parameter", "state"))
   }

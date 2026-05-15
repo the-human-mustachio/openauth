@@ -136,6 +136,15 @@ export type SamlSpConfig = {
 export type SamlSpState = {
   relayState: string
   issuedAt: number
+  /**
+   * SP entityID + ACS URL computed at AuthnRequest time, where the
+   * framework's dispatch context is available. The ACS dispatch has
+   * no dispatch context, so these are read back from here to validate
+   * the assertion's `AudienceRestriction` / `Recipient` against the
+   * exact values the IdP saw in the request.
+   */
+  spEntityId: string
+  acsUrl: string
 }
 
 /**

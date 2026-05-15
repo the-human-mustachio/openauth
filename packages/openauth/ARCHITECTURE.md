@@ -128,6 +128,21 @@ Any mismatch → `invalid_request`, audit
 `flow_replay_attempt` / `flow_tenant_mismatch` /
 `flow_callback_mismatch`.
 
+### State on POST-binding callbacks
+
+The MAC envelope normally rides `?state=` on the upstream redirect.
+POST-binding callbacks carry it in the form body instead: OAuth
+`response_mode=form_post` uses `state`; SAML's HTTP-POST binding uses
+`RelayState`. `handleCallback` resolves it via `extractCallbackState`:
+query first (the common, cheap path), then a **cloned** body read
+(`state ?? RelayState`) when the query param is absent and the request
+is a form-encoded POST. The clone is essential — the method handler
+downstream still needs an unconsumed body to read `code` /
+`SAMLResponse`. Any body-parse failure degrades to "no state",
+identical to the pre-existing missing-query behaviour. This is a
+general fix (it unblocks true OAuth `form_post` too), not
+SAML-specific.
+
 ### Why a global state key
 
 The `state` MAC has to verify **before** tenant config is loaded — that's
