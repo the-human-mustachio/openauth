@@ -89,6 +89,12 @@ CREATE TABLE IF NOT EXISTS openauth_sessions (
   expires_at bigint NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS openauth_scratch (
+  scratch_key text PRIMARY KEY,
+  value text NOT NULL,
+  expires_at bigint NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS openauth_audit_events (
   id bigserial PRIMARY KEY,
   ts bigint NOT NULL,

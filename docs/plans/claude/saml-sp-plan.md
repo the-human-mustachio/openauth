@@ -15,10 +15,10 @@ assertions. Wrap `@node-saml/node-saml` rather than implement XML-DSig
 ourselves. Gate the export Node-only — `xml-crypto` hard-depends on
 `node:crypto` and there is no realistic edge path. Phases:
 **1** SP-initiated SSO + verification gauntlet (done) → **1.5**
-production-adapter enablement (the deploy gate) → **2** IdP-initiated
-SSO + SP metadata + explicit Recipient → **3** Single Logout. Total
-estimated effort: ~7–9 weeks. See _Status & Resume Point_ for current
-state.
+production-adapter enablement (done; deploy gate cleared, one live-IdP
+test deferred) → **2** IdP-initiated SSO + SP metadata + explicit
+Recipient → **3** Single Logout. Total estimated effort: ~7–9 weeks.
+See _Status & Resume Point_ for current state.
 
 ## Status & Resume Point
 
@@ -39,17 +39,34 @@ subject → host `success` callback. Review findings all fixed
 (`1509822`). Full suite green; `tsc` strict clean; root entry verified
 edge-clean.
 
-**Not production-usable yet — one hard blocker:** SAML requires a
-`SessionStore` implementing the `saveScratch/readScratch/deleteScratch`
-trio (backs InResponseTo replay protection). **Only the in-memory
-adapter implements it.** Postgres / D1 / DynamoDB / Durable-Object
-adapters do not. SAML fail-fasts loudly on those. In-memory = single-
-process dev only.
+**Production blocker — CLEARED (Phase 1.5 done, 2026-05-15):** the
+`saveScratch/readScratch/deleteScratch` trio (backs InResponseTo replay
+protection) now ships on **all four production adapters** — Postgres,
+D1, DynamoDB, Durable Object — in addition to memory. Each is opted
+into the `supportsScratch` conformance cases (full set green). Postgres
+adds an `openauth_scratch` table; D1 the same (reads pinned to the
+primary via `primarySession`); DynamoDB a single-table item with a
+native `ttl` attribute + clock-filter on read; Durable Object a keyed
+entry. `ports/CONSISTENCY.md` updated with the contract + D1 caveat.
+SP-initiated SSO (including replay rejection) verified end-to-end
+against `PostgresSessionStore` — not just memory — in
+`test/methods/saml-sp/acs-postgres.test.ts`. `INTEGRATION.md` § 9.5
+(SAML SP) written: Node-only constraint, scratch-adapter requirement,
+per-tenant config shape, derived SP entityID / ACS URL, attribute
+cookbook.
 
-**Recommended next action:** **Phase 1.5 — Production adapter
-enablement** (see Phase Plan). It is the highest-leverage step toward
-actually-usable and **blocks Phase 2**. It is a first-class phase, not
-a prose aside, precisely so a resume-from-plan reader cannot skip it.
+**One Phase 1.5 item explicitly deferred (owner decision, 2026-05-15):**
+the live Okta/Entra dev-tenant integration test was descoped — it needs
+real IdP credentials that are not available in this environment, so it
+cannot be executed or meaningfully scaffolded here. Tracked as an open
+TODO in the Phase 1.5 acceptance criteria and Definition of Done below;
+it does **not** block Phase 2 (the deployability blocker was the scratch
+trio, which is resolved).
+
+**Recommended next action:** **Phase 2 — IdP-initiated SSO + SP
+metadata + explicit Recipient** (see Phase Plan). Phase 1.5's
+deployability gate is met; the remaining live-IdP test is a tracked
+follow-up, not a sequencing blocker.
 
 **Two framework changes SAML drove** (documented in `ARCHITECTURE.md`):
 `MethodContext.methodScratch` (precursor commit `395ec99`) and
@@ -308,6 +325,7 @@ packages/openauth/
     │   ├── config-schema.test.ts
     │   ├── authnrequest.test.ts
     │   ├── acs.test.ts                  # valid + attack matrix + XXE + replay
+    │   ├── acs-postgres.test.ts         # (P1.5) SP-init E2E on PostgresSessionStore
     │   └── fixtures/
     │       ├── build-response.ts        # signSamlPost-based fixture builder
     │       ├── idp-{cert,key}.pem       # matched test IdP keypair
@@ -466,10 +484,9 @@ SP-initiated flow, with the full signature gauntlet locked down.
   `SamlAttributeMapping` → `SamlSpProperties`) — pure, no node-saml
   type leak; `mapProfile` returns a `denied` reason on empty subject.
 - ✅ `methodScratch` addition to `MethodContext` — shipped as a
-  precursor PR. **Memory adapter only.** Production adapters do NOT
-  implement the scratch trio yet — that is Phase 1.5, the hard
-  production blocker (not done; do not read this ✅ as "scratch works
-  everywhere").
+  precursor PR. Memory only at Phase 1; the four production adapters
+  landed in **Phase 1.5 (done, 2026-05-15)** — scratch now works on
+  every bundled adapter.
 - ✅ Replay — SP-init covered by node-saml single-use InResponseTo
   (`validateInResponseTo: always` + `methodScratch` cache). Explicit
   assertion-ID dedup deferred to IdP-init (Session 2).
@@ -529,45 +546,63 @@ process dev). This is the single hard blocker between "demoable" and
 "shippable". It is small, mechanical, and must land before Phase 2 —
 building more SAML surface on a non-deployable base is wasted motion.
 
-**Deliverables:**
+**Deliverables (✅ = shipped 2026-05-15):**
 
-- Implement the `saveScratch` / `readScratch` / `deleteScratch` trio
-  on every production `SessionStore` adapter: **Postgres, D1,
-  DynamoDB, Durable Object**. Mirror the existing optional-method
-  pattern (`savePar` / `consumePar`) — strong-consistency,
-  TTL-respecting, opaque key/value. Per-adapter notes:
-  - Postgres: one TEXT/JSONB column keyed by the scoped string +
-    `expires_at`; reuse the PAR table pattern.
-  - DynamoDB: item with TTL attribute (native TTL eviction OK; still
-    filter on read for correctness).
-  - D1: same SQL shape as Postgres; honor the read-replication caveat
-    in `ports/CONSISTENCY.md` (scratch is read-after-write
-    sensitive for InResponseTo — primary-pinned / bookmarked reads).
-  - Durable Object: in-DO map keyed by scoped string + expiry.
-- Opt each adapter into the conformance suite:
-  `describeSessionStore({ ..., supportsScratch: true })`. The shared
-  suite already has the scratch cases (added with the precursor) —
-  this just flips the flag per adapter and must pass.
-- `ports/CONSISTENCY.md`: confirm the scratch row's guarantees hold
-  for each backend; add any backend-specific caveat (esp. D1).
-- Live integration test against an Okta **and** an Entra dev tenant,
-  gated behind env-var creds, run against a real production adapter
-  (Postgres is the natural choice). Documented setup in
-  `INTEGRATION.md` § SAML SP. This is where real-IdP quirks
-  (namespace prefixes, signing variants, attribute schemes) surface —
-  fixtures alone do not catch them.
-- `INTEGRATION.md` § SAML SP first cut: install, the Node-only
-  constraint, the scratch-adapter requirement, per-tenant config
-  shape, manual IdP configuration (entityID / ACS URL derivation),
-  attribute-mapping cookbook.
+- ✅ Implemented the `saveScratch` / `readScratch` / `deleteScratch`
+  trio on every production `SessionStore` adapter: **Postgres, D1,
+  DynamoDB, Durable Object**. Strong-consistency, TTL-respecting,
+  opaque key/value. Semantics are **upsert / TTL-filtered read /
+  idempotent delete** — there is no atomic delete-on-read, so this
+  tracks the `createSession`/`readSession`/`revokeSession` shape, not
+  `consumeFlow`. Per-adapter:
+  - ✅ Postgres: `openauth_scratch (scratch_key text PK, value text,
+    expires_at bigint)`; `INSERT … ON CONFLICT DO UPDATE`; lazy GC on
+    expired read.
+  - ✅ DynamoDB: single-table item `pk="scratch"` + native `ttl`
+    attribute (best-effort eviction) **and** a clock filter on read
+    for correctness.
+  - ✅ D1: same SQL shape as Postgres; all three ops pinned to the
+    primary via `primarySession` (scratch is read-after-write
+    sensitive for InResponseTo — see `ports/CONSISTENCY.md` D1
+    caveat).
+  - ✅ Durable Object: keyed entry `scratch:<key>` → `{value,
+    expiresAt}`; lazy-delete on expired read. No transaction needed
+    (no read-modify-write; the DO serializes writes).
+- **Plan-vs-reality correction:** the deliverable text said to "mirror
+  the existing optional-method pattern (`savePar`/`consumePar`)" and
+  "reuse the PAR table pattern." There is **no production PAR
+  precedent** — `savePar`/`consumePar` exist only on the memory
+  adapter; no `openauth_par` table exists. Scratch was instead modeled
+  on the production flow-record / session storage patterns that do
+  exist, plus the memory scratch impl for semantics. No scope change.
+- ✅ Opted each adapter into the conformance suite
+  (`describeSessionStore({ …, supportsScratch: true })`); the shared
+  suite's scratch cases (round-trip, overwrite, unknown→`unknown_state`,
+  expiry, idempotent delete, ttl≤0, key isolation) pass for all four.
+- ✅ `ports/CONSISTENCY.md`: scratch contract row confirmed; D1
+  read-after-write caveat added; graceful-degradation note updated to
+  reflect production-adapter coverage.
+- ⏳ **Deferred (owner decision, 2026-05-15):** live integration test
+  against Okta **and** Entra dev tenants. Requires real IdP
+  credentials not available in this environment; descoped rather than
+  scaffolded as dead code. Tracked here and in the DoD. Does not block
+  Phase 2.
+- ✅ `INTEGRATION.md` § 9.5 (SAML SP): Node-only constraint,
+  scratch-adapter requirement, per-tenant config shape, derived SP
+  entityID / ACS URL, manual IdP configuration, attribute-mapping
+  cookbook. (Live-IdP harness intentionally omitted per the deferral
+  above.)
 
-**Acceptance criteria:**
+**Acceptance criteria (status reconciled):**
 
-- All four production adapters pass the `supportsScratch` conformance
-  cases.
-- SP-initiated SSO completes end-to-end on Postgres (not just memory)
-  in CI or a documented manual run.
-- At least one real-IdP (Okta or Entra) login verified end-to-end.
+- ✅ All four production adapters pass the `supportsScratch`
+  conformance cases.
+- ✅ SP-initiated SSO completes end-to-end on Postgres (not just
+  memory) — `test/methods/saml-sp/acs-postgres.test.ts` (valid →
+  success; replay → rejected via Postgres-backed InResponseTo scratch).
+- ⏳ **Deferred:** at least one real-IdP (Okta or Entra) login
+  verified end-to-end. Open TODO — needs dev-tenant creds; see the
+  deferral note above.
 
 **Risks:**
 
@@ -578,7 +613,8 @@ building more SAML surface on a non-deployable base is wasted motion.
 
 **Estimated effort:** ~1 week (mechanical; the conformance suite
 already exists, so it is mostly per-adapter SQL/DO plumbing + the
-live-IdP test harness).
+live-IdP test harness). **Status: done 2026-05-15** except the
+deferred live-IdP harness (see Deliverables / Status & Resume Point).
 
 ---
 
@@ -806,16 +842,19 @@ matrix only).
 
 - All phases shipped — **1, 1.5, 2, 3** — with conformance cases 1–18
   green.
-- **Scratch trio implemented on all four production `SessionStore`
+- ✅ **Scratch trio implemented on all four production `SessionStore`
   adapters** (Postgres, D1, DynamoDB, Durable Object), each opted into
-  the `supportsScratch` conformance cases. (Phase 1.5 — the
-  production-usability gate; explicitly called out because every other
-  DoD box can be ticked while SAML still cannot run outside memory.)
+  the `supportsScratch` conformance cases (Phase 1.5, done
+  2026-05-15). This was the production-usability gate; it is cleared.
 - Explicit `SubjectConfirmationData/@Recipient` check landed
   (gauntlet item 6, Phase 2 — the one deliberately-deferred Phase 1
   gauntlet item).
-- Okta + Entra dev-tenant integration tests in CI (gated behind env
+- ⏳ Okta + Entra dev-tenant integration tests in CI (gated behind env
   creds; documented setup), run against a real production adapter.
+  **Deferred (owner decision, 2026-05-15)** — open TODO, not yet met;
+  needs real dev-tenant credentials. The Postgres-backed end-to-end
+  SAML test (`acs-postgres.test.ts`) covers the production-adapter
+  half against signed fixtures; only the live-IdP half is outstanding.
 - `INTEGRATION.md` § SAML SP covers: install, Node-only constraint,
   the scratch-adapter requirement, per-tenant configuration shape,
   IdP-initiated setup, SLO setup, attribute-mapping cookbook.

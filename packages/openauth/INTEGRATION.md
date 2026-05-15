@@ -887,6 +887,142 @@ const myOkta: AuthMethodFactory<Oauth2Properties, Oauth2State, {}> = {
 Reach for `oauth2Factory` / `oidcFactory` first; only drop down to the
 builders when the upstream is fixed at the deployment level.
 
+### 9.5 SAML SP — enterprise SAML 2.0 connections
+
+`samlSpFactory` adds SAML 2.0 **Service Provider** support: the library
+consumes signed assertions from a corporate IdP (Okta, Entra, Ping,
+ADFS, …). It never issues assertions — downstream apps still speak your
+OIDC issuer. It is just another `AuthMethodFactory`; the `/authorize`
+dispatch, state envelope, flow record, and `success` callback all work
+unchanged.
+
+**Node-only — separate subpath.** Everything SAML lives at the
+`@_mustachio/openauth/methods/saml-sp` subpath, which carries a `node`
+export condition. The root entry (`@_mustachio/openauth`) never
+re-exports it, so Workers / browser builds stay edge-clean by
+construction. SAML deployments must run on Node — Workers / Durable
+Object / D1 deployments continue to use OAuth/OIDC methods.
+
+```ts
+// Node host only:
+import {
+  samlSpFactory,
+  type SamlSpConfig,
+} from "@_mustachio/openauth/methods/saml-sp"
+
+const methods = {
+  "saml-sp": samlSpFactory, // map key MUST equal factory.kind
+}
+```
+
+**SessionStore must implement the scratch trio.** SAML SP backs
+`InResponseTo` single-use replay protection with
+`MethodContext.methodScratch`, which requires the `SessionStore` to
+implement `saveScratch` / `readScratch` / `deleteScratch`. The bundled
+memory adapter and **all four production adapters** (Postgres, D1,
+DynamoDB, Durable Object) implement it. For Postgres / D1 the
+`openauth_scratch` table is created by the same `migrate()` call you
+already run. If you wire a custom `SessionStore` that lacks the trio,
+the `GET /authorize` handler fail-fasts with a clear error rather than
+issuing an AuthnRequest whose request id is never cached (which would
+make every assertion fail at the ACS with an opaque message).
+
+**Per-tenant config shape** (`MethodConfig.config`, validated by
+`samlSpFactory.configSchema`):
+
+```ts
+{
+  id: "corp-saml",            // becomes part of the derived SP entityID + ACS URL
+  kind: "saml-sp",            // factory lookup key — routes /<id>/* dispatch
+  type: "custom",             // MethodType has no SAML member; routing is by `kind`
+  enabled: true,
+  config: {
+    idp: {
+      entityId: "https://corp-idp.example/saml/metadata", // IdP EntityID
+      ssoUrl: "https://corp-idp.example/sso",              // IdP SSO endpoint
+      nameIdFormat: "persistent",                          // optional request hint
+      // ≥1 PEM signing cert. Multiple + notBefore/notAfter windows
+      // enable hot rotation with no redeploy.
+      signingCerts: [
+        { pem: "-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----" },
+      ],
+    },
+    attributeMapping: { /* see cookbook below */ },
+    clockSkewSeconds: 60,     // default 60; allowance on NotBefore/NotOnOrAfter
+  } satisfies SamlSpConfig,
+}
+```
+
+`signAuthnRequest` and `idpInitiated` exist on the type but are **not
+yet active** — `signAuthnRequest: true` is rejected with an explicit
+error (signed-AuthnRequest support is a later increment), and
+unsolicited IdP-initiated Responses are rejected (`invalid_request`)
+until Phase 2. SP-initiated SSO is the supported flow today. The
+assertion must be signed; the outer `<Response>` need not be (stricter
+would reject the Okta/Entra default).
+
+**Configuring the IdP side (manual — no metadata importer yet).** Both
+values the host registers at the IdP are *derived*, not configured, so
+they are stable across deploys:
+
+- **SP EntityID / Audience** = `<issuerUrl>/<tenantId>/<methodId>`
+  (trailing slash on `issuerUrl` is stripped). E.g. issuer
+  `https://idp.acme.com`, tenant `acme`, method `corp-saml` →
+  `https://idp.acme.com/acme/corp-saml`.
+- **ACS URL** (Assertion Consumer Service, HTTP-POST binding) =
+  `<issuerUrl>/cb/<methodId>` — the framework's universal callback,
+  e.g. `https://idp.acme.com/cb/corp-saml`.
+
+In the IdP admin console: set the SP EntityID and ACS URL to those two
+values, choose the HTTP-POST binding for the assertion, then copy the
+IdP's EntityID, SSO URL, and signing certificate PEM back into the
+`SamlSpConfig` above. (A `parseSamlIdpMetadata` helper that turns the
+IdP's metadata XML into `config.idp` is a Phase 2 deliverable; until
+then the three fields are pasted by hand.)
+
+**Attribute-mapping cookbook.** `attributeMapping` normalizes the
+verified assertion into `providerSubject` + the property fields handed
+to your `success(input)` callback. Each ref is either the assertion's
+NameID or a named SAML attribute:
+
+```ts
+attributeMapping: {
+  // providerSubject. Defaults to NameID if omitted — the usual choice
+  // for `persistent` NameIDs.
+  subject: { source: "nameId" },
+
+  // Standard single-valued attributes. `name` is the SAML Attribute
+  // Name exactly as the IdP emits it (Okta and Entra differ — Entra
+  // tends to emit the long claim URIs).
+  email: { source: "attribute", name: "email" },
+  name:  { source: "attribute", name: "displayName" },
+
+  // SAML assertions are issued post-IdP-verification, so email is
+  // effectively verified. This is a literal, not an attribute lookup.
+  emailVerified: { source: "literal", value: true },
+
+  // Multi-valued — array shape is preserved.
+  groups: { source: "attribute", name: "groups" },
+
+  // `format` disambiguates when an IdP emits the same Name twice with
+  // different NameFormats.
+  custom: {
+    department: {
+      source: "attribute",
+      name: "http://schemas.example/department",
+      format: "urn:oasis:names:tc:SAML:2.0:attrname-format:uri",
+    },
+  },
+}
+```
+
+Anything not covered by the standard slots goes under `custom` — there
+is no need to fork the method per IdP. `groups` (and any multi-valued
+attribute) arrives as a string array in
+`SamlSpProperties.attributes`; single-valued attributes arrive as
+strings. The host owns the final `SubjectClaim` mapping in `success`,
+exactly as with OAuth/OIDC.
+
 ---
 
 ## 10. Subject identity & JWT validation in your services

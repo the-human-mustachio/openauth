@@ -65,6 +65,12 @@ demonstrate, under simulated replication lag:
 2. `consumeRefresh` CAS resolves to exactly one winner under concurrent
    attempts on the same token.
 3. `revokeBySubject` propagates within the documented SLA.
+4. `readScratch` immediately after the matching `saveScratch` returns the
+   value. Scratch backs SAML SP InResponseTo replay protection: the
+   AuthnRequest is correlated at the ACS by a scratch read that must see
+   the write made when the request was issued. The D1 adapter pins all
+   three scratch operations to the primary via the Sessions API
+   (`primarySession`), the same path `consumeFlow` uses.
 
 Read-eventual paths (`ConfigStore.getTenantConfig`, JWKS) may use replicas
 freely.
@@ -121,8 +127,14 @@ does not support DPoP replay protection"`. Memory adapter
   protection is the first user). Without them,
   `MethodContext.methodScratch.put/get/delete` returns an
   `internal_error` whose description names the missing operation.
-  Memory adapter implements; production adapters add the trio as a
-  TTL-respecting key/value store keyed by an opaque string.
+  Memory **and all four production adapters** (Postgres, D1, DynamoDB,
+  Durable Object) implement the trio as a TTL-respecting key/value
+  store keyed by an opaque string; each is opted into the
+  `supportsScratch` conformance cases. Semantics are upsert /
+  TTL-filtered read / idempotent delete — there is no atomic
+  delete-on-read (unlike `consumeFlow`). On DynamoDB the row also
+  carries a native `ttl` attribute for backstop eviction, but reads
+  still filter on the adapter clock because native TTL is best-effort.
 
 The framework never advertises a feature in discovery that the wired
 adapters cannot actually serve: `pushed_authorization_request_endpoint`

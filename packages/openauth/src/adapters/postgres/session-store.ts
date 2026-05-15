@@ -203,6 +203,75 @@ export class PostgresSessionStore implements SessionStore {
     }
     return ok(undefined)
   }
+
+  async saveScratch(
+    key: string,
+    value: string,
+    ttlMs: number,
+  ): Promise<Result<void>> {
+    if (ttlMs <= 0) {
+      return err(
+        authError.internalError(
+          `saveScratch: ttlMs must be positive, got ${ttlMs}`,
+        ),
+      )
+    }
+    const expiresAt = this.#clock() + ttlMs
+    try {
+      await this.#exec.query(
+        `INSERT INTO openauth_scratch (scratch_key, value, expires_at)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (scratch_key)
+         DO UPDATE SET value = EXCLUDED.value, expires_at = EXCLUDED.expires_at`,
+        [key, value, expiresAt],
+      )
+    } catch (e) {
+      return err(authError.internalError("saveScratch: upsert failed", e))
+    }
+    return ok(undefined)
+  }
+
+  async readScratch(key: string): Promise<Result<string>> {
+    let row: { value: string; expires_at: string | number } | undefined
+    try {
+      const result = await this.#exec.query<{
+        value: string
+        expires_at: string | number
+      }>(
+        `SELECT value, expires_at FROM openauth_scratch WHERE scratch_key = $1`,
+        [key],
+      )
+      row = result.rows[0]
+    } catch (e) {
+      return err(authError.internalError("readScratch: query failed", e))
+    }
+    if (!row) {
+      return err(authError.unknownState(`scratch "${key}" unknown`))
+    }
+    if (this.#clock() >= Number(row.expires_at)) {
+      // Lazy GC — best-effort, don't fail the read if the delete races.
+      try {
+        await this.#exec.query(
+          `DELETE FROM openauth_scratch WHERE scratch_key = $1`,
+          [key],
+        )
+      } catch {}
+      return err(authError.unknownState(`scratch "${key}" expired`))
+    }
+    return ok(row.value)
+  }
+
+  async deleteScratch(key: string): Promise<Result<void>> {
+    try {
+      await this.#exec.query(
+        `DELETE FROM openauth_scratch WHERE scratch_key = $1`,
+        [key],
+      )
+    } catch (e) {
+      return err(authError.internalError("deleteScratch: delete failed", e))
+    }
+    return ok(undefined)
+  }
 }
 
 function parseFlowRecord(raw: unknown): FlowRecord {

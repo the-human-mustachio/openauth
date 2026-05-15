@@ -51,6 +51,11 @@ type StoredSession = {
   expiresAt: number
 }
 
+type StoredScratch = {
+  value: string
+  expiresAt: number
+}
+
 export type DurableObjectSessionStoreOptions = {
   storage: DurableObjectStorageLike
   clock?: () => number
@@ -218,10 +223,66 @@ export class DurableObjectSessionStore implements SessionStore {
     }
     return ok(undefined)
   }
+
+  async saveScratch(
+    key: string,
+    value: string,
+    ttlMs: number,
+  ): Promise<Result<void>> {
+    if (ttlMs <= 0) {
+      return err(
+        authError.internalError(
+          `saveScratch: ttlMs must be positive, got ${ttlMs}`,
+        ),
+      )
+    }
+    const stored: StoredScratch = {
+      value,
+      expiresAt: this.#clock() + ttlMs,
+    }
+    try {
+      // Plain put — scratch overwrites any prior value for the key. No
+      // transaction needed: it is a single write, and the DO serializes
+      // all operations on this instance.
+      await this.#storage.put(scratchKey(key), stored)
+    } catch (e) {
+      return err(authError.internalError("saveScratch: put failed", e))
+    }
+    return ok(undefined)
+  }
+
+  async readScratch(key: string): Promise<Result<string>> {
+    let stored: StoredScratch | undefined
+    try {
+      stored = await this.#storage.get<StoredScratch>(scratchKey(key))
+    } catch (e) {
+      return err(authError.internalError("readScratch: get failed", e))
+    }
+    if (!stored) {
+      return err(authError.unknownState(`scratch "${key}" unknown`))
+    }
+    if (this.#clock() >= stored.expiresAt) {
+      try {
+        await this.#storage.delete(scratchKey(key))
+      } catch {}
+      return err(authError.unknownState(`scratch "${key}" expired`))
+    }
+    return ok(stored.value)
+  }
+
+  async deleteScratch(key: string): Promise<Result<void>> {
+    try {
+      await this.#storage.delete(scratchKey(key))
+    } catch (e) {
+      return err(authError.internalError("deleteScratch: delete failed", e))
+    }
+    return ok(undefined)
+  }
 }
 
 const flowKey = (flowId: string) => `flow:${flowId}`
 const sessionKey = (sessionId: string) => `session:${sessionId}`
+const scratchKey = (key: string) => `scratch:${key}`
 
 // Re-exported for adapter users wiring `storage.transaction` callbacks.
 export type { DurableObjectStorageLike, DurableObjectTransactionLike }

@@ -14,6 +14,7 @@ import { describeSessionStore } from "../ports"
 describeSessionStore({
   adapterName: "durable-object (in-process)",
   supportsLongLivedSessions: true,
+  supportsScratch: true,
   async makeStore(clock) {
     const storage = createDOStorageShim()
     return {
