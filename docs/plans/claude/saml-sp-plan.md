@@ -144,12 +144,18 @@ out in Session 2.
 
 ## Public API Surface
 
-Added to `@_mustachio/openauth` root export:
+Everything SAML lives at the **Node-only subpath**
+`@_mustachio/openauth/methods/saml-sp`. The root entry
+(`@_mustachio/openauth`) never re-exports SAML symbols — this is what
+keeps Workers / browsers edge-clean by construction. Re-resolves Open
+Question #1 in favour of the consistent answer.
 
 ```ts
-import { samlSpFactory, type SamlSpConfig } from "@_mustachio/openauth"
-import { parseSamlIdpMetadata } from "@_mustachio/openauth"
-//                ↑ pure helper, Node-only via the `./methods/saml-sp` subpath
+import {
+  samlSpFactory,
+  parseSamlIdpMetadata,
+  type SamlSpConfig,
+} from "@_mustachio/openauth/methods/saml-sp"
 ```
 
 `SamlSpConfig` is the validated config shape persisted per method
@@ -559,11 +565,13 @@ matrix only).
 
 ## Open Questions
 
-1. **Should `parseSamlIdpMetadata` be exposed from the Node-only
-   subpath or the root entry?** Argument for root: it's a pure
-   function, no `node:crypto`. Argument against subpath: keep all SAML
-   surface area in one place, fewer import-path surprises. Lean: keep
-   under `./methods/saml-sp` for consistency, even though it's pure.
+1. ~~**Should `parseSamlIdpMetadata` be exposed from the Node-only
+   subpath or the root entry?**~~ **Resolved** — subpath only. All SAML
+   symbols live at `@_mustachio/openauth/methods/saml-sp`; the root
+   entry never re-exports any of them. Enforced by
+   `test/types/saml-sp-no-thirdparty-leaks.test.ts` (compile-time root
+   probes) and `test/types/saml-sp-edge-clean-root.test.ts` (source-
+   level scan of `src/` for forbidden imports).
 2. **How does the host's console upload IdP metadata?** The library
    exposes `parseSamlIdpMetadata`; the wire-up is host responsibility.
    `INTEGRATION.md` § SAML SP needs a worked example. Coordinate with

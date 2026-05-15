@@ -37,6 +37,12 @@
       "import": "./dist/esm/adapters/*/index.js",
       "types": "./dist/types/adapters/*/index.d.ts"
     },
+    "./methods/saml-sp": {
+      "node": {
+        "import": "./dist/esm/methods/saml-sp/index.js",
+        "types": "./dist/types/methods/saml-sp/index.d.ts"
+      }
+    },
     "./*": {
       "import": "./dist/esm/*.js",
       "types": "./dist/types/*.d.ts"
