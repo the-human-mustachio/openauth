@@ -69,9 +69,13 @@ export async function consumeAssertion(
     return { kind: "denied", reason: "missing SAMLResponse" }
   }
 
-  let profile: NodeSamlProfile | null
+  // Build is a configuration concern (e.g. no signing cert within its
+  // validity window, or a rotation gap). A throw here is an operator
+  // fault, NOT a user auth failure — surfacing it as `denied` would
+  // hide a misconfiguration behind per-user "access denied" noise.
+  let saml: ReturnType<typeof buildSamlInstance>
   try {
-    const saml = buildSamlInstance(
+    saml = buildSamlInstance(
       config,
       {
         spEntityId: state.spEntityId,
@@ -80,6 +84,20 @@ export async function consumeAssertion(
       },
       Date.now(),
     )
+  } catch (e) {
+    return {
+      kind: "error",
+      error: authError.internalError(
+        `saml-sp: cannot construct verifier: ${
+          e instanceof Error ? e.message : String(e)
+        }`,
+        e,
+      ),
+    }
+  }
+
+  let profile: NodeSamlProfile | null
+  try {
     const result = await saml.validatePostResponseAsync({
       SAMLResponse: samlResponse,
       ...(relayState !== null ? { RelayState: relayState } : {}),
@@ -87,7 +105,7 @@ export async function consumeAssertion(
     profile = result.profile as NodeSamlProfile | null
   } catch (e) {
     // Every node-saml verification failure (bad/absent signature,
-    // signature-wrapping, issuer/audience/recipient mismatch, expired
+    // signature-wrapping, issuer/audience mismatch, expired
     // conditions, unknown InResponseTo) throws here. These are
     // controlled auth failures, not server faults.
     return {
