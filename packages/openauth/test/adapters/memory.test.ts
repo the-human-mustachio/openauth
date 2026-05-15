@@ -48,6 +48,7 @@ describeSessionStore({
   adapterName: "memory",
   supportsLongLivedSessions: true,
   supportsPar: true,
+  supportsScratch: true,
   async makeStore(clock) {
     return {
       store: new MemorySessionStore({ clock: clock.now }),

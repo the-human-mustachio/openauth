@@ -23,6 +23,13 @@ export type SessionStoreSuiteOptions = {
   supportsLongLivedSessions?: boolean
   /** Set true when the adapter implements `savePar` / `consumePar`. */
   supportsPar?: boolean
+  /**
+   * Set true when the adapter implements the
+   * `saveScratch` / `readScratch` / `deleteScratch` trio. Required by
+   * methods that need cross-flow per-instance state (e.g. SAML SP
+   * replay protection).
+   */
+  supportsScratch?: boolean
 }
 
 export function describeSessionStore(opts: SessionStoreSuiteOptions): void {
@@ -215,6 +222,89 @@ export function describeSessionStore(opts: SessionStoreSuiteOptions): void {
             0,
           )
           expect(r.ok).toBe(false)
+        })
+      })
+    }
+
+    if (opts.supportsScratch) {
+      describe("method scratch storage", () => {
+        const TTL = 60_000
+        test("saveScratch + readScratch round-trips", async () => {
+          if (!store.saveScratch || !store.readScratch) return
+          const key = `scratch:t:m:${uniqueSuffix("k")}`
+          const saved = await store.saveScratch(key, "value-1", TTL)
+          expect(saved.ok).toBe(true)
+          const read = await store.readScratch(key)
+          expect(read.ok).toBe(true)
+          if (read.ok) expect(read.value).toBe("value-1")
+        })
+
+        test("saveScratch overwrites prior value for same key", async () => {
+          if (!store.saveScratch || !store.readScratch) return
+          const key = `scratch:t:m:${uniqueSuffix("k")}`
+          await store.saveScratch(key, "v1", TTL)
+          await store.saveScratch(key, "v2", TTL)
+          const read = await store.readScratch(key)
+          expect(read.ok).toBe(true)
+          if (read.ok) expect(read.value).toBe("v2")
+        })
+
+        test("readScratch on unknown key returns unknown_state", async () => {
+          if (!store.readScratch) return
+          const r = await store.readScratch(
+            `scratch:t:m:${uniqueSuffix("missing")}`,
+          )
+          expect(r.ok).toBe(false)
+          if (!r.ok) expect(r.error.code).toBe("unknown_state")
+        })
+
+        test("expired scratch entry not returned", async () => {
+          if (!store.saveScratch || !store.readScratch) return
+          const key = `scratch:t:m:${uniqueSuffix("e")}`
+          await store.saveScratch(key, "stale", 1000)
+          clock.advance(2000)
+          const read = await store.readScratch(key)
+          expect(read.ok).toBe(false)
+        })
+
+        test("deleteScratch removes the entry and is idempotent", async () => {
+          if (
+            !store.saveScratch ||
+            !store.readScratch ||
+            !store.deleteScratch
+          )
+            return
+          const key = `scratch:t:m:${uniqueSuffix("d")}`
+          await store.saveScratch(key, "doomed", TTL)
+          const first = await store.deleteScratch(key)
+          expect(first.ok).toBe(true)
+          const read = await store.readScratch(key)
+          expect(read.ok).toBe(false)
+          // Idempotent — second delete still resolves ok.
+          const second = await store.deleteScratch(key)
+          expect(second.ok).toBe(true)
+        })
+
+        test("saveScratch rejects ttlMs <= 0", async () => {
+          if (!store.saveScratch) return
+          const r = await store.saveScratch(
+            `scratch:t:m:${uniqueSuffix("0")}`,
+            "x",
+            0,
+          )
+          expect(r.ok).toBe(false)
+        })
+
+        test("distinct keys are isolated", async () => {
+          if (!store.saveScratch || !store.readScratch) return
+          const a = `scratch:t:m:${uniqueSuffix("a")}`
+          const b = `scratch:t:m:${uniqueSuffix("b")}`
+          await store.saveScratch(a, "A", TTL)
+          await store.saveScratch(b, "B", TTL)
+          const ra = await store.readScratch(a)
+          const rb = await store.readScratch(b)
+          if (ra.ok) expect(ra.value).toBe("A")
+          if (rb.ok) expect(rb.value).toBe("B")
         })
       })
     }

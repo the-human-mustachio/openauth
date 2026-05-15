@@ -28,6 +28,11 @@ type StoredPar = {
   expiresAt: number
 }
 
+type StoredScratch = {
+  value: string
+  expiresAt: number
+}
+
 export type MemorySessionStoreOptions = {
   clock?: Clock
 }
@@ -37,6 +42,7 @@ export class MemorySessionStore implements SessionStore {
   #flows = new Map<string, StoredFlow>()
   #sessions = new Map<string, SessionRecord>()
   #par = new Map<string, StoredPar>()
+  #scratch = new Map<string, StoredScratch>()
 
   constructor(opts: MemorySessionStoreOptions = {}) {
     this.#clock = opts.clock ?? realClock
@@ -167,5 +173,38 @@ export class MemorySessionStore implements SessionStore {
       return err(authError.unknownState(`par "${requestUri}" expired`))
     }
     return ok(stored.record)
+  }
+
+  async saveScratch(
+    key: string,
+    value: string,
+    ttlMs: number,
+  ): Promise<Result<void>> {
+    if (ttlMs <= 0) {
+      return err(
+        authError.internalError(
+          `saveScratch: ttlMs must be positive, got ${ttlMs}`,
+        ),
+      )
+    }
+    this.#scratch.set(key, { value, expiresAt: this.#clock() + ttlMs })
+    return ok(undefined)
+  }
+
+  async readScratch(key: string): Promise<Result<string>> {
+    const stored = this.#scratch.get(key)
+    if (!stored) {
+      return err(authError.unknownState(`scratch "${key}" unknown`))
+    }
+    if (this.#clock() >= stored.expiresAt) {
+      this.#scratch.delete(key)
+      return err(authError.unknownState(`scratch "${key}" expired`))
+    }
+    return ok(stored.value)
+  }
+
+  async deleteScratch(key: string): Promise<Result<void>> {
+    this.#scratch.delete(key)
+    return ok(undefined)
   }
 }

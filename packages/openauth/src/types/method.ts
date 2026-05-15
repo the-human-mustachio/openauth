@@ -102,6 +102,47 @@ export type MethodContext<S = unknown> = {
    * and the relevant data is on `flow`).
    */
   dispatch: MethodDispatchData | null
+  /**
+   * Per-method-instance scratch storage scoped to
+   * `(tenant.id, method.id)`. Survives across flows — distinct from
+   * `methodState`, which is per-flow.
+   *
+   * Most methods do NOT need this. It exists for cross-flow
+   * deduplication patterns such as SAML SP assertion-ID replay
+   * protection.
+   *
+   * Backed by `SessionStore.{saveScratch,readScratch,deleteScratch}`
+   * when those optional methods are implemented. Against adapters that
+   * don't implement them, every call returns
+   * `{ ok: false, error: unsupported }` — the method should surface a
+   * `MethodResult.error` with a clear message, not silently degrade.
+   */
+  methodScratch: MethodScratch
+}
+
+/**
+ * Caller-facing API for per-method-instance scratch. The framework
+ * scopes user-supplied keys with a `(tenantId, methodId)` prefix before
+ * delegating to `SessionStore` — adapters never see raw method keys.
+ *
+ * Values are UTF-8 strings; methods JSON-encode if they want to stash
+ * objects. Keeping the port-level type narrow simplifies adapter
+ * implementations (one TEXT column, one Dynamo `S` attribute, etc.).
+ */
+export type MethodScratch = {
+  /**
+   * Persist `value` under `key` with the given TTL. Overwrites prior
+   * value for the same key. `ttlMs` must be positive.
+   */
+  put(key: string, value: string, ttlMs: number): Promise<Result<void>>
+  /**
+   * Read the value previously stored at `key`. Returns `unknown_state`
+   * if the key is missing or expired (the underlying adapter MAY
+   * lazily evict expired entries on read).
+   */
+  get(key: string): Promise<Result<string>>
+  /** Idempotent. Resolves `ok` whether the key existed or not. */
+  delete(key: string): Promise<Result<void>>
 }
 
 /** Framework-supplied data available to the method at `/authorize` time. */

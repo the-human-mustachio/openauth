@@ -179,6 +179,42 @@ Methods may not call `SessionStore` directly to mutate the flow record.
 They observe via `MethodContext.flow` / `MethodContext.methodState` and
 request updates via `MethodResult.challenge.saveMethodState`.
 
+## `methodScratch` — cross-flow per-instance state
+
+`methodState` is per-flow and disposed when the flow consumes. Some
+methods need state that **outlives** any single flow — e.g. a SAML SP
+remembering recently-seen assertion IDs for replay protection across
+unrelated logins. For that, `MethodContext` exposes:
+
+```
+methodScratch: {
+  put(key, value, ttlMs): Promise<Result<void>>
+  get(key):               Promise<Result<string>>
+  delete(key):            Promise<Result<void>>
+}
+```
+
+Scope is always `(tenantId, methodId)` — the framework rewrites
+user-supplied keys to `scratch:<tenantId>:<methodId>:<userKey>` before
+delegating to `SessionStore.{saveScratch,readScratch,deleteScratch}`.
+Two method instances cannot observe each other's keys even on a shared
+store; the dispatch-shim test in
+`test/domain/method-scratch.test.ts` covers this.
+
+Use this sparingly. Most methods need only `methodState`. The cases
+that justify scratch are exactly: cross-flow deduplication / replay
+state, and per-instance configuration caches the method wants to own
+rather than read from `MethodConfig` each request. Anything else
+belongs in `methodState` or in a port.
+
+`saveScratch` / `readScratch` / `deleteScratch` are **optional** on
+`SessionStore`. Adapters that don't implement them cause every
+`methodScratch.*` call to fail with `internal_error` naming the missing
+operation — methods surface this in `MethodResult.error`. Memory
+adapter implements; production adapters (Postgres, D1, DynamoDB, DO)
+add the trio when a method that depends on them gets deployed against
+them.
+
 ## Response sanitization
 
 Returning an arbitrary `Response` from a method would let it stuff
