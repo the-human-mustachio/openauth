@@ -974,11 +974,30 @@ they are stable across deploys:
   e.g. `https://idp.acme.com/cb/corp-saml`.
 
 In the IdP admin console: set the SP EntityID and ACS URL to those two
-values, choose the HTTP-POST binding for the assertion, then copy the
-IdP's EntityID, SSO URL, and signing certificate PEM back into the
-`SamlSpConfig` above. (A `parseSamlIdpMetadata` helper that turns the
-IdP's metadata XML into `config.idp` is a Phase 2 deliverable; until
-then the three fields are pasted by hand.)
+values, choose the HTTP-POST binding for the assertion, then populate
+`config.idp` from the IdP's metadata. The subpath exports a pure
+`parseSamlIdpMetadata` helper so a console can accept a pasted metadata
+XML / URL instead of hand-copying fields:
+
+```ts
+import { parseSamlIdpMetadata } from "@_mustachio/openauth/methods/saml-sp"
+
+const parsed = parseSamlIdpMetadata(metadataXml)
+if (!parsed.ok) {
+  // parsed.error.code === "invalid_request" — show parsed.error.description
+} else {
+  // parsed.value is the SamlIdpConfig.idp shape:
+  //   { entityId, ssoUrl, sloUrl?, nameIdFormat?, signingCerts: [{ pem }] }
+  // Persist it as config.idp on the method instance.
+}
+```
+
+It returns a `Result` (never throws), is namespace-prefix agnostic
+(Okta `md:`, Entra default-ns, ADFS — all parse), normalises
+`X509Certificate` bodies into PEM, and rejects SP metadata or any
+document missing an `IDPSSODescriptor` / signing cert / `entityID`.
+`attributeMapping` is still authored by hand — it is a per-deployment
+policy decision, not data the IdP publishes.
 
 **Attribute-mapping cookbook.** `attributeMapping` normalizes the
 verified assertion into `providerSubject` + the property fields handed

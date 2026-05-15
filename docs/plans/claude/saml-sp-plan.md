@@ -17,8 +17,10 @@ ourselves. Gate the export Node-only — `xml-crypto` hard-depends on
 **1** SP-initiated SSO + verification gauntlet (done) → **1.5**
 production-adapter enablement (done; deploy gate cleared, one live-IdP
 test deferred) → **2** IdP-initiated SSO + SP metadata + explicit
-Recipient → **3** Single Logout. Total estimated effort: ~7–9 weeks.
-See _Status & Resume Point_ for current state.
+Recipient (Recipient check + `parseSamlIdpMetadata` done; the 3
+framework-invasive items blocked on a design pass) → **3** Single
+Logout. Total estimated effort: ~7–9 weeks. See _Status & Resume
+Point_ for current state.
 
 ## Status & Resume Point
 
@@ -63,10 +65,41 @@ TODO in the Phase 1.5 acceptance criteria and Definition of Done below;
 it does **not** block Phase 2 (the deployability blocker was the scratch
 trio, which is resolved).
 
-**Recommended next action:** **Phase 2 — IdP-initiated SSO + SP
-metadata + explicit Recipient** (see Phase Plan). Phase 1.5's
-deployability gate is met; the remaining live-IdP test is a tracked
-follow-up, not a sequencing blocker.
+**Phase 2 — partially done (2026-05-15).** The two framework-change-free
+deliverables shipped: (a) the explicit `SubjectConfirmationData/@Recipient`
+check (gauntlet item 6) — `checkRecipient` in `acs.ts`, reads the
+**signed** assertion via a pinned `@xmldom/xmldom` DOM parse (not the
+fragile xml2js walk the plan rejected), denies on mismatch *and* on a
+missing Recipient; conformance cases 12 + a `noRecipient` deny case
+green. (b) `parseSamlIdpMetadata(xml)` — pure `Result`-returning helper
+on the subpath, namespace-prefix agnostic, exported from the barrel and
+documented in `INTEGRATION.md` § 9.5.
+
+**Phase 2 — remaining, BLOCKED ON FRAMEWORK DESIGN.** Reconnaissance
+(this session) found the three remaining Phase 2 items each need a
+framework change the plan under-specified, so they were deliberately
+**not** started without per-item sign-off:
+
+- **SP metadata XML endpoint.** Plan said serve via
+  `/m/<methodId>/metadata`, but `/m/*` is hard-gated on an `idp.flow`
+  cookie (`http/handlers/method-route.ts`) — there is **no anonymous
+  path** for public metadata today. Needs a new public route or an
+  anonymous carve-out in the method-route handler.
+- **IdP-initiated SSO (SAML-AD7).** `handleCallback`'s three gates
+  (state-extract → MAC-verify → `consumeFlow`) all fire before
+  dispatch with **no hook point**, and `/m/*` requires a flow cookie.
+  A genuinely new framework entry point is required — larger than the
+  plan's "synthetic flow" framing implied.
+- **Signed-AuthnRequest.** `MethodContext` exposes no `KeyStore` path;
+  OIDC signs at the token/HTTP layer, never inside a method. Threading
+  a signing key to a method is a novel framework change with no
+  precedent.
+
+**Recommended next action:** a short design pass on the three
+framework changes above (each is independent; the SP-metadata
+anonymous-route one is the smallest and unblocks an enterprise
+import-our-metadata ask). The live Okta/Entra test remains a tracked
+follow-up (deferred, needs creds), not a sequencing blocker.
 
 **Two framework changes SAML drove** (documented in `ARCHITECTURE.md`):
 `MethodContext.methodScratch` (precursor commit `395ec99`) and
@@ -209,7 +242,7 @@ Question #1 in favour of the consistent answer.
 ```ts
 import {
   samlSpFactory,                    // ✅ shipped
-  parseSamlIdpMetadata,             // ⏳ Phase 2 — not yet exported
+  parseSamlIdpMetadata,             // ✅ shipped (Phase 2 partial, 2026-05-15)
   type SamlSpConfig,                // ✅ shipped
 } from "@_mustachio/openauth/methods/saml-sp"
 ```
@@ -629,34 +662,53 @@ Recipient-binding gap.
 > Phase 2 deliverable. The title kept "+ cert rotation" in an earlier
 > draft; corrected here.
 
-**Deliverables:**
+**Deliverables (✅ = shipped 2026-05-15, partial Phase 2):**
 
-- `idpInitiated` config branch + synthetic-flow path (SAML-AD7).
-  Documented end-to-end: how the framework synthesizes
-  `FlowRecord.{clientId, redirectUri, scopes}` from
-  `SamlSpConfig.idpInitiated`, what the audit log emits, how this
-  composes with the existing `success` callback. Note: this needs a
-  non-`/cb` entry since `handleCallback` requires a pre-existing
-  flow + state envelope (see _Method Plumbing_).
-- **Explicit `SubjectConfirmationData/@Recipient` check** (gauntlet
-  item 6) — read from the verified assertion and compared to the ACS
-  URL. Deferred from Phase 1 because node-saml does not enforce it;
-  Phase 2 already parses assertion structure for IdP-init, so it lands
-  here cheaply.
-- SP metadata XML served via the `/m/<methodId>/metadata` mount
-  (`app.all("/m/*")`, per the corrected _Method Plumbing_ — **not** a
-  `GET /metadata` route key). Includes entityID, ACS URL, NameIDFormat
-  preference, signing cert if applicable. `CachePolicy.sMaxAge = 300`.
-- `parseSamlIdpMetadata(xml)` public helper — pure function, parses
-  an IdP metadata XML doc into the `SamlSpConfig.idp` shape so hosts
-  can implement "paste metadata URL or XML" UI without owning the XML
-  parsing.
-- Signed-AuthnRequest support — resolves how a method reaches a
-  `KeyStore` signing key (deferred from Phase 1 with `signAuthnRequest`).
-- Test suite extensions: `idp-initiated.test.ts`, `metadata.test.ts`,
-  `recipient.test.ts`, `parse-idp-metadata.test.ts`.
-- `INTEGRATION.md` § SAML SP extended with IdP-initiated configuration
-  walkthrough.
+- ✅ **Explicit `SubjectConfirmationData/@Recipient` check** (gauntlet
+  item 6) — `checkRecipient` in `acs.ts`. Reads the **signed**
+  assertion (`profile.getAssertionXml()`) via a pinned
+  `@xmldom/xmldom@0.8.13` DOM parse, namespace-agnostic
+  (`getElementsByTagNameNS("*", …)`), compares every
+  `SubjectConfirmationData/@Recipient` to the exact ACS URL committed
+  at AuthnRequest time. Denies on mismatch **and** on a missing
+  Recipient (Web Browser SSO bearer profile requires it); `error`
+  (fail-loud) if node-saml ever stops exposing `getAssertionXml`.
+  Recon found this does **not** need the IdP-init xml2js work the plan
+  assumed it was coupled to — a deterministic DOM parse of verified
+  bytes is the non-fragile path. Tests: `badRecipient` + new
+  `noRecipient` knobs in the `acs.test.ts` attack matrix.
+- ✅ `parseSamlIdpMetadata(xml)` public helper —
+  `src/methods/saml-sp/parse-idp-metadata.ts`, pure,
+  `Result`-returning, no node-saml import, namespace-prefix agnostic.
+  Parses into the `SamlIdpConfig` shape (entityId, ssoUrl, sloUrl?,
+  nameIdFormat?, signingCerts[{pem}]); PEM-normalises X509 bodies;
+  rejects SP metadata / missing IDPSSODescriptor / cert / entityID.
+  Exported from the subpath barrel; `INTEGRATION.md` § 9.5 updated.
+  Tests: `parse-idp-metadata.test.ts` (Okta + Entra shapes + 5
+  rejection cases).
+- ⏳ **`idpInitiated` config branch + synthetic-flow path (SAML-AD7).**
+  **Blocked on framework design.** Recon: `handleCallback`'s three
+  gates (state-extract → MAC-verify → `consumeFlow`) all fire before
+  dispatch with no hook point; `/m/*` requires an `idp.flow` cookie.
+  Needs a genuinely new framework entry point — larger than the
+  "synthetic flow" framing implied. Not started without sign-off.
+- ⏳ **SP metadata XML endpoint.** **Blocked on framework design.**
+  Plan assumed `/m/<methodId>/metadata`, but `/m/*` is hard-gated on
+  an `idp.flow` cookie (`http/handlers/method-route.ts`) — no
+  anonymous path exists. Needs a new public route or an anonymous
+  carve-out. (`parseSamlIdpMetadata` — the *inbound* side — is done;
+  this is the *outbound* SP-metadata side.)
+- ⏳ **Signed-AuthnRequest support.** **Blocked on framework design.**
+  `MethodContext` exposes no `KeyStore`; OIDC signs at the token/HTTP
+  layer, never in a method. Threading a signing key to a method is a
+  novel framework change with no precedent.
+- ⏳ Remaining test extensions: `idp-initiated.test.ts`,
+  `metadata.test.ts` (SP-metadata side) — land with their deliverables.
+  `recipient.test.ts` / `parse-idp-metadata.test.ts` superseded:
+  Recipient coverage lives in `acs.test.ts`; metadata-parse coverage
+  shipped as `parse-idp-metadata.test.ts`.
+- ⏳ `INTEGRATION.md` § SAML SP IdP-initiated walkthrough — lands with
+  the IdP-init deliverable.
 
 **Acceptance criteria:**
 
@@ -792,7 +844,7 @@ node-saml's message, free-text — **not** typed reason codes) / `error`.
 | 9 | Replay (same Response twice) → 2nd not `success`  | 1     | ✅ |
 | 10| `signAuthnRequest:true` rejected                  | 1     | ✅ |
 | 11| No cert in validity window → `error`              | 1     | ✅ |
-| 12| `Recipient` mismatch → not `success`              | 2     | ⏳ (node-saml gap; explicit check) |
+| 12| `Recipient` mismatch → not `success`              | 2     | ✅ (`checkRecipient`; + `noRecipient` deny case) |
 | 13| IdP-initiated success with `defaultClientId`      | 2     | ⏳ |
 | 14| IdP-initiated with hostile `RelayState`           | 2     | ⏳ |
 | 15| SP metadata XML matches IdP-importer expectations | 2     | ⏳ |

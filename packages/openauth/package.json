@@ -82,6 +82,7 @@
     "@node-saml/node-saml": "5.1.0",
     "@simplewebauthn/server": "13.1.1",
     "@standard-schema/spec": "1.0.0-beta.3",
+    "@xmldom/xmldom": "0.8.13",
     "aws4fetch": "1.0.20",
     "jose": "5.9.6",
     "oauth4webapi": "3.8.6",

@@ -17,10 +17,9 @@
  *
  * See `docs/plans/claude/saml-sp-plan.md` for the architectural
  * decisions backing this surface (SAML-AD1–AD7) and the phase plan.
- *
- * Status: scaffold. Phase 1 implementation pending.
  */
 export { samlSpFactory } from "./factory"
+export { parseSamlIdpMetadata } from "./parse-idp-metadata"
 
 export type {
   SamlAttributeMapping,

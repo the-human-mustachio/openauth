@@ -36,6 +36,8 @@ export type BuildOpts = {
   wrongKey?: boolean
   badAudience?: boolean
   badRecipient?: boolean
+  /** Omit the `Recipient` attribute entirely (still signed + valid otherwise). */
+  noRecipient?: boolean
   expired?: boolean
   xsw?: boolean
   xxe?: boolean
@@ -92,7 +94,8 @@ export function buildSamlResponse(opts: BuildOpts): string {
     `<saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:persistent">${nameId}</saml:NameID>` +
     `<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">` +
     `<saml:SubjectConfirmationData InResponseTo="${opts.requestId}" ` +
-    `Recipient="${recipient}" NotOnOrAfter="${notOnOrAfter}"/>` +
+    (opts.noRecipient ? "" : `Recipient="${recipient}" `) +
+    `NotOnOrAfter="${notOnOrAfter}"/>` +
     `</saml:SubjectConfirmation></saml:Subject>` +
     `<saml:Conditions NotBefore="${notBefore}" NotOnOrAfter="${notOnOrAfter}">` +
     `<saml:AudienceRestriction><saml:Audience>${audience}</saml:Audience>` +

@@ -183,16 +183,19 @@ describe("SAML SP — ACS gauntlet", () => {
   // node-saml enforces: signature over signed references only (1-3,10,11),
   // Issuer (4), AudienceRestriction (5), Conditions/SubjectConfirmation
   // timestamps (8), InResponseTo single-use (7,9). It does NOT enforce
-  // SubjectConfirmationData/@Recipient (6) — that explicit check is a
-  // documented Phase 1 follow-up (see saml-sp-plan.md). Audience +
-  // InResponseTo already bind the assertion to this SP, so Recipient is
-  // defense-in-depth, not the primary binding.
+  // SubjectConfirmationData/@Recipient (6) — that explicit check now
+  // lives in `checkRecipient` (acs.ts), reading the *signed* assertion.
+  // The `badRecipient` / `noRecipient` cases below exercise it.
   const attacks: Array<{ name: string; opts: Record<string, boolean> }> = [
     { name: "unsigned assertion", opts: { unsigned: true } },
     { name: "signed with wrong key", opts: { wrongKey: true } },
     { name: "audience mismatch", opts: { badAudience: true } },
     { name: "expired conditions", opts: { expired: true } },
     { name: "signature-wrapping (XSW)", opts: { xsw: true } },
+    // Gauntlet item 6 — Recipient bound to a different ACS.
+    { name: "recipient mismatch", opts: { badRecipient: true } },
+    // Item 6 — assertion carries no Recipient to bind it at all.
+    { name: "recipient absent", opts: { noRecipient: true } },
   ]
 
   for (const { name, opts } of attacks) {
