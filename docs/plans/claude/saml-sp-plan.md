@@ -221,10 +221,11 @@ Method-private state stashed in `FlowRecord.methodState`:
 
 ```ts
 type SamlSpState = {
-  authnRequestId: string                 // matched against InResponseTo
   relayState: string                     // framework state envelope, echoed
   issuedAt: number
 }
+// InResponseTo correlation is NOT here — node-saml's CacheProvider
+// (methodScratch-backed) owns it, giving cross-node correlation.
 ```
 
 Properties emitted on `MethodResult.success` (handed to host's `success`
@@ -277,37 +278,63 @@ justify the subdirectory.
 
 ## Method Plumbing
 
-`samlSpFactory.build` returns an `AuthMethod<SamlSpProperties, SamlSpState>`
-with three routes:
+`samlSpFactory.build` returns an `AuthMethod<SamlSpProperties, SamlSpState>`.
 
-| Route               | Trigger                                | Behaviour                                                                                                                                  |
-| ------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /authorize`    | Framework dispatch from `/authorize`   | Build AuthnRequest, sign if configured, save `SamlSpState` to `methodState`, return `MethodResult.challenge` with `Location:` redirect.    |
-| `POST /acs`         | IdP HTTP-POST binding                  | Verify Response (Session 1), match `InResponseTo` against `methodState.authnRequestId` if present, return `success` / `denied` / `error`.  |
-| `GET /metadata`     | Anonymous, public                      | Return SP metadata XML. `CachePolicy.sMaxAge = 300`.                                                                                       |
+**Routing reality (corrected after implementation).** The framework
+does not mount arbitrary method sub-paths for the upstream callback.
+It exposes one universal callback, `/cb/<methodId>` (both GET and
+POST), and `handleCallback` always dispatches the **`"GET /callback"`**
+route key regardless of HTTP verb. `ctx.dispatch.callbackUrl` is that
+`/cb/<methodId>` URL. So SAML does **not** get bespoke `/acs`,
+`/metadata`, `/sls` sub-paths — the ACS lives at the `"GET /callback"`
+route key, and metadata/SLS will be served via the credential-style
+`/m/<methodId>/*` mount (`app.all("/m/*")`) in later sessions.
 
-Sessions 2–3 add:
+| Route key          | Trigger                                       | Behaviour                                                                                                                                  | Status |
+| ------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
+| `GET /authorize`   | Framework dispatch from `/authorize`          | Build AuthnRequest (HTTP-Redirect binding) via node-saml, save `SamlSpState` to `methodState`, `MethodResult.challenge` 302 to IdP SSO.    | **Done** |
+| `GET /callback`    | IdP HTTP-POST to `/cb/<methodId>` (universal) | Verify Response — the full gauntlet. Returns `success` / `denied` / `error`.                                                               | Next increment |
 
-| Route                   | Trigger                              | Behaviour                                                                       |
-| ----------------------- | ------------------------------------ | ------------------------------------------------------------------------------- |
-| `POST /acs` (no `InResponseTo`) | IdP-initiated SSO            | Synthesize flow using `idpInitiated` defaults (SAML-AD7), then `success`.       |
-| `GET /sls`              | IdP HTTP-Redirect logout             | Verify LogoutRequest, revoke session, redirect to LogoutResponse.               |
-| `POST /sls`             | IdP HTTP-POST logout                 | As above with form binding.                                                     |
+Later sessions add, via the `/m/<methodId>/*` mount:
+
+| Path                          | Trigger                | Behaviour                                                                 |
+| ----------------------------- | ---------------------- | ------------------------------------------------------------------------- |
+| `/m/<methodId>/metadata`      | Anonymous, public      | SP metadata XML. `CachePolicy.sMaxAge = 300`. (Session 2)                 |
+| `/m/<methodId>/sls`           | IdP front-channel SLO  | Verify LogoutRequest, revoke session, redirect LogoutResponse. (Session 3)|
+
+IdP-initiated SSO cannot ride `/cb/<methodId>` — `handleCallback`
+verifies the state envelope and consumes a pre-existing flow before
+dispatch, neither of which exists for an unsolicited Response. It
+therefore needs the synthetic-flow path (SAML-AD7) wired through a
+different entry; tracked for Session 2.
 
 All routes obey the existing constraint (`src/types/method.ts:9`):
 methods do **not** import from `src/http/`, `src/adapters/`, or
-`src/ports/`. The factory closes over a `@node-saml/node-saml` instance
-and a pure-data view of `SamlSpConfig`; the replay-guard helper takes a
-`SessionStore`-shaped narrow interface passed via `MethodContext`
-extensions defined in Session 1.
+`src/ports/`. node-saml is imported only inside `src/methods/saml-sp/`
+and only reached at request time inside the route handlers, so the
+factory/type surface stays cheap and the edge-clean guards stay green.
 
-> **Open framework change:** today's `MethodContext` does not give
-> methods access to the `SessionStore`. Replay state needs cross-flow
-> persistence. Session 1 adds a narrow `methodScratch: { get(key);
-> put(key, value, ttlSeconds); delete(key) }` to `MethodContext`,
-> backed by `SessionStore` in production. This is the only framework
-> change SAML drives. Captured as an explicit decision in
-> `ARCHITECTURE.md` once landed.
+**Resolved decisions from this increment:**
+
+- **`SamlSpState` dropped `authnRequestId`.** `InResponseTo`
+  correlation is handled by node-saml's `CacheProvider`, which we back
+  with `methodScratch` (`cache-provider.ts`). The state record only
+  needs `{ relayState, issuedAt }`. The cache provider gives
+  cross-node correlation for free, which a per-flow `authnRequestId`
+  would not.
+- **`methodScratch` shipped as a precursor**, not in-session. The
+  `MethodContext.methodScratch` shim (`{ put, get, delete }`, scoped
+  `scratch:<tenantId>:<methodId>:`, `SessionStore`-backed) landed
+  ahead of this increment. This was the only framework change SAML
+  drove. Documented in `ARCHITECTURE.md`.
+- **`signAuthnRequest` deferred within Phase 1.** Signing the outbound
+  AuthnRequest needs a `KeyStore`-resolved private key, and
+  `MethodContext` does not (yet) expose `KeyStore`. The handler
+  rejects `signAuthnRequest: true` with a clear error rather than
+  silently emitting an unsigned request. Unsigned AuthnRequests are
+  accepted by the large majority of IdPs; signed-request support is a
+  later Phase 1 increment that also decides how methods reach signing
+  keys.
 
 ## Security Gauntlet (Session 1 acceptance criteria)
 
@@ -326,9 +353,11 @@ Every assertion that reaches `MethodResult.success` MUST have passed:
    SP entityID.
 6. **Recipient match** — `SubjectConfirmationData/@Recipient` equals
    our ACS URL.
-7. **InResponseTo match** — if present, matches an outstanding
-   `methodState.authnRequestId`; if absent and `idpInitiated` not
-   configured → reject (Session 1) or synthesize flow (Session 2).
+7. **InResponseTo match** — node-saml validates `InResponseTo` against
+   the outstanding request id it cached at AuthnRequest time
+   (`methodScratch`-backed `CacheProvider`, `validateInResponseTo:
+   always`). Absent + `idpInitiated` not configured → reject
+   (Session 1) or synthesize flow (Session 2).
 8. **Time conditions** — `Conditions/@NotBefore` and
    `@NotOnOrAfter` honored within `clockSkewSeconds`.
 9. **Replay** — assertion `ID` not previously seen for this
@@ -351,35 +380,38 @@ license permits.
 **Goal:** Pass a real Okta or Entra SAML connection end-to-end for an
 SP-initiated flow, with the full signature gauntlet locked down.
 
-**Deliverables:**
+**Deliverables (✅ = shipped):**
 
-- `samlSpFactory` with `kind: "saml-sp"`, full `SamlSpConfig` schema
-  validation via Standard Schema.
-- `GET /authorize` route — builds + optionally signs AuthnRequest,
-  HTTP-Redirect binding only.
-- `POST /acs` route — verification gauntlet items 1–11 above. SP-init
-  only; unsolicited Responses → `invalid_request`.
+- ✅ `samlSpFactory` with `kind: "saml-sp"`, full `SamlSpConfig` Zod
+  schema (Standard Schema v1 conformant), incl. the
+  `signAuthnRequest ⇒ signingKey` cross-field rule.
+- ✅ `GET /authorize` route — builds AuthnRequest (HTTP-Redirect
+  binding) via node-saml, 302 to IdP SSO, RelayState = state
+  envelope. Unsigned only; `signAuthnRequest: true` rejected with a
+  clear error (KeyStore-in-MethodContext is a later increment).
+- `"GET /callback"` ACS route — verification gauntlet items 1–11.
+  SP-init only; unsolicited Responses → reject. **(Next increment.)**
 - Attribute mapping engine (`SamlAttributeMapping` →
-  `SamlSpProperties`).
-- `methodScratch` addition to `MethodContext` (the one framework
-  change). In-memory adapter backs it for tests; production adapters
-  delegate to `SessionStore`.
-- Replay guard (`replay.ts`) over `methodScratch`.
-- **node-saml cert-callback shim** — `SamlSpConfig.idp.signingCerts`
-  models hot rotation as an array of `{ pem, notBefore?, notAfter? }`.
-  node-saml's `SamlConfig.cert` accepts a callback returning a PEM (or
-  array of PEMs). The shim filters `signingCerts` to those whose
-  validity window covers `now` and hands node-saml the result. ~20
-  lines; lives in `factory.ts`. Tests cover: single cert, overlap
-  window (old+new both valid), expired-only (reject).
-- Node-only subpath export (`./methods/saml-sp`) with build-time guard
-  against accidental edge-bundle leakage.
-- Test suite: `factory.test.ts`, `authnrequest.test.ts`,
-  `acs.test.ts`, three `attack-*.test.ts` files.
-- `public-api-no-thirdparty-leaks.test.ts` updated to forbid
-  `@node-saml/*` and `xml-crypto` types in the root export.
+  `SamlSpProperties`). **(Next increment, with the gauntlet.)**
+- ✅ `methodScratch` addition to `MethodContext` — shipped as a
+  precursor PR. Memory adapter backs it; production adapters add the
+  trio when first deployed against SAML.
+- Replay guard over `methodScratch`. **(Next increment.)**
+- ✅ **node-saml cert-rotation shim** — `selectActiveCertPems`
+  (`cert-rotation.ts`), a pure window filter feeding node-saml's
+  `idpCert`. Tests: single, overlap, expired-only, inclusive
+  `notBefore` / exclusive `notAfter`, order preservation.
+- ✅ Node-only subpath export (`./methods/saml-sp`) + the source-level
+  edge-clean scan + the compile-time leak guard.
+- Test suite: ✅ `cert-rotation.test.ts`, ✅ `config-schema.test.ts`,
+  ✅ `authnrequest.test.ts`; `acs.test.ts` + `attack-*.test.ts` land
+  with the gauntlet.
+- ✅ Leak guard forbids `@node-saml/*` / `xml-crypto` from the root
+  (`saml-sp-no-thirdparty-leaks.test.ts` +
+  `saml-sp-edge-clean-root.test.ts`).
 - Live integration test (gated behind env-var creds) against an Okta
-  dev tenant; documented in `INTEGRATION.md` § SAML SP.
+  dev tenant; documented in `INTEGRATION.md` § SAML SP. **(After the
+  gauntlet — needs the ACS to be real.)**
 
 **Acceptance criteria:**
 

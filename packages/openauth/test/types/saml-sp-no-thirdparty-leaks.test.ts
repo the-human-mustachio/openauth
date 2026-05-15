@@ -124,7 +124,6 @@ test("SAML SP: SamlSpConfig is plain primitives, signingKey is opaque kid only",
 
 test("SAML SP: SamlSpState is plain primitives (no XML Document type)", () => {
   assertAssignable<{
-    authnRequestId: string
     relayState: string
     issuedAt: number
   }>({} as SamlSpState)

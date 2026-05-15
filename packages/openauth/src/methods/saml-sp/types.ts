@@ -126,11 +126,14 @@ export type SamlSpConfig = {
 
 /**
  * Method-private state stashed in `FlowRecord.methodState` for the
- * duration of an SP-initiated flow. Matched against the SAML Response
- * `InResponseTo` field at the ACS endpoint.
+ * duration of an SP-initiated flow.
+ *
+ * `InResponseTo` correlation is handled out-of-band by node-saml's
+ * `CacheProvider` (backed by `methodScratch`), so the outstanding
+ * request id does **not** live here — only the framework state
+ * envelope echoed as RelayState and the issuance timestamp.
  */
 export type SamlSpState = {
-  authnRequestId: string
   relayState: string
   issuedAt: number
 }

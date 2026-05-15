@@ -1,52 +1,86 @@
 /**
  * SAML SP factory — `kind: "saml-sp"`.
  *
- * SCAFFOLD ONLY. The runtime implementation lands in SAML Phase 1
- * (see `docs/plans/claude/saml-sp-plan.md`). Today this file exists
- * to:
+ * Parallels `oauth2Factory` / `oidcFactory`: a Zod `configSchema`
+ * validates the tenant-supplied `SamlSpConfig` blob (Zod 3.24+ is
+ * Standard Schema v1 conformant, so it satisfies
+ * `AuthMethodFactory.configSchema` directly), and `build` delegates to
+ * `buildSamlSpMethod`.
  *
- *   1. Reserve the `samlSpFactory` name in the public API.
- *   2. Lock in the type contract
- *      (`AuthMethodFactory<SamlSpProperties, SamlSpState, SamlSpConfig>`).
- *   3. Surface a clear runtime error when callers actually invoke
- *      `build` against this stub, naming the plan doc so the user can
- *      track when real support arrives.
- *
- * No `@node-saml/*` or `xml-crypto` imports appear here yet. Phase 1
- * adds them; the scaffold pre-locks the public-API leak guard so the
- * shape can't accidentally widen when those imports land.
+ * No `@node-saml/*` import appears here — node-saml is reached only at
+ * request time inside the route handlers, so importing the factory
+ * type surface stays cheap and the public-API leak guard stays green.
  */
-import type { v1 } from "@standard-schema/spec"
+import { z } from "zod"
 
 import type { AuthMethod, AuthMethodFactory } from "../../types/method"
 
+import { buildSamlSpMethod } from "./method"
 import type { SamlSpConfig, SamlSpProperties, SamlSpState } from "./types"
 
-/**
- * Standard Schema v1 conformant stub. Phase 1 replaces this with a Zod
- * (or other StandardSchema v1) validator over the full `SamlSpConfig`
- * shape. The stub rejects everything so accidental use-before-impl
- * surfaces loudly rather than silently passing garbage through.
- */
-const stubConfigSchema: v1.StandardSchema<unknown, SamlSpConfig> = {
-  "~standard": {
-    version: 1,
-    vendor: "@_mustachio/openauth",
-    validate: () => ({
-      issues: [
-        {
-          message:
-            "samlSpFactory is a scaffold; configuration validation is not yet implemented. See docs/plans/claude/saml-sp-plan.md.",
-        },
-      ],
-    }),
-  },
-}
+const attributeRefSchema = z.union([
+  z.object({ source: z.literal("nameId") }),
+  z.object({
+    source: z.literal("attribute"),
+    name: z.string().min(1),
+    format: z.string().optional(),
+  }),
+])
+
+const attributeMappingSchema = z.object({
+  subject: attributeRefSchema.optional(),
+  email: attributeRefSchema.optional(),
+  emailVerified: z
+    .object({ source: z.literal("literal"), value: z.boolean() })
+    .optional(),
+  name: attributeRefSchema.optional(),
+  groups: attributeRefSchema.optional(),
+  custom: z.record(attributeRefSchema).optional(),
+})
+
+const signingCertSchema = z.object({
+  pem: z.string().min(1),
+  notBefore: z.number().optional(),
+  notAfter: z.number().optional(),
+})
+
+const idpSchema = z.object({
+  entityId: z.string().min(1),
+  ssoUrl: z.string().url(),
+  sloUrl: z.string().url().optional(),
+  nameIdFormat: z
+    .enum(["persistent", "transient", "emailAddress", "unspecified"])
+    .optional(),
+  signingCerts: z.array(signingCertSchema).min(1),
+})
+
+const idpInitiatedSchema = z.object({
+  defaultClientId: z.string().min(1),
+  defaultRedirectUri: z.string().url(),
+  defaultScopes: z.array(z.string()).optional(),
+})
+
+const samlSpConfigSchema = z
+  .object({
+    idp: idpSchema,
+    attributeMapping: attributeMappingSchema,
+    signAuthnRequest: z.boolean().optional(),
+    signingKey: z.object({ kid: z.string().min(1) }).optional(),
+    idpInitiated: idpInitiatedSchema.optional(),
+    clockSkewSeconds: z.number().int().nonnegative().optional(),
+  })
+  .refine((c) => !c.signAuthnRequest || c.signingKey !== undefined, {
+    message: "signingKey is required when signAuthnRequest is true",
+    path: ["signingKey"],
+  })
+
+export type SamlSpFactoryConfig = z.infer<typeof samlSpConfigSchema>
 
 /**
- * Placeholder factory. Calling `build` throws — the framework refuses
- * to construct a SAML method instance until Phase 1 lands. Types are
- * locked in for downstream callers and for the public-API leak test.
+ * Generic SAML 2.0 Service Provider factory.
+ *
+ * `kind: "saml-sp"`. Use a distinct `MethodConfig.id` per upstream IdP
+ * to register multiple SAML connections against a single tenant.
  */
 export const samlSpFactory: AuthMethodFactory<
   SamlSpProperties,
@@ -54,14 +88,11 @@ export const samlSpFactory: AuthMethodFactory<
   SamlSpConfig
 > = {
   kind: "saml-sp",
-  configSchema: stubConfigSchema,
-  build: async (): Promise<
-    AuthMethod<SamlSpProperties, SamlSpState>
-  > => {
-    throw new Error(
-      "samlSpFactory.build: SAML SP is not yet implemented. " +
-        "Track progress in docs/plans/claude/saml-sp-plan.md " +
-        "(SAML Phase 1).",
-    )
-  },
+  configSchema: samlSpConfigSchema,
+  build: async ({
+    id,
+    kind,
+    config,
+  }): Promise<AuthMethod<SamlSpProperties, SamlSpState>> =>
+    buildSamlSpMethod(id, kind, config),
 }
