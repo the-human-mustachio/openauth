@@ -54,6 +54,22 @@ export type SpMetadataInput = {
   spEntityId: string
   acsUrl: string
   nameIdFormat?: SamlNameIdFormat
+  /**
+   * SP signing cert (PEM). Present ⇒ we sign AuthnRequests, so the
+   * metadata advertises `AuthnRequestsSigned="true"` and a
+   * `KeyDescriptor use="signing"`. Keeping this in lockstep with the
+   * runtime (the same `config.signingKey.certPem` that actually signs)
+   * is the same anti-drift invariant as the entityID/ACS.
+   */
+  signingCertPem?: string
+}
+
+/** PEM cert body → bare base64 (SAML metadata X509Certificate form). */
+function certBody(pem: string): string {
+  return pem
+    .replace(/-----BEGIN CERTIFICATE-----/g, "")
+    .replace(/-----END CERTIFICATE-----/g, "")
+    .replace(/\s+/g, "")
 }
 
 /**
@@ -63,18 +79,28 @@ export type SpMetadataInput = {
 export function buildSpMetadataXml(input: SpMetadataInput): string {
   const entityId = xmlEscape(input.spEntityId)
   const acs = xmlEscape(input.acsUrl)
+  const signed = input.signingCertPem !== undefined
   const nameIdLine =
     input.nameIdFormat !== undefined
       ? `\n    <md:NameIDFormat>${NAME_ID_FORMAT_URN[input.nameIdFormat]}</md:NameIDFormat>`
       : ""
+  const keyDescriptor = signed
+    ? `\n    <md:KeyDescriptor use="signing">` +
+      `<ds:KeyInfo><ds:X509Data><ds:X509Certificate>` +
+      certBody(input.signingCertPem as string) +
+      `</ds:X509Certificate></ds:X509Data></ds:KeyInfo>` +
+      `</md:KeyDescriptor>`
+    : ""
 
   return (
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" ` +
+    `xmlns:ds="http://www.w3.org/2000/09/xmldsig#" ` +
     `entityID="${entityId}">\n` +
-    `  <md:SPSSODescriptor AuthnRequestsSigned="false" ` +
+    `  <md:SPSSODescriptor AuthnRequestsSigned="${signed}" ` +
     `WantAssertionsSigned="true" ` +
     `protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">` +
+    keyDescriptor +
     nameIdLine +
     `\n    <md:AssertionConsumerService ` +
     `Binding="${HTTP_POST}" Location="${acs}" index="0" isDefault="true"/>` +
@@ -113,6 +139,10 @@ export async function buildSpMetadata(
     acsUrl: ctx.dispatch.callbackUrl,
     ...(config.idp.nameIdFormat !== undefined
       ? { nameIdFormat: config.idp.nameIdFormat }
+      : {}),
+    // Truthful: advertise signing iff we actually sign AuthnRequests.
+    ...(config.signAuthnRequest && config.signingKey
+      ? { signingCertPem: config.signingKey.certPem }
       : {}),
   })
 

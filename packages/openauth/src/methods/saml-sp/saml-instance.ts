@@ -41,6 +41,27 @@ export type SamlBindingContext = {
   acsUrl: string
   /** Per-request scratch backing the `InResponseTo` cache. */
   scratch: MethodScratch
+  /**
+   * IdP-initiated mode. An unsolicited Response has no `InResponseTo`
+   * (there was no AuthnRequest), so `validateInResponseTo` must be
+   * `ifPresent` rather than `always` — otherwise node-saml throws
+   * "InResponseTo is missing". Signature / Issuer / Audience /
+   * Conditions are still fully enforced; assertion-ID replay dedup is
+   * layered on top by the caller (node-saml does not dedup unsolicited
+   * assertion IDs). Default `false` ⇒ SP-initiated, `always`
+   * (unchanged).
+   */
+  idpInitiated?: boolean
+  /**
+   * Per-connection SP signing material (SAML-AD: O3 — decoupled from
+   * the OIDC `KeyStore`; the IdP pins this cert, rotation is an
+   * IdP-coordination event). Present ⇒ node-saml signs the outbound
+   * `AuthnRequest` (HTTP-Redirect binding) with it.
+   */
+  signing?: {
+    privateKeyPem: string
+    certPem: string
+  }
 }
 
 /**
@@ -85,13 +106,17 @@ export function buildSamlInstance(
     idpIssuer: config.idp.entityId,
     audience: binding.spEntityId,
     identifierFormat,
-    // Security posture. SP-initiated only for now; unsolicited
-    // Responses require an outstanding InResponseTo. A signed
-    // *assertion* is mandatory (identity + conditions + audience all
-    // live in the signed bytes); requiring the outer Response to also
-    // be signed is stricter than the Okta/Entra default and would
-    // reject the majority of real IdPs, so it is not required here.
-    validateInResponseTo: ValidateInResponseTo.always,
+    // Security posture. A signed *assertion* is mandatory (identity +
+    // conditions + audience all live in the signed bytes); requiring
+    // the outer Response to also be signed is stricter than the
+    // Okta/Entra default and would reject the majority of real IdPs,
+    // so it is not required here. SP-initiated requires an outstanding
+    // InResponseTo (`always`); IdP-initiated is unsolicited so it must
+    // be `ifPresent` — the caller layers explicit assertion-ID replay
+    // dedup on top for that mode.
+    validateInResponseTo: binding.idpInitiated
+      ? ValidateInResponseTo.ifPresent
+      : ValidateInResponseTo.always,
     wantAssertionsSigned: true,
     wantAuthnResponseSigned: false,
     acceptedClockSkewMs: (config.clockSkewSeconds ?? 60) * 1000,
@@ -99,5 +124,14 @@ export function buildSamlInstance(
       binding.scratch,
       IN_RESPONSE_TO_TTL_MS,
     ),
+    // O3: per-connection SP signing key (opt-in). node-saml signs the
+    // HTTP-Redirect AuthnRequest internally with this PEM keypair.
+    ...(binding.signing
+      ? {
+          privateKey: binding.signing.privateKeyPem,
+          publicCert: binding.signing.certPem,
+          signatureAlgorithm: "sha256" as const,
+        }
+      : {}),
   })
 }

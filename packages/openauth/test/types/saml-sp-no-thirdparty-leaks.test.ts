@@ -109,15 +109,18 @@ test("SAML SP: SamlIdpInitiatedConfig is plain primitives", () => {
   expect(true).toBe(true)
 })
 
-test("SAML SP: SamlSpConfig is plain primitives, signingKey is opaque kid only", () => {
+test("SAML SP: SamlSpConfig is plain primitives, signingKey is plain PEM strings", () => {
   const cfg = {} as SamlSpConfig
-  // signingKey is intentionally a kid reference, NOT a jose KeyLike or
-  // node-saml privateKey shape.
-  cfg.signingKey = { kid: "saml-signing-2024" }
+  // O3: per-connection PEM keypair (decoupled from KeyStore), NOT a
+  // jose KeyLike / node-saml privateKey object — plain strings only.
+  cfg.signingKey = {
+    privateKeyPem: "-----BEGIN PRIVATE KEY-----\n…",
+    certPem: "-----BEGIN CERTIFICATE-----\n…",
+  }
   // A number wouldn't satisfy any third-party KeyLike contract; this
-  // explicit reject confirms the shape is exactly the kid envelope.
-  // @ts-expect-error — `signingKey.kid` must be a string.
-  cfg.signingKey = { kid: 42 }
+  // explicit reject confirms the shape is exactly plain PEM strings.
+  // @ts-expect-error — `signingKey.privateKeyPem` must be a string.
+  cfg.signingKey = { privateKeyPem: 42, certPem: "x" }
   cfg.clockSkewSeconds = 60
   expect(true).toBe(true)
 })

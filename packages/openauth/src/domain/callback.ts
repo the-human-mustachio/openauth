@@ -58,6 +58,21 @@ export type HandleCallbackInput = {
   /** The raw `Request` for the upstream provider's redirect. */
   rawRequest: Request
   cookies: ReadonlyMap<string, string>
+  /**
+   * Resolved tenant for this request. The SP-initiated path derives
+   * the tenant from the consumed flow and ignores this. The
+   * **IdP-initiated** path (unsolicited POST, no flow) has nothing to
+   * derive from, so it uses this — populated by the HTTP layer from
+   * the tenant middleware. Absent ⇒ IdP-initiated is not attempted.
+   */
+  tenant?: TenantContext
+  /**
+   * Per-request issuer URL (HTTP layer). Used only by the
+   * IdP-initiated path to derive the SP entityID / ACS — the same
+   * derivation the AuthnRequest and metadata paths use, so the values
+   * cannot drift.
+   */
+  issuerUrl?: string
 }
 
 export type HandleCallbackDeps = {
@@ -115,18 +130,39 @@ export async function handleCallback(
 ): Promise<Result<CallbackOutput, AuthError>> {
   const url = new URL(input.rawRequest.url)
   const state = await extractCallbackState(input.rawRequest)
-  if (!state) {
-    return err(authError.invalidRequest("missing state parameter", "state"))
-  }
-  const envelopeRes = await verifyStateEnvelope(state, deps.stateKeys)
-  if (isErr(envelopeRes)) {
+  // A SAML IdP-initiated POST may legitimately carry a `RelayState`
+  // (Okta/Entra deep-link tokens), so "RelayState present" does NOT
+  // imply "framework state envelope present". The envelope is only
+  // real if it MAC-verifies. When there is no verifiable envelope —
+  // none at all, or a value that fails verification — first try
+  // IdP-initiated (the only flowless path). Only if that is not a
+  // clean candidate do we emit the original error/audit, unchanged
+  // for every method that did not opt into `unsolicitedCallback`.
+  const envelopeRes = state
+    ? await verifyStateEnvelope(state, deps.stateKeys)
+    : null
+  if (envelopeRes === null || isErr(envelopeRes)) {
+    const idp = await tryIdpInitiated(input, deps, url)
+    if (idp) return idp
+    if (!state) {
+      return err(authError.invalidRequest("missing state parameter", "state"))
+    }
+    // State present but no valid envelope and not an IdP-init
+    // candidate — the original tampered/expired-envelope behaviour.
     await safeAudit(deps, {
       kind: "flow_replay_attempt",
       tenantId: null,
       flowId: "unknown",
       timestamp: deps.clock(),
     })
-    return err(authError.invalidRequest(envelopeRes.error.description, "state"))
+    return err(
+      authError.invalidRequest(
+        envelopeRes && isErr(envelopeRes)
+          ? envelopeRes.error.description
+          : "invalid state",
+        "state",
+      ),
+    )
   }
   const envelope = envelopeRes.value
 
@@ -289,6 +325,150 @@ async function translate(
       })
       return err(result.error)
   }
+}
+
+/**
+ * IdP-initiated (unsolicited) SAML SSO — SAML-AD7, the one carve-out
+ * vs. OAuth/OIDC methods. There is no AuthnRequest, no MAC state
+ * envelope, and no flow record, so none of `handleCallback`'s gates
+ * apply. Returns `null` when this is **not** a clean IdP-init candidate
+ * (so the caller emits the normal "missing state" error — the
+ * conservative default); otherwise a final `CallbackOutput`.
+ *
+ * Trust chain (no flow to lean on):
+ *   - the assertion itself is signature/issuer/audience/conditions
+ *     verified by the method (`consumeAssertion`, IdP-init mode) plus
+ *     explicit assertion-ID replay dedup;
+ *   - the RP binding is NOT attacker-influenced — it comes from the
+ *     method's `unsolicitedBinding` (operator config), and is then
+ *     re-validated here against the tenant's registered client +
+ *     redirect URIs (open-redirect defence-in-depth). `RelayState` is
+ *     never interpreted as a redirect.
+ */
+async function tryIdpInitiated(
+  input: HandleCallbackInput,
+  deps: HandleCallbackDeps,
+  url: URL,
+): Promise<Result<CallbackOutput, AuthError> | null> {
+  if (input.rawRequest.method !== "POST") return null
+  if (!input.tenant || !input.issuerUrl) return null
+
+  const segments = url.pathname.split("/").filter(Boolean)
+  if (segments.length < 2 || segments[0] !== "cb") return null
+  const methodId = segments[1]!
+
+  const methodRes = await deps.methodCache.resolve(
+    input.tenant.config,
+    methodId,
+  )
+  if (isErr(methodRes)) return null
+  const method = methodRes.value
+  if (method.unsolicitedCallback !== true) return null
+
+  const callbackUrl = `${url.protocol}//${url.host}/cb/${methodId}`
+  const dispatched = await dispatchMethod({
+    method,
+    route: "GET /callback",
+    tenant: input.tenant,
+    request: input.rawRequest,
+    subPath: "/callback",
+    flow: null,
+    cookies: input.cookies,
+    sessionStore: deps.sessionStore,
+    dispatch: { state: "", callbackUrl, issuerUrl: input.issuerUrl },
+  })
+  if (isErr(dispatched)) return err(dispatched.error)
+
+  const result = dispatched.value
+  if (result.kind === "challenge") {
+    return ok({
+      kind: "challenge",
+      response: result.response,
+      setCookies: result.setCookies ?? [],
+      ...(result.cache !== undefined ? { cache: result.cache } : {}),
+    })
+  }
+  if (result.kind === "denied") {
+    await safeAudit(deps, {
+      kind: "authorize_failed",
+      tenantId: input.tenant.id,
+      clientId: "idp-initiated",
+      methodId,
+      methodKind: method.kind,
+      flowId: "idp-initiated",
+      reason: result.reason,
+      timestamp: deps.clock(),
+    })
+    return ok({
+      kind: "denied",
+      reason: result.reason,
+      setCookies: result.setCookies ?? [],
+    })
+  }
+  if (result.kind === "error") return err(result.error)
+
+  // success — must carry the operator-configured RP binding.
+  const binding = result.unsolicitedBinding
+  if (!binding) {
+    return err(
+      authError.internalError(
+        `method "${methodId}" handled an unsolicited callback but returned ` +
+          `no unsolicitedBinding`,
+      ),
+    )
+  }
+  // Open-redirect defence-in-depth: the binding is operator config, but
+  // still validate it against the tenant's registered client exactly
+  // as /authorize validates an RP's redirect_uri.
+  const client = input.tenant.config.clients.find(
+    (c) => c.id === binding.clientId,
+  )
+  if (!client) {
+    return err(
+      authError.invalidRequest(
+        `IdP-initiated binding references unknown client "${binding.clientId}"`,
+      ),
+    )
+  }
+  if (!client.redirectUris.includes(binding.redirectUri)) {
+    return err(
+      authError.invalidRequest(
+        `IdP-initiated redirect_uri "${binding.redirectUri}" is not ` +
+          `registered for client "${binding.clientId}"`,
+      ),
+    )
+  }
+
+  const code = (deps.newCodeId ?? randomToken)()
+  const now = deps.clock()
+  const saved = await saveEncryptedCode(
+    code,
+    {
+      tenantId: input.tenant.id,
+      clientId: binding.clientId,
+      appRedirectUri: binding.redirectUri,
+      // No RP-supplied OAuth state in an unsolicited flow; RelayState
+      // is opaque and intentionally NOT echoed as `state`.
+      appState: null,
+      scopes: binding.scopes,
+      methodId,
+      methodKind: method.kind,
+      context: input.tenant.request.custom ?? null,
+      providerSubject: result.providerSubject,
+      properties: result.properties,
+      authTime: Math.floor(now / 1000),
+      expiresAt: now + AUTH_CODE_TTL_MS,
+    },
+    AUTH_CODE_TTL_MS,
+    { keyStore: deps.keyStore, tokenStore: deps.tokenStore },
+  )
+  if (isErr(saved)) return err(saved.error)
+  return ok({
+    kind: "issue-code",
+    code,
+    appRedirectUri: binding.redirectUri,
+    appState: null,
+  })
 }
 
 function normalizePath(p: string): string {

@@ -21,11 +21,23 @@
  * enforced by node-saml, so it is checked here explicitly against the
  * signed assertion — see `checkRecipient`.
  *
- * Replay: for SP-initiated flows, node-saml's `validateInResponseTo:
- * always` + the `methodScratch`-backed cache make the `InResponseTo`
- * single-use, so a replayed Response fails (its request id was already
- * consumed). Explicit assertion-ID dedup is only required for
- * IdP-initiated SSO and lands with that work in Session 2.
+ * Two modes, discriminated by `ctx.flow`:
+ *
+ *   - **SP-initiated** (`ctx.flow` set): `handleCallback` MAC-verified
+ *     the state envelope and consumed the flow; binding (SP entityID +
+ *     ACS) comes from `ctx.methodState` committed at AuthnRequest time.
+ *     `InResponseTo` is single-use (`always` + the scratch cache), so a
+ *     replayed Response fails on its already-consumed request id.
+ *   - **IdP-initiated** (`ctx.flow === null`): an unsolicited Response,
+ *     no AuthnRequest, no state envelope, no flow. Allowed only when
+ *     the instance configured `idpInitiated` (the framework gates this
+ *     via `AuthMethod.unsolicitedCallback`). Binding is *derived* from
+ *     `ctx.dispatch` (issuer/ACS — same derivation as AuthnRequest /
+ *     metadata, so no drift). `InResponseTo` is `ifPresent` (none
+ *     exists), so single-use no longer covers replay — we add explicit
+ *     **assertion-ID dedup** via `methodScratch` (TTL = the assertion's
+ *     `NotOnOrAfter` + skew). Success carries `unsolicitedBinding` from
+ *     `config.idpInitiated` for the framework to mint the code.
  */
 // CJS interop per the SAML house-style note — default-import then
 // destructure rather than relying on the named-export heuristic.
@@ -35,7 +47,7 @@ import { authError } from "../../types/error"
 import type { MethodContext, MethodResult } from "../../types/method"
 
 import { mapProfile, type VerifiedProfile } from "./attributes"
-import { buildSamlInstance } from "./saml-instance"
+import { buildSamlInstance, deriveSpEntityId } from "./saml-instance"
 import type { SamlSpConfig, SamlSpProperties, SamlSpState } from "./types"
 
 const { DOMParser } = xmldom
@@ -131,19 +143,94 @@ function checkRecipient(
   return null
 }
 
+/**
+ * For IdP-initiated replay dedup: pull the assertion `@ID` and the
+ * tightest `NotOnOrAfter` from the **verified** assertion XML (the same
+ * bytes `checkRecipient` reads). Returns `null` if the assertion XML is
+ * unavailable (caller treats that as a fail-loud error — we will not
+ * skip replay protection we promised).
+ */
+function extractReplayInfo(
+  profile: NodeSamlProfile,
+): { assertionId: string; notOnOrAfterMs: number | null } | null {
+  if (typeof profile.getAssertionXml !== "function") return null
+  let doc: Document
+  try {
+    doc = new DOMParser().parseFromString(
+      profile.getAssertionXml(),
+      "text/xml",
+    ) as unknown as Document
+  } catch {
+    return null
+  }
+  const root = doc.documentElement
+  const assertionId = root?.getAttribute("ID") ?? ""
+  if (!assertionId) return null
+  let earliest: number | null = null
+  for (const tag of ["Conditions", "SubjectConfirmationData"]) {
+    const els = doc.getElementsByTagNameNS("*", tag)
+    for (let i = 0; i < els.length; i++) {
+      const v = els[i]?.getAttribute("NotOnOrAfter")
+      if (!v) continue
+      const ms = Date.parse(v)
+      if (!Number.isNaN(ms)) earliest = earliest === null ? ms : Math.min(earliest, ms)
+    }
+  }
+  return { assertionId, notOnOrAfterMs: earliest }
+}
+
 export async function consumeAssertion(
   ctx: MethodContext<SamlSpState>,
+  methodId: string,
   config: SamlSpConfig,
 ): Promise<MethodResult<SamlSpProperties, SamlSpState>> {
-  const state = ctx.methodState
-  if (!state || !state.spEntityId || !state.acsUrl) {
-    return {
-      kind: "error",
-      error: authError.internalError(
-        "saml-sp: ACS reached without AuthnRequest method state " +
-          "(spEntityId / acsUrl). The flow did not originate from this method.",
-      ),
+  // Discriminator: a consumed flow ⇒ SP-initiated; no flow ⇒ an
+  // unsolicited IdP-initiated POST (the framework only routes one here
+  // when this instance opted in via `unsolicitedCallback`).
+  const idpInitiated = ctx.flow === null
+
+  let spEntityId: string
+  let acsUrl: string
+  if (idpInitiated) {
+    if (!config.idpInitiated) {
+      // Fail-closed: should be unreachable (the framework gates on
+      // `unsolicitedCallback`, set only when idpInitiated is config'd).
+      return {
+        kind: "error",
+        error: authError.internalError(
+          "saml-sp: unsolicited Response reached a method with no " +
+            "idpInitiated config",
+        ),
+      }
     }
+    if (!ctx.dispatch) {
+      return {
+        kind: "error",
+        error: authError.internalError(
+          "saml-sp: IdP-initiated ACS dispatched without issuer context",
+        ),
+      }
+    }
+    // Same derivation as AuthnRequest / metadata — no drift.
+    spEntityId = deriveSpEntityId(
+      ctx.dispatch.issuerUrl,
+      ctx.tenant.id,
+      methodId,
+    )
+    acsUrl = ctx.dispatch.callbackUrl
+  } else {
+    const state = ctx.methodState
+    if (!state || !state.spEntityId || !state.acsUrl) {
+      return {
+        kind: "error",
+        error: authError.internalError(
+          "saml-sp: ACS reached without AuthnRequest method state " +
+            "(spEntityId / acsUrl). The flow did not originate from this method.",
+        ),
+      }
+    }
+    spEntityId = state.spEntityId
+    acsUrl = state.acsUrl
   }
 
   let samlResponse: string | null
@@ -171,9 +258,10 @@ export async function consumeAssertion(
     saml = buildSamlInstance(
       config,
       {
-        spEntityId: state.spEntityId,
-        acsUrl: state.acsUrl,
+        spEntityId,
+        acsUrl,
         scratch: ctx.methodScratch,
+        ...(idpInitiated ? { idpInitiated: true } : {}),
       },
       Date.now(),
     )
@@ -214,9 +302,53 @@ export async function consumeAssertion(
   }
 
   // Gauntlet item 6 — node-saml does not enforce @Recipient; we do,
-  // against the exact ACS URL the IdP saw in the AuthnRequest.
-  const recipientFailure = checkRecipient(profile, state.acsUrl)
+  // against the exact ACS URL the IdP saw (committed for SP-init,
+  // derived for IdP-init — identical value either way).
+  const recipientFailure = checkRecipient(profile, acsUrl)
   if (recipientFailure) return recipientFailure
+
+  // IdP-init replay: no InResponseTo single-use to lean on, so dedup
+  // the signed assertion's @ID. SP-init does not need this (the
+  // request id is already single-use).
+  if (idpInitiated) {
+    const replay = extractReplayInfo(profile)
+    if (!replay) {
+      return {
+        kind: "error",
+        error: authError.internalError(
+          "saml-sp: cannot read assertion @ID for IdP-initiated replay " +
+            "protection. Refusing to authenticate.",
+        ),
+      }
+    }
+    const key = `idp-replay:${replay.assertionId}`
+    const seen = await ctx.methodScratch.get(key)
+    if (seen.ok) {
+      return {
+        kind: "denied",
+        reason: "assertion replay detected (assertion ID already seen)",
+      }
+    }
+    const skewMs = (config.clockSkewSeconds ?? 60) * 1000
+    const now = Date.now()
+    const horizon =
+      replay.notOnOrAfterMs !== null
+        ? replay.notOnOrAfterMs - now + skewMs
+        : 10 * 60_000
+    // Clamp: never below the skew window, never an unbounded entry.
+    const ttlMs = Math.min(Math.max(horizon, skewMs, 60_000), 24 * 60 * 60_000)
+    const recorded = await ctx.methodScratch.put(key, "1", ttlMs)
+    if (!recorded.ok) {
+      // The dedup store is unavailable — failing open would allow
+      // replay. Fail closed.
+      return {
+        kind: "error",
+        error: authError.internalError(
+          "saml-sp: could not record assertion ID for replay protection",
+        ),
+      }
+    }
+  }
 
   const verified: VerifiedProfile = {
     nameID: profile.nameID,
@@ -237,5 +369,14 @@ export async function consumeAssertion(
     kind: "success",
     providerSubject: mapped.providerSubject,
     properties: mapped.properties,
+    ...(idpInitiated && config.idpInitiated
+      ? {
+          unsolicitedBinding: {
+            clientId: config.idpInitiated.defaultClientId,
+            redirectUri: config.idpInitiated.defaultRedirectUri,
+            scopes: config.idpInitiated.defaultScopes ?? [],
+          },
+        }
+      : {}),
   }
 }

@@ -115,10 +115,17 @@ export type SamlSpConfig = {
   /** Whether to sign outbound `AuthnRequest`. Default `false`. */
   signAuthnRequest?: boolean
   /**
-   * `kid` reference into the framework's `KeyStore` for the signing
-   * key. Required iff `signAuthnRequest` is `true`.
+   * Per-connection SP signing keypair (SAML-AD: O3). **Decoupled from
+   * the OIDC `KeyStore` on purpose** — the SP signing cert is pinned at
+   * the IdP and rotated as an IdP-coordination event, not on the OIDC
+   * token-key schedule; this also keeps the design KMS-agnostic.
+   * `privateKeyPem` signs the `AuthnRequest`; `certPem` is what the IdP
+   * pins and what SP metadata advertises. Required iff
+   * `signAuthnRequest` is `true`. Treat `privateKeyPem` as a secret:
+   * the host should encrypt the `MethodStore` at rest (or supply it via
+   * its own resolver) — same handling as any per-tenant credential.
    */
-  signingKey?: { kid: string }
+  signingKey?: { privateKeyPem: string; certPem: string }
   idpInitiated?: SamlIdpInitiatedConfig
   /** Clock skew allowance for `NotBefore` / `NotOnOrAfter`. Seconds. */
   clockSkewSeconds?: number

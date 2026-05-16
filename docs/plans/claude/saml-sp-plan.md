@@ -17,11 +17,11 @@ ourselves. Gate the export Node-only — `xml-crypto` hard-depends on
 **1** SP-initiated SSO + verification gauntlet (done) → **1.5**
 production-adapter enablement (done; deploy gate cleared, one live-IdP
 test deferred) → **2** IdP-initiated SSO + SP metadata + explicit
-Recipient (Recipient check + `parseSamlIdpMetadata` + SP-metadata
-endpoint done; 2 framework-invasive items — IdP-initiated SSO,
-signed-AuthnRequest — remain, each pending a design pass) → **3**
-Single Logout. Total estimated effort: ~7–9 weeks. See _Status &
-Resume Point_ for current state.
+Recipient + signed-AuthnRequest (**done** — Recipient check,
+`parseSamlIdpMetadata`, SP-metadata endpoint, IdP-initiated SSO,
+signed-AuthnRequest all shipped) → **3** Single Logout. Total
+estimated effort: ~7–9 weeks. See _Status & Resume Point_ for current
+state.
 
 ## Status & Resume Point
 
@@ -85,33 +85,41 @@ asserts the published entityID/ACS equal what `buildAuthnRequestRedirect`
 derives; a **fail-closed** domain test asserts a non-public route is
 refused even if the HTTP layer mis-routes.
 
-**Phase 2 — remaining, BLOCKED ON FRAMEWORK DESIGN (two items).**
-Reconnaissance found each needs a framework change the plan
-under-specified; not started without per-item sign-off:
+**Phase 2 — COMPLETE (2026-05-15).** The two remaining framework-invasive
+items shipped after their design passes + sign-off:
 
-- **IdP-initiated SSO (SAML-AD7).** `handleCallback`'s three gates
-  (state-extract → MAC-verify → `consumeFlow`) all fire before
-  dispatch with **no hook point**, and `/m/*` requires a flow cookie.
-  A genuinely new framework entry point is required — larger than the
-  plan's "synthetic flow" framing implied. (Note: `publicRoutes`,
-  shipped for metadata, is a *flowless* path — it does not by itself
-  solve IdP-init, which still needs a synthesized flow + auth-code.)
-- **Signed-AuthnRequest.** `MethodContext` exposes no `KeyStore` path;
-  OIDC signs at the token/HTTP layer, never inside a method. Threading
-  a signing key to a method is a novel framework change with no
-  precedent.
+- ✅ **IdP-initiated SSO (SAML-AD7), bridge V′.** Decided: extend the
+  existing `success` variant with optional `unsolicitedBinding`
+  (no new `MethodResult` kind → AD3 holds; AD7 carve-out satisfied).
+  `AuthMethod.unsolicitedCallback` opt-in; `handleCallback` forks to a
+  flowless path when there is **no verifiable state envelope** (a
+  correctness fix surfaced in testing: a SAML `RelayState` is not a
+  framework envelope, so the fork triggers on "no *verifiable*
+  envelope", not just "no state"). No `FlowRecord` is synthesized —
+  `saveEncryptedCode` mints from an in-memory `CodePayload`.
+  Assertion-ID replay dedup via `methodScratch` (no `InResponseTo` to
+  single-use). Open-redirect guard: binding re-validated vs the
+  registered client; `RelayState` never a redirect.
+- ✅ **Signed-AuthnRequest, option O3.** Decided: the SP signing
+  keypair is **per-connection config** (`SamlSpConfig.signingKey =
+  {privateKeyPem, certPem}`), decoupled from the OIDC `KeyStore` — the
+  IdP pins the cert; rotation is an IdP-coordination event. No
+  KeyStore port change, KMS-agnostic. node-saml signs the HTTP-Redirect
+  AuthnRequest; SP metadata auto-advertises `AuthnRequestsSigned="true"`
+  + a signing `KeyDescriptor` when enabled (kept truthful).
 
-**Recommended next action:** a design pass on the two remaining
-framework changes (independent of each other). The live Okta/Entra
-test remains a tracked follow-up (deferred, needs creds), not a
-sequencing blocker.
+**Recommended next action:** **Phase 3 — Single Logout (SLO) +
+production polish.** The live Okta/Entra test remains a tracked
+follow-up (deferred, needs creds), not a sequencing blocker.
 
-**Three framework changes SAML drove** (documented in
+**Four framework changes SAML drove** (documented in
 `ARCHITECTURE.md`), each a *general* capability, not SAML-specific
 surface: `MethodContext.methodScratch` (precursor `395ec99`),
 `handleCallback` POST-body state recovery (`db45ab6`, also unblocks
-OAuth `form_post`), and `AuthMethod.publicRoutes` (anonymous flowless
-method routes — first user is SP metadata).
+OAuth `form_post`), `AuthMethod.publicRoutes` (anonymous flowless
+method routes — first user SP metadata), and
+`AuthMethod.unsolicitedCallback` + `MethodResult.success.unsolicitedBinding`
+(flowless inbound authentication — first user IdP-initiated SSO).
 
 ## Goals
 
@@ -693,12 +701,19 @@ Recipient-binding gap.
   Exported from the subpath barrel; `INTEGRATION.md` § 9.5 updated.
   Tests: `parse-idp-metadata.test.ts` (Okta + Entra shapes + 5
   rejection cases).
-- ⏳ **`idpInitiated` config branch + synthetic-flow path (SAML-AD7).**
-  **Blocked on framework design.** Recon: `handleCallback`'s three
-  gates (state-extract → MAC-verify → `consumeFlow`) all fire before
-  dispatch with no hook point; `/m/*` requires an `idp.flow` cookie.
-  Needs a genuinely new framework entry point — larger than the
-  "synthetic flow" framing implied. Not started without sign-off.
+- ✅ **`idpInitiated` SSO (SAML-AD7), bridge V′** (2026-05-15). No
+  synthetic `FlowRecord` — the recon found `saveEncryptedCode` works
+  off an in-memory `CodePayload`, so the framework mints directly from
+  `MethodResult.success.unsolicitedBinding` (a minimal optional field,
+  not a new variant — AD3 holds, AD7 carve-out met).
+  `AuthMethod.unsolicitedCallback` opt-in; `handleCallback` forks when
+  there is **no verifiable** state envelope (testing surfaced that a
+  SAML `RelayState` is not a framework envelope — the fork keys on
+  "no verifiable envelope", not "no state"). Assertion-ID replay dedup
+  via `methodScratch`; open-redirect guard re-validates the binding vs
+  the registered client; `RelayState` never a redirect. Tests:
+  `idp-initiated.test.ts` (success→302+code, replay→denied, not-opted
+  →invalid_request unchanged, hostile RelayState).
 - ✅ **SP metadata XML endpoint** (2026-05-15). Served anonymously at
   `GET /m/<methodId>/metadata` via the new general `AuthMethod.publicRoutes`
   opt-in (the original plan's "`/m/*` mount" assumption was wrong —
@@ -712,17 +727,22 @@ Recipient-binding gap.
   `http/cookies.ts` as `cacheControlHeader` (shared, no third copy).
   Anti-drift + fail-closed tests green. (`parseSamlIdpMetadata` — the
   *inbound* side — was already done; this is the *outbound* side.)
-- ⏳ **Signed-AuthnRequest support.** **Blocked on framework design.**
-  `MethodContext` exposes no `KeyStore`; OIDC signs at the token/HTTP
-  layer, never in a method. Threading a signing key to a method is a
-  novel framework change with no precedent.
-- ⏳ Remaining test extensions: `idp-initiated.test.ts`,
-  `metadata.test.ts` (SP-metadata side) — land with their deliverables.
-  `recipient.test.ts` / `parse-idp-metadata.test.ts` superseded:
-  Recipient coverage lives in `acs.test.ts`; metadata-parse coverage
-  shipped as `parse-idp-metadata.test.ts`.
-- ⏳ `INTEGRATION.md` § SAML SP IdP-initiated walkthrough — lands with
-  the IdP-init deliverable.
+- ✅ **Signed-AuthnRequest, option O3** (2026-05-15). SP signing
+  keypair is per-connection config (`signingKey = {privateKeyPem,
+  certPem}`), decoupled from the OIDC `KeyStore` — the IdP pins the
+  cert; rotation is an IdP-coordination event. No KeyStore port
+  change, KMS-agnostic. node-saml signs the HTTP-Redirect
+  AuthnRequest; SP metadata auto-advertises `AuthnRequestsSigned="true"`
+  + signing `KeyDescriptor` when enabled (truthful). Schema enforces
+  `signAuthnRequest ⇒ signingKey`. Tests: `authnrequest.test.ts`
+  (signed redirect carries SigAlg+Signature; unsigned has neither),
+  `config-schema.test.ts`, `metadata.test.ts` (signing advertised).
+- ✅ Test extensions landed: `idp-initiated.test.ts`,
+  `metadata.test.ts` (incl. signed-metadata + DOM structure).
+  `recipient.test.ts` superseded (coverage in `acs.test.ts`);
+  metadata-parse coverage in `parse-idp-metadata.test.ts`.
+- ✅ `INTEGRATION.md` § 9.5 extended with IdP-initiated + signed-
+  AuthnRequest configuration (incl. the SP-key at-rest note).
 
 **Acceptance criteria:**
 
@@ -856,11 +876,11 @@ node-saml's message, free-text — **not** typed reason codes) / `error`.
 | 7 | XSW wrapping → not `success`                      | 1     | ✅ |
 | 8 | XXE → external entity never expanded into subject | 1     | ✅ |
 | 9 | Replay (same Response twice) → 2nd not `success`  | 1     | ✅ |
-| 10| `signAuthnRequest:true` rejected                  | 1     | ✅ |
+| 10| `signAuthnRequest:true` → **signed** redirect (O3; was "rejected" pre-Phase-2) | 2 | ✅ (SigAlg+Signature; unsigned has neither) |
 | 11| No cert in validity window → `error`              | 1     | ✅ |
 | 12| `Recipient` mismatch → not `success`              | 2     | ✅ (`checkRecipient`; + `noRecipient` deny case) |
-| 13| IdP-initiated success with `defaultClientId`      | 2     | ⏳ |
-| 14| IdP-initiated with hostile `RelayState`           | 2     | ⏳ |
+| 13| IdP-initiated success with `defaultClientId`      | 2     | ✅ (`idp-initiated.test.ts` — 302+code) |
+| 14| IdP-initiated with hostile `RelayState`           | 2     | ✅ (never a redirect; replay deduped) |
 | 15| SP metadata XML matches IdP-importer expectations | 2     | ✅ (`metadata.test.ts`; anti-drift vs AuthnRequest) |
 | 16| Front-channel SLO round-trip                      | 3     | ⏳ |
 | 17| Encrypted assertion off → rejected                | 3     | ⏳ |

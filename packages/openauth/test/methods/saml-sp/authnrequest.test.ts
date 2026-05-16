@@ -26,6 +26,14 @@ const IDP_CERT = readFileSync(
   join(import.meta.dir, "fixtures", "idp-cert.pem"),
   "utf8",
 )
+// Reused as a per-connection SP signing keypair for the
+// signAuthnRequest test (node-saml only needs a valid RSA keypair to
+// sign; it need not be a "real" SP cert).
+const SP_KEY = readFileSync(
+  join(import.meta.dir, "fixtures", "idp-key.pem"),
+  "utf8",
+)
+const SP_CERT = IDP_CERT
 
 const SSO_URL = "https://idp.example/saml/sso"
 const STATE_ENVELOPE = "state.envelope.mac"
@@ -152,21 +160,36 @@ describe("SAML SP — SP-initiated AuthnRequest", () => {
     if (res2.ok) expect(res2.value.kind).toBe("challenge")
   })
 
-  test("rejects signAuthnRequest:true (not yet implemented)", async () => {
+  test("signs the AuthnRequest when signAuthnRequest + signingKey (O3)", async () => {
     const store = new MemorySessionStore()
     const res = await dispatchAuthorize(
       baseConfig({
         signAuthnRequest: true,
-        signingKey: { kid: "saml-sign" },
+        signingKey: { privateKeyPem: SP_KEY, certPem: SP_CERT },
       }),
       store,
     )
     expect(res.ok).toBe(true)
-    if (!res.ok) return
-    expect(res.value.kind).toBe("error")
-    if (res.value.kind === "error") {
-      expect(res.value.error.description).toContain("signAuthnRequest")
-    }
+    if (!res.ok || res.value.kind !== "challenge") return
+    const loc = res.value.response.headers.get("location") as string
+    const q = new URL(loc).searchParams
+    // node-saml HTTP-Redirect signing appends SigAlg + Signature.
+    expect(q.get("SAMLRequest")).toBeTruthy()
+    expect(q.get("SigAlg")).toBeTruthy()
+    expect(q.get("Signature")).toBeTruthy()
+  })
+
+  test("unsigned AuthnRequest has no SigAlg/Signature (default)", async () => {
+    const store = new MemorySessionStore()
+    const res = await dispatchAuthorize(baseConfig(), store)
+    expect(res.ok).toBe(true)
+    if (!res.ok || res.value.kind !== "challenge") return
+    const q = new URL(
+      res.value.response.headers.get("location") as string,
+    ).searchParams
+    expect(q.get("SAMLRequest")).toBeTruthy()
+    expect(q.get("SigAlg")).toBeNull()
+    expect(q.get("Signature")).toBeNull()
   })
 
   test("errors when no signing cert is within its validity window", async () => {

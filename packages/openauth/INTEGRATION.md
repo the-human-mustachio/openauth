@@ -953,13 +953,50 @@ make every assertion fail at the ACS with an opaque message).
 }
 ```
 
-`signAuthnRequest` and `idpInitiated` exist on the type but are **not
-yet active** — `signAuthnRequest: true` is rejected with an explicit
-error (signed-AuthnRequest support is a later increment), and
-unsolicited IdP-initiated Responses are rejected (`invalid_request`)
-until Phase 2. SP-initiated SSO is the supported flow today. The
-assertion must be signed; the outer `<Response>` need not be (stricter
-would reject the Okta/Entra default).
+The assertion must be signed; the outer `<Response>` need not be
+(stricter would reject the Okta/Entra default).
+
+**IdP-initiated SSO** (`idpInitiated`). Set this block to accept
+unsolicited Responses (Okta tile, Entra "My Apps") at the **same** ACS
+(`/cb/<methodId>` — a SAML SP has one ACS; the IdP posts solicited and
+unsolicited there):
+
+```ts
+idpInitiated: {
+  defaultClientId: "your-rp-client-id",          // must be a registered client
+  defaultRedirectUri: "https://app.example/cb",  // must be in that client's redirectUris
+  defaultScopes: ["openid", "email"],
+}
+```
+
+Absent ⇒ unsolicited Responses stay `invalid_request` (the
+conservative default). When present, an unsolicited signed assertion
+mints a code and 302s to `defaultRedirectUri`; the framework
+re-validates `defaultClientId`/`defaultRedirectUri` against the
+registered client (open-redirect defence). `RelayState` is treated as
+opaque — it is **never** a redirect target. Replay is handled by
+assertion-ID dedup (there is no `InResponseTo` to single-use).
+
+**Signed AuthnRequest** (`signAuthnRequest` + `signingKey`). Some IdPs
+require it. The SP signing keypair is **per-connection config**, not a
+KeyStore reference — the IdP pins this cert and rotation is an
+IdP-coordination event, independent of OIDC token-key rotation:
+
+```ts
+signAuthnRequest: true,
+signingKey: {
+  privateKeyPem: "-----BEGIN PRIVATE KEY-----\n…",   // signs the AuthnRequest
+  certPem: "-----BEGIN CERTIFICATE-----\n…",          // IdP pins this; metadata advertises it
+}
+```
+
+`signingKey` is required when `signAuthnRequest` is `true` (schema-
+enforced). `privateKeyPem` is a **secret**: it lives in
+`MethodStore`-backed config, so encrypt that store at rest (or supply
+it via your own resolver) — same handling as any per-tenant
+credential. When signing is enabled, the SP metadata automatically
+advertises `AuthnRequestsSigned="true"` and a signing `KeyDescriptor`,
+so it stays truthful to runtime behaviour.
 
 **Configuring the IdP side (manual — no metadata importer yet).** Both
 values the host registers at the IdP are *derived*, not configured, so

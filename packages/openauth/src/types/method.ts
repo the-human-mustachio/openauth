@@ -73,6 +73,21 @@ export type AuthMethod<P = unknown, S = unknown> = {
    */
   publicRoutes?: ReadonlyArray<string>
   /**
+   * Opt-in: this method instance handles **unsolicited** upstream
+   * callbacks — a `POST /cb/<methodId>` carrying a provider assertion
+   * with no framework state envelope and no prior flow (SAML
+   * IdP-initiated SSO). When `true`, the framework, instead of
+   * rejecting a stateless callback, dispatches `GET /callback` with
+   * `flow === null` and a derived `dispatch` (issuer/ACS); the handler
+   * verifies the assertion and returns `success` **with
+   * `unsolicitedBinding`**. Absent (every method's default) ⇒ a
+   * stateless callback stays an `invalid_request` (the conservative
+   * default — many deployments do not want IdP-initiated). General
+   * capability, not SAML-specific; set per instance (a SAML instance
+   * sets it only when its config enables IdP-initiated).
+   */
+  unsolicitedCallback?: boolean
+  /**
    * Token-exchange function for the `/token` endpoint when the method
    * participates in client-credentials-style flows (e.g. `m2m`). Most
    * redirect-based methods do not set this.
@@ -212,6 +227,23 @@ export type MethodResult<P = unknown, S = unknown> =
       providerSubject: string
       properties: P
       setCookies?: SetCookie[]
+      /**
+       * RP binding for a **flowless** (unsolicited / IdP-initiated)
+       * authentication. Consulted **only** when the method ran with no
+       * `flow` (e.g. an unsolicited SAML Response — see
+       * `AuthMethod.unsolicitedCallback`). On the normal SP-initiated
+       * path a `flow` exists and this is ignored; on the flowless path
+       * it is **required** (the framework has no pending RP request to
+       * read `client_id` / `redirect_uri` / `scope` from, so the method
+       * supplies the operator-configured defaults). The framework still
+       * validates `clientId` / `redirectUri` against the tenant's
+       * registered client before issuing a code.
+       */
+      unsolicitedBinding?: {
+        clientId: string
+        redirectUri: string
+        scopes: string[]
+      }
     }
   /** User refused / failed auth in a non-error way (e.g. consent declined). */
   | { kind: "denied"; reason: string; setCookies?: SetCookie[] }

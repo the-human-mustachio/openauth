@@ -157,6 +157,28 @@ describe("buildSpMetadataXml (pure)", () => {
     ).toBe(0)
   })
 
+  test("signing configured → AuthnRequestsSigned=true + signing KeyDescriptor", () => {
+    const xml = buildSpMetadataXml({
+      spEntityId: "https://idp.example/acme/corp-saml",
+      acsUrl: "https://idp.example/cb/corp-saml",
+      signingCertPem:
+        "-----BEGIN CERTIFICATE-----\nQUJDREVG\nR0hJSktM\n-----END CERTIFICATE-----",
+    })
+    expect(xml).toContain('AuthnRequestsSigned="true"')
+    const doc = new DOMParser().parseFromString(
+      xml,
+      "text/xml",
+    ) as unknown as Document
+    const kd = doc.getElementsByTagNameNS("*", "KeyDescriptor")
+    expect(kd.length).toBe(1)
+    expect(kd[0]?.getAttribute("use")).toBe("signing")
+    const cert = doc.getElementsByTagNameNS("*", "X509Certificate")
+    expect(cert.length).toBe(1)
+    // PEM headers + whitespace stripped to a bare base64 body.
+    expect(cert[0]?.textContent).toBe("QUJDREVGR0hJSktM")
+    expect(doc.documentElement?.localName).toBe("EntityDescriptor")
+  })
+
   test("cross-check: parseSamlIdpMetadata rejects our SP metadata", () => {
     // Inbound (parse IdP) and outbound (emit SP) are distinct shapes —
     // feeding our SP doc to the IdP parser must fail (no IDPSSODescriptor),

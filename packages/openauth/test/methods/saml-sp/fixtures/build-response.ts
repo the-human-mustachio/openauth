@@ -38,6 +38,8 @@ export type BuildOpts = {
   badRecipient?: boolean
   /** Omit the `Recipient` attribute entirely (still signed + valid otherwise). */
   noRecipient?: boolean
+  /** Unsolicited / IdP-initiated: omit InResponseTo (no prior AuthnRequest). */
+  unsolicited?: boolean
   expired?: boolean
   xsw?: boolean
   xxe?: boolean
@@ -93,7 +95,8 @@ export function buildSamlResponse(opts: BuildOpts): string {
     `<saml:Subject>` +
     `<saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:persistent">${nameId}</saml:NameID>` +
     `<saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">` +
-    `<saml:SubjectConfirmationData InResponseTo="${opts.requestId}" ` +
+    `<saml:SubjectConfirmationData ` +
+    (opts.unsolicited ? "" : `InResponseTo="${opts.requestId}" `) +
     (opts.noRecipient ? "" : `Recipient="${recipient}" `) +
     `NotOnOrAfter="${notOnOrAfter}"/>` +
     `</saml:SubjectConfirmation></saml:Subject>` +
@@ -111,7 +114,9 @@ export function buildSamlResponse(opts: BuildOpts): string {
     `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" ` +
     `xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ` +
     `ID="${responseId}" Version="2.0" IssueInstant="${iso(now)}" ` +
-    `Destination="${opts.acsUrl}" InResponseTo="${opts.requestId}">` +
+    `Destination="${opts.acsUrl}"` +
+    (opts.unsolicited ? "" : ` InResponseTo="${opts.requestId}"`) +
+    `>` +
     `<saml:Issuer>${opts.idpEntityId}</saml:Issuer>` +
     `<samlp:Status><samlp:StatusCode ` +
     `Value="urn:oasis:names:tc:SAML:2.0:status:Success"/></samlp:Status>` +

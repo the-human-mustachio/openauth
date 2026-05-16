@@ -65,7 +65,12 @@ const samlSpConfigSchema = z
     idp: idpSchema,
     attributeMapping: attributeMappingSchema,
     signAuthnRequest: z.boolean().optional(),
-    signingKey: z.object({ kid: z.string().min(1) }).optional(),
+    signingKey: z
+      .object({
+        privateKeyPem: z.string().min(1),
+        certPem: z.string().min(1),
+      })
+      .optional(),
     idpInitiated: idpInitiatedSchema.optional(),
     clockSkewSeconds: z.number().int().nonnegative().optional(),
   })

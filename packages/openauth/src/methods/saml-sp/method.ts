@@ -31,11 +31,14 @@ export function buildSamlSpMethod(
       "GET /authorize": (ctx: MethodContext<SamlSpState>) =>
         buildAuthnRequestRedirect(ctx, id, config),
       "GET /callback": (ctx: MethodContext<SamlSpState>) =>
-        consumeAssertion(ctx, config),
+        consumeAssertion(ctx, id, config),
       "GET /metadata": (ctx: MethodContext<SamlSpState>) =>
         buildSpMetadata(ctx, id, config),
     },
     // Anonymous, no flow cookie — public SP metadata only.
     publicRoutes: ["GET /metadata"],
+    // IdP-initiated SSO: only when this instance is configured for it.
+    // Absent ⇒ unsolicited Responses stay invalid_request.
+    unsolicitedCallback: config.idpInitiated !== undefined,
   }
 }

@@ -28,17 +28,17 @@ export async function buildAuthnRequestRedirect(
     }
   }
 
-  // AuthnRequest signing needs a KeyStore-resolved private key, which
-  // is not yet threaded into MethodContext. Reject explicitly rather
-  // than silently emit an unsigned request when the operator asked for
-  // a signed one.
-  if (config.signAuthnRequest) {
+  // O3: signed AuthnRequest uses a per-connection SP keypair from
+  // config (decoupled from the OIDC KeyStore). The Zod schema already
+  // enforces `signAuthnRequest ⇒ signingKey`; guard defensively so a
+  // schema regression can never silently emit an unsigned request when
+  // the operator asked for a signed one.
+  if (config.signAuthnRequest && !config.signingKey) {
     return {
       kind: "error",
       error: authError.internalError(
-        "saml-sp: signAuthnRequest is not yet implemented (KeyStore wiring " +
-          "lands in a later SAML Phase 1 increment). Track in " +
-          "docs/plans/claude/saml-sp-plan.md.",
+        "saml-sp: signAuthnRequest is true but signingKey is missing " +
+          "(config schema should have rejected this).",
       ),
     }
   }
@@ -84,6 +84,14 @@ export async function buildAuthnRequestRedirect(
         spEntityId,
         acsUrl,
         scratch: ctx.methodScratch,
+        ...(config.signAuthnRequest && config.signingKey
+          ? {
+              signing: {
+                privateKeyPem: config.signingKey.privateKeyPem,
+                certPem: config.signingKey.certPem,
+              },
+            }
+          : {}),
       },
       Date.now(),
     )

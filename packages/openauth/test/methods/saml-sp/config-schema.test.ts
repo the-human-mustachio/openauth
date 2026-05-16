@@ -49,14 +49,27 @@ describe("samlSpFactory.configSchema", () => {
     expect("issues" in r && (r.issues?.length ?? 0) > 0).toBe(true)
   })
 
-  test("accepts signAuthnRequest:true with a signingKey", async () => {
+  test("accepts signAuthnRequest:true with a per-connection signingKey (O3)", async () => {
     const ok = {
       ...VALID,
       signAuthnRequest: true,
-      signingKey: { kid: "saml-sign-2024" },
+      signingKey: {
+        privateKeyPem: "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----",
+        certPem: "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+      },
     }
     const r = await validate(ok)
     expect("issues" in r && r.issues).toBeFalsy()
+  })
+
+  test("rejects a signingKey missing certPem", async () => {
+    const bad = {
+      ...VALID,
+      signAuthnRequest: true,
+      signingKey: { privateKeyPem: "-----BEGIN PRIVATE KEY-----\n…" },
+    }
+    const r = await validate(bad)
+    expect("issues" in r && (r.issues?.length ?? 0) > 0).toBe(true)
   })
 
   test("accepts an idpInitiated binding", async () => {
