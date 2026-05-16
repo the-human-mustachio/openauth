@@ -17,10 +17,11 @@ ourselves. Gate the export Node-only — `xml-crypto` hard-depends on
 **1** SP-initiated SSO + verification gauntlet (done) → **1.5**
 production-adapter enablement (done; deploy gate cleared, one live-IdP
 test deferred) → **2** IdP-initiated SSO + SP metadata + explicit
-Recipient (Recipient check + `parseSamlIdpMetadata` done; the 3
-framework-invasive items blocked on a design pass) → **3** Single
-Logout. Total estimated effort: ~7–9 weeks. See _Status & Resume
-Point_ for current state.
+Recipient (Recipient check + `parseSamlIdpMetadata` + SP-metadata
+endpoint done; 2 framework-invasive items — IdP-initiated SSO,
+signed-AuthnRequest — remain, each pending a design pass) → **3**
+Single Logout. Total estimated effort: ~7–9 weeks. See _Status &
+Resume Point_ for current state.
 
 ## Status & Resume Point
 
@@ -73,38 +74,44 @@ fragile xml2js walk the plan rejected), denies on mismatch *and* on a
 missing Recipient; conformance cases 12 + a `noRecipient` deny case
 green. (b) `parseSamlIdpMetadata(xml)` — pure `Result`-returning helper
 on the subpath, namespace-prefix agnostic, exported from the barrel and
-documented in `INTEGRATION.md` § 9.5.
+documented in `INTEGRATION.md` § 9.5. (c) **SP metadata XML endpoint**
+— `GET /m/<methodId>/metadata`, anonymous, via the new general
+`publicRoutes` framework capability (design pass + sign-off this
+session). `buildSpMetadataXml` (pure) + `buildSpMetadata` route;
+SPSSODescriptor, HTTP-POST ACS, `AuthnRequestsSigned=false` /
+`WantAssertionsSigned=true`, no KeyDescriptor/SLO (standards-valid
+omissions), `Cache-Control: s-maxage=300`. An **anti-drift** test
+asserts the published entityID/ACS equal what `buildAuthnRequestRedirect`
+derives; a **fail-closed** domain test asserts a non-public route is
+refused even if the HTTP layer mis-routes.
 
-**Phase 2 — remaining, BLOCKED ON FRAMEWORK DESIGN.** Reconnaissance
-(this session) found the three remaining Phase 2 items each need a
-framework change the plan under-specified, so they were deliberately
-**not** started without per-item sign-off:
+**Phase 2 — remaining, BLOCKED ON FRAMEWORK DESIGN (two items).**
+Reconnaissance found each needs a framework change the plan
+under-specified; not started without per-item sign-off:
 
-- **SP metadata XML endpoint.** Plan said serve via
-  `/m/<methodId>/metadata`, but `/m/*` is hard-gated on an `idp.flow`
-  cookie (`http/handlers/method-route.ts`) — there is **no anonymous
-  path** for public metadata today. Needs a new public route or an
-  anonymous carve-out in the method-route handler.
 - **IdP-initiated SSO (SAML-AD7).** `handleCallback`'s three gates
   (state-extract → MAC-verify → `consumeFlow`) all fire before
   dispatch with **no hook point**, and `/m/*` requires a flow cookie.
   A genuinely new framework entry point is required — larger than the
-  plan's "synthetic flow" framing implied.
+  plan's "synthetic flow" framing implied. (Note: `publicRoutes`,
+  shipped for metadata, is a *flowless* path — it does not by itself
+  solve IdP-init, which still needs a synthesized flow + auth-code.)
 - **Signed-AuthnRequest.** `MethodContext` exposes no `KeyStore` path;
   OIDC signs at the token/HTTP layer, never inside a method. Threading
   a signing key to a method is a novel framework change with no
   precedent.
 
-**Recommended next action:** a short design pass on the three
-framework changes above (each is independent; the SP-metadata
-anonymous-route one is the smallest and unblocks an enterprise
-import-our-metadata ask). The live Okta/Entra test remains a tracked
-follow-up (deferred, needs creds), not a sequencing blocker.
+**Recommended next action:** a design pass on the two remaining
+framework changes (independent of each other). The live Okta/Entra
+test remains a tracked follow-up (deferred, needs creds), not a
+sequencing blocker.
 
-**Two framework changes SAML drove** (documented in `ARCHITECTURE.md`):
-`MethodContext.methodScratch` (precursor commit `395ec99`) and
-`handleCallback` POST-body state recovery (`db45ab6`, general — also
-unblocks OAuth `form_post`).
+**Three framework changes SAML drove** (documented in
+`ARCHITECTURE.md`), each a *general* capability, not SAML-specific
+surface: `MethodContext.methodScratch` (precursor `395ec99`),
+`handleCallback` POST-body state recovery (`db45ab6`, also unblocks
+OAuth `form_post`), and `AuthMethod.publicRoutes` (anonymous flowless
+method routes — first user is SP metadata).
 
 ## Goals
 
@@ -692,12 +699,19 @@ Recipient-binding gap.
   dispatch with no hook point; `/m/*` requires an `idp.flow` cookie.
   Needs a genuinely new framework entry point — larger than the
   "synthetic flow" framing implied. Not started without sign-off.
-- ⏳ **SP metadata XML endpoint.** **Blocked on framework design.**
-  Plan assumed `/m/<methodId>/metadata`, but `/m/*` is hard-gated on
-  an `idp.flow` cookie (`http/handlers/method-route.ts`) — no
-  anonymous path exists. Needs a new public route or an anonymous
-  carve-out. (`parseSamlIdpMetadata` — the *inbound* side — is done;
-  this is the *outbound* SP-metadata side.)
+- ✅ **SP metadata XML endpoint** (2026-05-15). Served anonymously at
+  `GET /m/<methodId>/metadata` via the new general `AuthMethod.publicRoutes`
+  opt-in (the original plan's "`/m/*` mount" assumption was wrong —
+  `/m/*` is flow-cookie-gated; the design pass replaced it with a
+  fail-closed, reusable public-route capability — see `ARCHITECTURE.md`
+  § `publicRoutes`). `metadata.ts`: pure `buildSpMetadataXml` +
+  `buildSpMetadata` route; `domain/method-route.ts`:
+  `handlePublicMethodRoute` with an independent membership re-check;
+  `http/handlers/method-route.ts`: additive public fast-path leaving
+  the gated path byte-identical. `cacheControlFor` lifted to
+  `http/cookies.ts` as `cacheControlHeader` (shared, no third copy).
+  Anti-drift + fail-closed tests green. (`parseSamlIdpMetadata` — the
+  *inbound* side — was already done; this is the *outbound* side.)
 - ⏳ **Signed-AuthnRequest support.** **Blocked on framework design.**
   `MethodContext` exposes no `KeyStore`; OIDC signs at the token/HTTP
   layer, never in a method. Threading a signing key to a method is a
@@ -847,7 +861,7 @@ node-saml's message, free-text — **not** typed reason codes) / `error`.
 | 12| `Recipient` mismatch → not `success`              | 2     | ✅ (`checkRecipient`; + `noRecipient` deny case) |
 | 13| IdP-initiated success with `defaultClientId`      | 2     | ⏳ |
 | 14| IdP-initiated with hostile `RelayState`           | 2     | ⏳ |
-| 15| SP metadata XML matches IdP-importer expectations | 2     | ⏳ |
+| 15| SP metadata XML matches IdP-importer expectations | 2     | ✅ (`metadata.test.ts`; anti-drift vs AuthnRequest) |
 | 16| Front-channel SLO round-trip                      | 3     | ⏳ |
 | 17| Encrypted assertion off → rejected                | 3     | ⏳ |
 | 18| Encrypted assertion on → accepted                 | 3     | ⏳ |

@@ -15,6 +15,7 @@ import type { AuthMethod, MethodContext } from "../../types/method"
 
 import { consumeAssertion } from "./acs"
 import { buildAuthnRequestRedirect } from "./authnrequest"
+import { buildSpMetadata } from "./metadata"
 import type { SamlSpConfig, SamlSpProperties, SamlSpState } from "./types"
 
 export function buildSamlSpMethod(
@@ -31,6 +32,10 @@ export function buildSamlSpMethod(
         buildAuthnRequestRedirect(ctx, id, config),
       "GET /callback": (ctx: MethodContext<SamlSpState>) =>
         consumeAssertion(ctx, config),
+      "GET /metadata": (ctx: MethodContext<SamlSpState>) =>
+        buildSpMetadata(ctx, id, config),
     },
+    // Anonymous, no flow cookie — public SP metadata only.
+    publicRoutes: ["GET /metadata"],
   }
 }

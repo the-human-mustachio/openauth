@@ -999,6 +999,31 @@ document missing an `IDPSSODescriptor` / signing cert / `entityID`.
 `attributeMapping` is still authored by hand — it is a per-deployment
 policy decision, not data the IdP publishes.
 
+**The reverse direction — publishing *our* SP metadata.** Most IdPs
+also accept an SP metadata URL/file instead of hand-entered EntityID +
+ACS. The library serves it, **unauthenticated**, at:
+
+```
+GET /m/<methodId>/metadata        → application/samlmetadata+xml
+```
+
+No `idp.flow` cookie, no session — paste this URL straight into the
+IdP admin console. The document's `entityID` and ACS `Location` are
+derived from the *same* logic the live AuthnRequest/ACS path uses, so
+they cannot drift from what the runtime actually accepts (a CI test
+asserts this equality). It advertises `AuthnRequestsSigned="false"`,
+`WantAssertionsSigned="true"`, the HTTP-POST ACS, and `NameIDFormat`
+iff `config.idp.nameIdFormat` is set. It deliberately carries no
+`KeyDescriptor` (SP request-signing / encrypted assertions are not yet
+supported — advertising a cert we can't use would be the bug) and no
+`SingleLogoutService` (SLO is a later phase). Served with
+`Cache-Control: s-maxage=300`.
+
+Mechanically this is the first user of the framework's general
+`publicRoutes` opt-in (a method declares which route keys are
+anonymous); it is not SAML-specific HTTP surface — see
+`ARCHITECTURE.md` § `publicRoutes`.
+
 **Attribute-mapping cookbook.** `attributeMapping` normalizes the
 verified assertion into `providerSubject` + the property fields handed
 to your `success(input)` callback. Each ref is either the assertion's

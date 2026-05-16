@@ -57,6 +57,22 @@ export type AuthMethod<P = unknown, S = unknown> = {
    */
   routes: Record<string, MethodHandler<P, S>>
   /**
+   * Opt-in allowlist of route keys (same `"GET /metadata"` string form
+   * as `routes` keys) that the framework dispatches **without** a flow
+   * cookie or flow record — anonymous, unauthenticated GETs. The sole
+   * intended use is publishing static, per-instance descriptive
+   * documents (SAML SP metadata XML). The handler receives
+   * `ctx.flow === null` and `ctx.methodState === null` and MUST be a
+   * pure function of `ctx.tenant` + `ctx.dispatch` + its captured
+   * config — it must not assume an authenticated principal.
+   *
+   * Absent (the default for every method) ⇒ behaviour is unchanged:
+   * every `/m/<id>/*` request requires the `idp.flow` cookie. The
+   * cookie gate is skipped *only* for a route key a method explicitly
+   * lists here — fail-closed by construction.
+   */
+  publicRoutes?: ReadonlyArray<string>
+  /**
    * Token-exchange function for the `/token` endpoint when the method
    * participates in client-credentials-style flows (e.g. `m2m`). Most
    * redirect-based methods do not set this.

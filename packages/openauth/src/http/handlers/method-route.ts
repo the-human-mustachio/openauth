@@ -7,11 +7,15 @@
  * `domain/method-route.handleMethodRoute` orchestrator handles flow lookup
  * + dispatch + result translation.
  */
-import { handleMethodRoute } from "../../domain/method-route"
+import {
+  handleMethodRoute,
+  handlePublicMethodRoute,
+} from "../../domain/method-route"
+import type { RouteKey } from "../../domain/method-dispatch"
 import { authError } from "../../types/error"
 import { isErr } from "../../types/result"
 
-import { applyResponsePolicy } from "../cookies"
+import { applyResponsePolicy, cacheControlHeader } from "../cookies"
 import type { HttpContext, HttpDeps } from "../context"
 import { authorizeDirectErrorResponse } from "../errors"
 
@@ -23,6 +27,69 @@ export function makeMethodRouteHandler(deps: HttpDeps) {
         authError.invalidRequest("tenant unresolved"),
       )
     }
+
+    // Public fast-path (additive — leaves the cookie-gated path below
+    // byte-identical for every non-public request). Only a clean hit —
+    // well-formed `/m/<id>/<sub>`, method resolves, and the resolved
+    // method explicitly lists this route key in `publicRoutes` — is
+    // diverted here, cookie-free. Anything else falls through to the
+    // original flow-cookie-gated logic with its original error
+    // ordering. `methodCache.resolve` is a cache lookup; the duplicate
+    // resolve on the gated path is a cache hit.
+    {
+      const u = new URL(c.req.url)
+      const segs = u.pathname.split("/").filter(Boolean)
+      if (segs.length >= 3 && segs[0] === "m") {
+        const methodId = segs[1]!
+        const subPath = "/" + segs.slice(2).join("/")
+        const httpMethod =
+          c.req.method.toUpperCase() === "POST" ? "POST" : "GET"
+        const routeKey = `${httpMethod} ${subPath}` as RouteKey
+        const resolved = await deps.methodCache.resolve(
+          tenant.config,
+          methodId,
+        )
+        if (
+          !isErr(resolved) &&
+          resolved.value.publicRoutes?.includes(routeKey)
+        ) {
+          const issuerUrl = c.get("issuerUrl")
+          const callbackHost =
+            deps.callbackHostFor?.(tenant.id) ?? new URL(issuerUrl).host
+          // Mirrors the ACS URL derivation in domain/authorize.ts
+          // (callbackHost/path/url). Source of truth is there; the
+          // metadata.test.ts anti-drift test asserts the emitted
+          // entityID/ACS equal what buildAuthnRequestRedirect derives.
+          const callbackUrl = `${new URL(issuerUrl).protocol}//${callbackHost}/cb/${methodId}`
+          const pub = await handlePublicMethodRoute(
+            {
+              rawRequest: c.req.raw,
+              tenant,
+              method: resolved.value,
+              route: routeKey,
+              subPath,
+              dispatch: { state: "", callbackUrl, issuerUrl },
+            },
+            { sessionStore: deps.sessionStore },
+          )
+          if (isErr(pub)) return authorizeDirectErrorResponse(pub.error)
+          if (pub.value.kind === "denied") {
+            return applyResponsePolicy(
+              new Response(`access_denied: ${pub.value.reason}`, {
+                status: 403,
+                headers: { "content-type": "text/plain" },
+              }),
+              { cookieDefaults: deps.cookieDefaults },
+            )
+          }
+          return applyResponsePolicy(pub.value.response, {
+            cacheControl: cacheControlHeader(pub.value.cache),
+            cookieDefaults: deps.cookieDefaults,
+          })
+        }
+      }
+    }
+
     const cookies = c.get("cookies")
     const flowId = cookies.get("idp.flow")
     if (!flowId) {

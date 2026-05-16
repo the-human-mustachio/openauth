@@ -225,10 +225,38 @@ belongs in `methodState` or in a port.
 `saveScratch` / `readScratch` / `deleteScratch` are **optional** on
 `SessionStore`. Adapters that don't implement them cause every
 `methodScratch.*` call to fail with `internal_error` naming the missing
-operation — methods surface this in `MethodResult.error`. Memory
-adapter implements; production adapters (Postgres, D1, DynamoDB, DO)
-add the trio when a method that depends on them gets deployed against
-them.
+operation — methods surface this in `MethodResult.error`. Memory **and
+all four production adapters** (Postgres, D1, DynamoDB, Durable Object)
+implement the trio, each opted into the `supportsScratch` conformance
+cases.
+
+## `publicRoutes` — anonymous per-instance documents
+
+`/m/<methodId>/*` is normally gated on the framework-set `idp.flow`
+cookie: every request must belong to an in-flight authorization. A few
+method routes are inherently **public** — a SAML SP must publish its
+metadata XML at a stable URL an enterprise IdP admin fetches with no
+session. For that, `AuthMethod` exposes an opt-in allowlist:
+
+```
+publicRoutes?: ReadonlyArray<string>   // e.g. ["GET /metadata"]
+```
+
+A route key listed here is dispatched through `handlePublicMethodRoute`
+(`domain/method-route.ts`): no cookie, `ctx.flow === null`,
+`ctx.methodState === null`. The handler must be a pure function of
+`ctx.tenant` + `ctx.dispatch` + captured config. **Fail-closed:** the
+gate opens *only* for a route key the method explicitly enumerates;
+absent (every method's default) the behaviour is unchanged, and the
+domain function re-checks membership rather than trusting the HTTP
+caller. A flowless route returning `success` is a programming error
+(no flow to consume into an auth code) and surfaces as `internal_error`
+rather than authenticating.
+
+This is the third framework change SAML drove — after `methodScratch`
+and `handleCallback` POST-body state recovery — and like both it is a
+**general** capability, not SAML-specific surface (any method may
+declare public routes).
 
 ## Response sanitization
 

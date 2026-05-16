@@ -7,7 +7,7 @@
  * strip method-returned `Set-Cookie` / security / `Cache-Control` headers so
  * methods cannot bypass policy.
  */
-import type { SetCookie } from "../types/method"
+import type { CachePolicy, SetCookie } from "../types/method"
 
 /** Parse an incoming `Cookie:` header into a read-only map. */
 export function parseCookieHeader(header: string | null): Map<string, string> {
@@ -116,6 +116,24 @@ const STRIPPED_HEADERS = [
   "permissions-policy",
   "cache-control",
 ] as const
+
+/**
+ * Serialize a `MethodResult.challenge`'s `CachePolicy` into a
+ * `Cache-Control` header value. The framework owns this header (methods
+ * cannot set it directly — see `STRIPPED_HEADERS`); a method opts into
+ * caching via the typed `cache` field and this renders it. Absent /
+ * `maxAge: 0` ⇒ `no-store` (the safe default for auth UI).
+ */
+export function cacheControlHeader(cache: CachePolicy | undefined): string {
+  if (!cache) return "no-store"
+  if ((cache.maxAge ?? -1) === 0) return "no-store"
+  const parts: string[] = []
+  if (cache.isPrivate) parts.push("private")
+  if (cache.maxAge !== undefined) parts.push(`max-age=${cache.maxAge}`)
+  if (cache.sMaxAge !== undefined) parts.push(`s-maxage=${cache.sMaxAge}`)
+  if (cache.immutable) parts.push("immutable")
+  return parts.length ? parts.join(", ") : "no-store"
+}
 
 export type ApplyOptions = {
   setCookies?: SetCookie[]

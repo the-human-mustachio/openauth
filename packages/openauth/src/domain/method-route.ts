@@ -32,7 +32,13 @@ import type { SessionStore } from "../ports/session-store"
 import type { TokenStore } from "../ports/token-store"
 import { authError, type AuthError } from "../types/error"
 import type { FlowRecord } from "../types/flow"
-import type { MethodResult, CachePolicy, SetCookie } from "../types/method"
+import type {
+  AuthMethod,
+  CachePolicy,
+  MethodDispatchData,
+  MethodResult,
+  SetCookie,
+} from "../types/method"
 import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { TenantContext } from "../types/tenant"
@@ -209,5 +215,89 @@ async function translate(
       })
     case "error":
       return err(result.error)
+  }
+}
+
+/**
+ * Anonymous public method route — the fourth, deliberately narrow,
+ * pipeline. Used only for route keys a method explicitly lists in
+ * `AuthMethod.publicRoutes` (today: SAML SP `GET /metadata`). No flow
+ * cookie, no flow record, no `SessionStore` read: the handler is a pure
+ * function of `tenant` + `dispatch` + captured config.
+ *
+ * Security: this re-checks `publicRoutes` membership against the
+ * resolved method. The HTTP layer also checks before routing here, but
+ * a domain function guarding a no-auth path must not trust its caller —
+ * the gate is enforced here too, fail-closed.
+ *
+ * Only `challenge` (the metadata document) and `denied` are sensible
+ * outcomes; `success` from a flowless route is a programming error
+ * (there is no flow to consume into an auth code) and surfaces as an
+ * internal error rather than silently authenticating.
+ */
+export type HandlePublicMethodRouteInput = {
+  rawRequest: Request
+  tenant: TenantContext
+  /** Pre-resolved by the HTTP layer (it needed it to detect the public route). */
+  method: AuthMethod
+  route: RouteKey
+  subPath: string
+  /** Issuer/callback context so the handler can derive stable URLs. */
+  dispatch: MethodDispatchData
+}
+
+export type HandlePublicMethodRouteDeps = {
+  sessionStore: SessionStore
+}
+
+export type PublicMethodRouteOutput =
+  | { kind: "challenge"; response: Response; cache?: CachePolicy }
+  | { kind: "denied"; reason: string }
+
+export async function handlePublicMethodRoute(
+  input: HandlePublicMethodRouteInput,
+  deps: HandlePublicMethodRouteDeps,
+): Promise<Result<PublicMethodRouteOutput, AuthError>> {
+  if (!input.method.publicRoutes?.includes(input.route)) {
+    return err(
+      authError.invalidRequest(
+        `route "${input.route}" is not public on method "${input.method.id}"`,
+        "path",
+      ),
+    )
+  }
+
+  const dispatched = await dispatchMethod({
+    method: input.method,
+    route: input.route,
+    tenant: input.tenant,
+    request: input.rawRequest,
+    subPath: input.subPath,
+    flow: null,
+    cookies: new Map(),
+    sessionStore: deps.sessionStore,
+    dispatch: input.dispatch,
+  })
+  if (isErr(dispatched)) return err(dispatched.error)
+
+  const r = dispatched.value
+  switch (r.kind) {
+    case "challenge":
+      return ok({
+        kind: "challenge",
+        response: r.response,
+        ...(r.cache !== undefined ? { cache: r.cache } : {}),
+      })
+    case "denied":
+      return ok({ kind: "denied", reason: r.reason })
+    case "success":
+      return err(
+        authError.internalError(
+          `public route "${input.route}" on method "${input.method.id}" ` +
+            `returned success — a flowless route cannot authenticate`,
+        ),
+      )
+    case "error":
+      return err(r.error)
   }
 }
