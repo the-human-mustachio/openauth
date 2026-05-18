@@ -19,7 +19,7 @@ const { SAML, ValidateInResponseTo } = nodeSaml
 type SamlInstance = InstanceType<typeof SAML>
 
 /** Standard SAML 2.0 NameID format URNs. */
-const NAME_ID_FORMAT_URN: Record<SamlNameIdFormat, string> = {
+export const NAME_ID_FORMAT_URN: Record<SamlNameIdFormat, string> = {
   persistent: "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
   transient: "urn:oasis:names:tc:SAML:2.0:nameid-format:transient",
   emailAddress: "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
@@ -52,6 +52,16 @@ export type SamlBindingContext = {
    * (unchanged).
    */
   idpInitiated?: boolean
+  /**
+   * Logout-binding instance (the `/sls` + `/logout` paths). node-saml's
+   * `InResponseTo` machinery only reads the attribute off a `Response`
+   * root, never a `LogoutResponse`, so with the default `always` it
+   * throws "InResponseTo is missing" on every inbound `LogoutResponse`.
+   * Front-channel logout correlation is out of that scope — we
+   * replay-dedup the inbound `LogoutRequest @ID` via `methodScratch`
+   * instead — so logout instances use `never`. Overrides `idpInitiated`.
+   */
+  logout?: boolean
   /**
    * Per-connection SP signing material (SAML-AD: O3 — decoupled from
    * the OIDC `KeyStore`; the IdP pins this cert, rotation is an
@@ -122,9 +132,11 @@ export function buildSamlInstance(
     // InResponseTo (`always`); IdP-initiated is unsolicited so it must
     // be `ifPresent` — the caller layers explicit assertion-ID replay
     // dedup on top for that mode.
-    validateInResponseTo: binding.idpInitiated
-      ? ValidateInResponseTo.ifPresent
-      : ValidateInResponseTo.always,
+    validateInResponseTo: binding.logout
+      ? ValidateInResponseTo.never
+      : binding.idpInitiated
+        ? ValidateInResponseTo.ifPresent
+        : ValidateInResponseTo.always,
     wantAssertionsSigned: true,
     wantAuthnResponseSigned: false,
     acceptedClockSkewMs: (config.clockSkewSeconds ?? 60) * 1000,

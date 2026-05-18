@@ -167,14 +167,32 @@ precedent): `SamlSpConfig.allowEncryptedAssertions` (default `false`)
   iff SLO is configured. Tested end-to-end through the real router
   (`sls-http.test.ts`): signed→302+revoke+audit, forged→denied/no
   side effect, replay→rejected, gating, metadata.
-- ⏳ **3d** — SP-initiated *send* (host-driven route → `LogoutRequest`
-  to `idp.sloUrl`; the `/sls` `SAMLResponse` branch is stubbed,
-  validated-and-ack'd, pending 3d enrichment). Then 3e, 3f.
+- ✅ **3d — SP-initiated send.** Host-driven `POST /m/<id>/logout`
+  (`slo-initiate.ts`, public iff `idp.sloUrl`): the host supplies the
+  authenticated subject's `NameID` (+ optional `SessionIndex` /
+  `RelayState`) — the library never persisted that map — and the SP
+  emits a (signed iff `signingKey`) `LogoutRequest` 302 to
+  `idp.sloUrl`. **Pure propagation: no `logout` side effect** — OIDC
+  token revocation stays `/end_session`'s job, deliberately not
+  auto-bridged. Return leg: the IdP's signed `LogoutResponse` is
+  signature-verified at `/sls` and acknowledged. Found + fixed a real
+  node-saml interaction: `validatePostResponseAsync` only reads
+  `InResponseTo` off a `Response` root, never `LogoutResponse`, so the
+  default `always` threw "InResponseTo is missing" on every inbound
+  `LogoutResponse` — logout instances now use
+  `ValidateInResponseTo.never` (front-channel logout correlation is
+  out of that scope; inbound `LogoutRequest @ID` replay is deduped via
+  `methodScratch`). Tested end-to-end (`slo-initiate-http.test.ts`):
+  send→302+`SAMLRequest`+no-side-effect, missing-nameId→denied,
+  signed-`LogoutResponse`→200, forged→denied, gating. Conformance 16
+  round-trip ✅.
+- ⏳ **3e** — encrypted assertions behind a flag. Then **3f** polish.
 
-**Recommended next action:** implement increment **3d** (SP-initiated
-logout send), completing the front-channel round-trip (conformance
-case 16). The live Okta/Entra test remains a tracked follow-up
-(deferred, needs creds), not a sequencing blocker.
+**Recommended next action:** implement increment **3e** (encrypted
+assertions behind `allowEncryptedAssertions` + per-connection
+`decryptionKey`, mirroring the O3 `signingKey` precedent). The live
+Okta/Entra test remains a tracked follow-up (deferred, needs creds),
+not a sequencing blocker.
 
 **Five framework changes SAML drove** (documented in
 `ARCHITECTURE.md`), each a *general* capability, not SAML-specific
@@ -970,7 +988,7 @@ node-saml's message, free-text — **not** typed reason codes) / `error`.
 | 13| IdP-initiated success with `defaultClientId`      | 2     | ✅ (`idp-initiated.test.ts` — 302+code) |
 | 14| IdP-initiated with hostile `RelayState`           | 2     | ✅ (never a redirect; replay deduped) |
 | 15| SP metadata XML matches IdP-importer expectations | 2     | ✅ (`metadata.test.ts`; anti-drift vs AuthnRequest) |
-| 16| Front-channel SLO round-trip                      | 3     | 🟡 receive half ✅ (`sls-http.test.ts`: signed→302+revoke+audit, forged→denied, replay→rejected); SP-initiated send ⏳ 3d |
+| 16| Front-channel SLO round-trip                      | 3     | ✅ receive (`sls-http.test.ts`: signed→302+revoke+audit, forged→denied, replay→rejected) + SP-initiated send & `LogoutResponse` return leg (`slo-initiate-http.test.ts`) |
 | 17| Encrypted assertion off → rejected                | 3     | ⏳ |
 | 18| Encrypted assertion on → accepted                 | 3     | ⏳ |
 

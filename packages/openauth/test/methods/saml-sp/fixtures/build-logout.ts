@@ -120,3 +120,52 @@ export function postLogoutRequest(opts: LogoutOpts): string {
   )
   return Buffer.from(signed, "utf8").toString("base64")
 }
+
+export type LogoutResponseOpts = {
+  idpEntityId: string
+  /** The SP's own SLS URL (LogoutResponse `Destination`). */
+  slsUrl: string
+  /** `InResponseTo` — the SP `LogoutRequest` ID being answered. */
+  inResponseTo?: string
+  /** Non-Success top-level status (IdP refused / partial logout). */
+  failure?: boolean
+  /** Sign with the attacker key (SP trusts IDP_CERT) → must be denied. */
+  wrongKey?: boolean
+}
+
+/**
+ * POST-binding `LogoutResponse` (IdP → SP, the SP-initiated return
+ * leg). node-saml requires a valid **document-level** signature on a
+ * `LogoutResponse` (saml.js: `if (!validSignature) throw`), so it is
+ * signed at the `LogoutResponse` root, not a child.
+ */
+export function postLogoutResponse(opts: LogoutResponseOpts): string {
+  const now = Date.now()
+  const id = "_lresp_" + Math.random().toString(36).slice(2)
+  const status = opts.failure
+    ? "urn:oasis:names:tc:SAML:2.0:status:Responder"
+    : "urn:oasis:names:tc:SAML:2.0:status:Success"
+  const xml =
+    `<samlp:LogoutResponse ` +
+    `xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" ` +
+    `xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ` +
+    `ID="${id}" Version="2.0" IssueInstant="${iso(now)}" ` +
+    `Destination="${opts.slsUrl}"` +
+    (opts.inResponseTo ? ` InResponseTo="${opts.inResponseTo}"` : "") +
+    `>` +
+    `<saml:Issuer>${opts.idpEntityId}</saml:Issuer>` +
+    `<samlp:Status><samlp:StatusCode Value="${status}"/></samlp:Status>` +
+    `</samlp:LogoutResponse>`
+
+  const signed = signSamlPost(
+    xml,
+    '/*[local-name(.)="LogoutResponse"]',
+    {
+      privateKey: opts.wrongKey ? ATTACKER_KEY : IDP_KEY,
+      publicCert: opts.wrongKey ? ATTACKER_CERT : IDP_CERT,
+      signatureAlgorithm: "sha256",
+      digestAlgorithm: "http://www.w3.org/2001/04/xmlenc#sha256",
+    },
+  )
+  return Buffer.from(signed, "utf8").toString("base64")
+}

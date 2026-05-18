@@ -131,6 +131,7 @@ export async function consumeSls(
         acsUrl: ctx.dispatch.callbackUrl,
         scratch: ctx.methodScratch,
         logoutUrl: config.idp.sloUrl,
+        logout: true,
         ...(config.signingKey
           ? {
               signing: {
