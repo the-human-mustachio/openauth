@@ -70,6 +70,56 @@ export type FailureEvent = {
 }
 
 /**
+ * Input to the optional `IdPOptions.onLogout` hook.
+ *
+ * Fires when an upstream provider notifies this IdP that a federated
+ * session has ended — today, a SAML front-channel `LogoutRequest`
+ * delivered to the SP's SLS endpoint. By the time this runs the library
+ * has already cryptographically verified the upstream logout message
+ * (XML-DSig via the SAML method), so the hook is purely the host's
+ * teardown point.
+ *
+ * The library deliberately does **not** know which OIDC `subject` an
+ * upstream identifier (`nameId`) maps to — that mapping lives in the
+ * host's `success` callback, not the library. So the host clears its
+ * own session and returns the subject (if any) whose library-issued
+ * tokens should be revoked; the library then runs the same
+ * `revokeAllForSubject` primitive `/end_session` uses. Returning
+ * nothing skips library-side revocation (the host handled everything,
+ * or there is nothing to revoke).
+ *
+ * Method-agnostic on purpose: any federation method that can verify an
+ * upstream logout signal reuses this. SAML SLO is the first caller;
+ * OIDC back-channel logout would be the next.
+ */
+export type LogoutEventInput = {
+  tenant: TenantContext
+  methodId: string
+  methodKind: string
+  /** What kind of upstream logout this is. Extensible discriminant. */
+  reason: "upstream_slo"
+  /**
+   * Upstream subject identifier from the verified logout message
+   * (SAML `LogoutRequest/NameID`). Absent if the message omitted it.
+   */
+  nameId?: string
+  /**
+   * Upstream session index from the verified logout message
+   * (SAML `SessionIndex`), when present. Lets a host that tracks
+   * per-session state scope its teardown.
+   */
+  sessionIndex?: string
+}
+
+/**
+ * Return of `IdPOptions.onLogout`. `revokeSubject` names the OIDC
+ * subject whose library-issued refresh tokens the library should
+ * revoke (the host resolves it from `nameId` — only the host has that
+ * map). Omit / return nothing to skip library-side revocation.
+ */
+export type LogoutHookResult = { revokeSubject?: string } | void
+
+/**
  * Optional hook called at `/token` time, after PKCE has succeeded and
  * after the `success` callback has produced a `SubjectClaim`, but
  * **before** the access/refresh response is returned. Use this when you
@@ -258,6 +308,30 @@ export type IdPOptions = {
     onSuccess?: (event: SuccessEvent) => Promise<void>
     onFailure?: (event: FailureEvent) => Promise<void>
   }
+
+  /**
+   * Optional hook fired when an upstream provider signals that a
+   * federated session ended — SAML front-channel Single Logout today.
+   * The library has already verified the signed logout message; this
+   * hook is where the host tears down its own session and names the
+   * OIDC subject (if any) whose library-issued tokens to revoke. See
+   * the `LogoutEventInput` / `LogoutHookResult` type docs.
+   *
+   * Unlike `hooks.onSuccess`/`onFailure` (observation only) this hook
+   * **influences** library behaviour — its return drives token
+   * revocation — so it sits at the top level alongside `success`.
+   *
+   * Absent ⇒ the library still verifies the logout, emits a
+   * `session_logout` audit event, and returns the protocol
+   * `LogoutResponse`, but performs no token revocation (it cannot map
+   * the upstream id to a subject without the host).
+   *
+   * If it throws, the SLS endpoint fails closed with an internal error
+   * rather than acknowledging a logout it could not fully process.
+   */
+  onLogout?: (
+    input: LogoutEventInput,
+  ) => Promise<LogoutHookResult> | LogoutHookResult
 
   /**
    * Optional escape hatch for high-sensitivity deployments — see the

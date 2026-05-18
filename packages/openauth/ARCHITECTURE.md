@@ -304,6 +304,55 @@ This is the fourth general framework change SAML drove (after
 likewise method-agnostic — any method that can authenticate from an
 unsolicited inbound POST may opt in.
 
+## `onLogout` + `challenge.logout` — host-collaborative upstream logout
+
+The library terminates a session by revoking the subject's refresh
+tokens (`revokeAllForSubject`, the same primitive `/end_session`
+uses). But for an **upstream** logout — a SAML front-channel
+`LogoutRequest` arriving at the SP's SLS endpoint — the library hits
+two deliberate boundaries: a public route's domain context has no
+`tokenStore`, and the library has **no map from an upstream identifier
+(SAML `NameID`) to an OIDC `subject`** — that mapping lives in the
+host's `success` callback (the host owns the final `SubjectClaim`).
+
+So upstream logout is split the same way `success` is: the method does
+**protocol only** (verify the signed `LogoutRequest` via node-saml —
+no hand-rolled XML-DSig; build the signed `LogoutResponse`) and returns
+`MethodResult.challenge` with an optional **`logout: { nameId?,
+sessionIndex? }`** field. The privileged side effect runs in the
+framework's public-route pipeline, which fires the new general
+`IdPOptions.onLogout(input) → { revokeSubject? } | void` hook; if the
+host names a subject, the framework runs `revokeAllForSubject` for it,
+then returns the `LogoutResponse`.
+
+Key points:
+
+- **`logout` is a minimal optional field on the existing `challenge`
+  variant**, not a new `MethodResult` kind — same shape as Phase 2's
+  `success.unsolicitedBinding` (V′). It is consulted **only** on a
+  *public* (flowless) route; an authenticated flow-bearing method
+  route never logs anyone out, so the field is inert there.
+- **Fail-closed.** A throwing `onLogout`, or a failed
+  `revokeAllForSubject`, withholds the `LogoutResponse` (returns
+  `internal_error`/the revoke error) rather than telling the IdP the
+  user is logged out when they may not be.
+- **Method stays port-free.** The method never imports
+  `ports/`/`http/`; the framework owns the `tokenStore` + hook. This
+  preserves the same invariant every other method obeys.
+- **Audit.** Always emits `session_logout` with `via: "upstream_slo"`
+  + `methodId`/`methodKind` (and `subjectId` only when one was
+  revoked). `via` is general — OIDC RP-Initiated Logout is
+  `rp_initiated` (the default), and a future OIDC back-channel logout
+  reuses `upstream_slo`.
+- **Conservative default preserved.** Absent `onLogout`, the library
+  still verifies + acknowledges the logout and audits it, but revokes
+  nothing (it cannot resolve the upstream id without the host).
+
+This is the fifth general framework change SAML drove (after
+`methodScratch`, POST-body state recovery, `publicRoutes`, and
+`unsolicitedCallback`); likewise method-agnostic — any federation
+method that can verify an upstream logout signal may use it.
+
 ## Response sanitization
 
 Returning an arbitrary `Response` from a method would let it stuff

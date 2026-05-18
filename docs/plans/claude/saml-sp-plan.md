@@ -19,9 +19,12 @@ production-adapter enablement (done; deploy gate cleared, one live-IdP
 test deferred) → **2** IdP-initiated SSO + SP metadata + explicit
 Recipient + signed-AuthnRequest (**done** — Recipient check,
 `parseSamlIdpMetadata`, SP-metadata endpoint, IdP-initiated SSO,
-signed-AuthnRequest all shipped) → **3** Single Logout. Total
-estimated effort: ~7–9 weeks. See _Status & Resume Point_ for current
-state.
+signed-AuthnRequest all shipped) → **3** Single Logout +
+production polish (**in progress** — architecture signed off:
+front-channel SLO both directions via a new *general*
+`IdPOptions.onLogout` host hook + `MethodResult.challenge.logout`
+field; encrypted assertions behind a flag). Total estimated effort:
+~7–9 weeks. See _Status & Resume Point_ for current state.
 
 ## Status & Resume Point
 
@@ -108,18 +111,58 @@ items shipped after their design passes + sign-off:
   AuthnRequest; SP metadata auto-advertises `AuthnRequestsSigned="true"`
   + a signing `KeyDescriptor` when enabled (kept truthful).
 
-**Recommended next action:** **Phase 3 — Single Logout (SLO) +
-production polish.** The live Okta/Entra test remains a tracked
-follow-up (deferred, needs creds), not a sequencing blocker.
+**Phase 3 — IN PROGRESS (architecture signed off 2026-05-18).**
+Single Logout (SLO) + production polish. The two forking decisions
+were taken with the user:
 
-**Four framework changes SAML drove** (documented in
+- **Inbound `LogoutRequest` is host-collaborative.** The library
+  cannot unilaterally terminate the right session: a public route has
+  no `tokenStore` (`HandlePublicMethodRouteDeps = { sessionStore }`
+  only), and the library has **no NameID→OIDC-subject map** — that
+  mapping lives in the host's `success(input)` callback (the host owns
+  the final `SubjectClaim`). Decision: the library verifies the signed
+  `LogoutRequest` (node-saml, SAML-AD1 — no hand-rolled XML-DSig),
+  then fires a new *general* `IdPOptions.onLogout` host hook (sibling
+  of `success`); the host does its own teardown and may return
+  `{ revokeSubject }`, in which case the library runs the existing
+  `revokeAllForSubject` (`domain/revoke.ts`) for it. Method handlers
+  stay port-free: `/sls` returns `MethodResult.challenge` carrying an
+  optional **`logout`** intent (mirrors Phase 2's V′
+  `success.unsolicitedBinding` — an optional field on an existing
+  variant, not a new `MethodResult` kind; AD3 holds). The privileged
+  side-effect runs in the domain public-route pipeline, which gains
+  `{ onLogout?, tokenStore, auditLog?, clock }`.
+- **Both front-channel directions ship.** IdP-initiated receive
+  (`GET/POST /sls`) + SP-initiated send. SP-initiated send is a
+  **host-driven method route** (host invokes it from its logout UI),
+  **not** an automatic `/end_session` side effect — same rationale as
+  above (no session↔method↔`sessionIndex` persistence exists; the
+  host owns the identity mapping; a route needs **no new port**).
+  `/end_session` stays OIDC-only. Back-channel/SOAP stays out (a
+  pre-existing deferred decision).
+
+Encrypted assertions (no fork — mirrors the O3 `signingKey`
+precedent): `SamlSpConfig.allowEncryptedAssertions` (default `false`)
++ per-connection `decryptionKey?: { privateKeyPem }` → node-saml
+`decryptionPvk`; no port change.
+
+**Recommended next action:** implement increment **3b** (framework
+core: `onLogout` + `challenge.logout` + public-logout domain path +
+audit events + tests on the privileged side-effect path), then 3c→3f.
+The live Okta/Entra test remains a tracked follow-up (deferred, needs
+creds), not a sequencing blocker.
+
+**Five framework changes SAML drove** (documented in
 `ARCHITECTURE.md`), each a *general* capability, not SAML-specific
 surface: `MethodContext.methodScratch` (precursor `395ec99`),
 `handleCallback` POST-body state recovery (`db45ab6`, also unblocks
 OAuth `form_post`), `AuthMethod.publicRoutes` (anonymous flowless
-method routes — first user SP metadata), and
+method routes — first user SP metadata),
 `AuthMethod.unsolicitedCallback` + `MethodResult.success.unsolicitedBinding`
-(flowless inbound authentication — first user IdP-initiated SSO).
+(flowless inbound authentication — first user IdP-initiated SSO), and
+(Phase 3) `IdPOptions.onLogout` + `MethodResult.challenge.logout`
+(host-collaborative upstream-logout notification — first user SAML
+front-channel SLO; also a foundation for OIDC back-channel logout).
 
 ## Goals
 
@@ -768,16 +811,37 @@ Recipient-binding gap.
 **Goal:** Close the last common procurement checkbox and harden for
 production rollout.
 
+**Architecture (signed off 2026-05-18 — see _Status & Resume Point_
+for the decision record and rationale):** host-collaborative SLO via
+the general `IdPOptions.onLogout` hook + `MethodResult.challenge.logout`
+field; both front-channel directions; SP-initiated send is a
+host-driven method route, not an `/end_session` side effect;
+`/end_session` stays OIDC-only.
+
 **Deliverables:**
 
-- Front-channel SLO: `GET/POST /sls` routes implementing
-  `LogoutRequest` verification + `LogoutResponse` emission.
-- `SessionIndex` tracking on success (Phase 1 already captures it on
-  `SamlSpProperties`; Phase 3 wires it through to `SessionStore` so
-  SLO can revoke the right session).
-- Encrypted-assertion support **behind a feature flag**
-  (`SamlSpConfig.allowEncryptedAssertions: boolean`, default `false`).
-  Uses `@node-saml/node-saml`'s `xml-encryption` integration.
+- **3b — Framework core.** `IdPOptions.onLogout` (general host hook,
+  sibling of `success`; may return `{ revokeSubject }` →
+  `revokeAllForSubject`). `MethodResult.challenge.logout?` optional
+  field (mirrors V′; AD3 holds). Public-route domain pipeline gains
+  `{ onLogout?, tokenStore, auditLog?, clock }`; a logout-carrying
+  challenge fires `onLogout` → optional revoke → returns the
+  `LogoutResponse` redirect. `ARCHITECTURE.md` section.
+- **3c — Inbound `LogoutRequest` (IdP-initiated receive).**
+  `GET/POST /sls` (public route) verifies the signed `LogoutRequest`
+  via node-saml (`validateRedirectAsync` / `validatePostRequestAsync`
+  — SAML-AD1, no hand-rolled XML-DSig), builds the signed
+  `LogoutResponse`, returns `challenge` + `logout` intent.
+- **3d — SP-initiated send.** Host-driven method route builds a
+  signed `LogoutRequest` redirect to `idp.sloUrl`; the returned
+  `LogoutResponse` is validated at `/sls`. Completes the
+  front-channel round-trip (conformance case 16).
+- **3e — Encrypted-assertion support behind a feature flag**
+  (`SamlSpConfig.allowEncryptedAssertions: boolean`, default `false`)
+  + per-connection `decryptionKey?: { privateKeyPem }` (mirrors the
+  O3 `signingKey` precedent — decoupled from the OIDC `KeyStore`, no
+  port change). Wired to `@node-saml/node-saml`'s `decryptionPvk`
+  (its `xml-encryption` integration).
 - Audit-log catalog additions: `saml_authn_request_built`,
   `saml_response_verified`, `saml_response_rejected{reason}`,
   `saml_replay_detected`, `saml_logout_request_received`,
@@ -904,10 +968,13 @@ matrix only).
    `INTEGRATION.md` § SAML SP needs a worked example. Coordinate with
    whoever owns the host console before Phase 2 lands so the host UI
    can ship in the same release.
-3. **Do we want a `SamlEventEmitter` port for SLO push** (so the host
-   can fan out logout to other systems)? Defer until a concrete
-   deployment asks. Today's audit log covers the observability
-   minimum.
+3. ~~**Do we want a `SamlEventEmitter` port for SLO push** (so the
+   host can fan out logout to other systems)?~~ **Resolved
+   (2026-05-18)** — no new port. The general `IdPOptions.onLogout`
+   host hook is the fan-out point: the host receives the verified
+   logout intent and drives whatever downstream notification it
+   needs. Consistent with the locked "no new ports" cross-cutting
+   decision and the host-collaborative boundary.
 4. **AuthnContext class refs.** Some IdPs require us to assert
    `AuthnContextClassRef` (e.g., MFA-required). Worth a config option?
    Defer to Phase 3 polish unless raised in customer feedback before

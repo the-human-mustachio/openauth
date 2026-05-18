@@ -93,16 +93,29 @@ export type AuditEvent =
     }
   | {
       /**
-       * Emitted by `/end_session` (OIDC RP-Initiated Logout 1.0 §2) after
-       * processing the logout request — regardless of whether a
-       * `post_logout_redirect_uri` was supplied. `subjectId` is present
-       * when the request carried an `id_token_hint` that successfully
-       * verified; absent otherwise.
+       * Emitted after a logout is processed. Two channels, discriminated
+       * by `via`:
+       *
+       *  - `rp_initiated` (or absent — the default): `/end_session`
+       *    (OIDC RP-Initiated Logout 1.0 §2), regardless of whether a
+       *    `post_logout_redirect_uri` was supplied. `subjectId` present
+       *    when an `id_token_hint` verified; absent otherwise.
+       *  - `upstream_slo`: an upstream IdP notified us a federated
+       *    session ended (SAML front-channel Single Logout). `methodId`
+       *    / `methodKind` identify the federation connection;
+       *    `subjectId` present only when the host's `onLogout` returned
+       *    a subject to revoke.
+       *
+       * `via` is general (OIDC back-channel logout would reuse
+       * `upstream_slo`), not SAML-specific surface.
        */
       kind: "session_logout"
       tenantId: TenantId
       clientId?: string
       subjectId?: string
+      via?: "rp_initiated" | "upstream_slo"
+      methodId?: string
+      methodKind?: string
     }
   | {
       /**

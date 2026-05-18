@@ -70,7 +70,13 @@ export function makeMethodRouteHandler(deps: HttpDeps) {
               subPath,
               dispatch: { state: "", callbackUrl, issuerUrl },
             },
-            { sessionStore: deps.sessionStore },
+            {
+              sessionStore: deps.sessionStore,
+              tokenStore: deps.tokenStore,
+              clock: deps.clock,
+              ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
+              ...(deps.onLogout ? { onLogout: deps.onLogout } : {}),
+            },
           )
           if (isErr(pub)) return authorizeDirectErrorResponse(pub.error)
           if (pub.value.kind === "denied") {

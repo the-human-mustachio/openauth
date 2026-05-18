@@ -215,6 +215,27 @@ export type MethodResult<P = unknown, S = unknown> =
       saveMethodState?: S
       /** Serialized into a `Cache-Control` header by the framework. */
       cache?: CachePolicy
+      /**
+       * Verified upstream-logout notification. Set **only** by a
+       * flowless **public** logout route (e.g. SAML front-channel SLS)
+       * once it has cryptographically verified the inbound logout
+       * message. The method stays port-free — it proves authenticity
+       * and builds the protocol response (`response` = the signed
+       * `LogoutResponse` redirect / ack); the privileged side effect
+       * runs in the framework.
+       *
+       * When present on a public route the framework fires
+       * `IdPOptions.onLogout` and, if that returns `{ revokeSubject }`,
+       * runs `revokeAllForSubject` — then returns `response`. Ignored
+       * on non-public (flow-bearing) routes: an authenticated method
+       * route never logs anyone out. Mirrors the Phase 2 V′ pattern
+       * (`success.unsolicitedBinding`): an optional field on an
+       * existing variant, not a new `MethodResult` kind.
+       */
+      logout?: {
+        nameId?: string
+        sessionIndex?: string
+      }
     }
   /**
    * Authentication succeeded. The HTTP layer hands `providerSubject` +

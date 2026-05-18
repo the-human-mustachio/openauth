@@ -76,6 +76,8 @@ export type {
   FailureEvent,
   IdP,
   IdPOptions,
+  LogoutEventInput,
+  LogoutHookResult,
   PersistUpstreamTokens,
   RegisterClient,
   RegisterClientRequest,
@@ -246,6 +248,7 @@ export function createIdP(opts: IdPOptions): IdP {
     ...(opts.callbackHostFor ? { callbackHostFor: opts.callbackHostFor } : {}),
     resolveTenant: opts.resolveTenant,
     success: opts.success,
+    ...(opts.onLogout ? { onLogout: opts.onLogout } : {}),
     ...(opts.persistUpstreamTokens
       ? { persistUpstreamTokens: opts.persistUpstreamTokens }
       : {}),
