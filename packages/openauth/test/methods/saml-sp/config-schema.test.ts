@@ -84,6 +84,35 @@ describe("samlSpFactory.configSchema", () => {
     expect("issues" in r && r.issues).toBeFalsy()
   })
 
+  test("rejects allowEncryptedAssertions:true without decryptionKey", async () => {
+    const bad = { ...VALID, allowEncryptedAssertions: true }
+    const r = await validate(bad)
+    expect("issues" in r && (r.issues?.length ?? 0) > 0).toBe(true)
+  })
+
+  test("accepts allowEncryptedAssertions:true with a per-connection decryptionKey", async () => {
+    const ok = {
+      ...VALID,
+      allowEncryptedAssertions: true,
+      decryptionKey: {
+        privateKeyPem: "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----",
+        certPem: "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+      },
+    }
+    const r = await validate(ok)
+    expect("issues" in r && r.issues).toBeFalsy()
+  })
+
+  test("rejects a decryptionKey missing certPem", async () => {
+    const bad = {
+      ...VALID,
+      allowEncryptedAssertions: true,
+      decryptionKey: { privateKeyPem: "-----BEGIN PRIVATE KEY-----\n…" },
+    }
+    const r = await validate(bad)
+    expect("issues" in r && (r.issues?.length ?? 0) > 0).toBe(true)
+  })
+
   test("rejects an unknown nameIdFormat", async () => {
     const bad = {
       ...VALID,

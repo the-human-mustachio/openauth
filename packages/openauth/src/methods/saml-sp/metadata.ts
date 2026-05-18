@@ -71,6 +71,14 @@ export type SpMetadataInput = {
    * is the same anti-drift invariant as the entityID/ACS.
    */
   signingCertPem?: string
+  /**
+   * SP encryption cert (PEM). Present ⇒ the connection accepts
+   * encrypted assertions, so the metadata advertises a
+   * `KeyDescriptor use="encryption"` (the cert the IdP encrypts to —
+   * `config.decryptionKey.certPem`). Same anti-drift / advertise-only-
+   * what-we-serve invariant as the signing cert.
+   */
+  encryptionCertPem?: string
 }
 
 /** PEM cert body → bare base64 (SAML metadata X509Certificate form). */
@@ -93,13 +101,21 @@ export function buildSpMetadataXml(input: SpMetadataInput): string {
     input.nameIdFormat !== undefined
       ? `\n    <md:NameIDFormat>${NAME_ID_FORMAT_URN[input.nameIdFormat]}</md:NameIDFormat>`
       : ""
-  const keyDescriptor = signed
-    ? `\n    <md:KeyDescriptor use="signing">` +
-      `<ds:KeyInfo><ds:X509Data><ds:X509Certificate>` +
-      certBody(input.signingCertPem as string) +
-      `</ds:X509Certificate></ds:X509Data></ds:KeyInfo>` +
-      `</md:KeyDescriptor>`
-    : ""
+  const x509 = (cert: string) =>
+    `<ds:KeyInfo><ds:X509Data><ds:X509Certificate>` +
+    certBody(cert) +
+    `</ds:X509Certificate></ds:X509Data></ds:KeyInfo>`
+  const keyDescriptor =
+    (signed
+      ? `\n    <md:KeyDescriptor use="signing">` +
+        x509(input.signingCertPem as string) +
+        `</md:KeyDescriptor>`
+      : "") +
+    (input.encryptionCertPem !== undefined
+      ? `\n    <md:KeyDescriptor use="encryption">` +
+        x509(input.encryptionCertPem) +
+        `</md:KeyDescriptor>`
+      : "")
   // Schema order: KeyDescriptor → SingleLogoutService → NameIDFormat →
   // AssertionConsumerService. Advertise both bindings we accept at /sls.
   const sls =
@@ -169,6 +185,11 @@ export async function buildSpMetadata(
     // Truthful: advertise signing iff we actually sign AuthnRequests.
     ...(config.signAuthnRequest && config.signingKey
       ? { signingCertPem: config.signingKey.certPem }
+      : {}),
+    // Truthful: advertise an encryption cert iff we accept (and can
+    // decrypt) encrypted assertions.
+    ...(config.allowEncryptedAssertions && config.decryptionKey
+      ? { encryptionCertPem: config.decryptionKey.certPem }
       : {}),
   })
 

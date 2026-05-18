@@ -262,6 +262,11 @@ export async function consumeAssertion(
         acsUrl,
         scratch: ctx.methodScratch,
         ...(idpInitiated ? { idpInitiated: true } : {}),
+        // Encrypted assertions are opt-in per connection. Absent ⇒ no
+        // decryptionPvk ⇒ node-saml rejects an EncryptedAssertion.
+        ...(config.allowEncryptedAssertions && config.decryptionKey
+          ? { decryptionPvk: config.decryptionKey.privateKeyPem }
+          : {}),
       },
       Date.now(),
     )
@@ -289,12 +294,24 @@ export async function consumeAssertion(
     // signature-wrapping, issuer/audience mismatch, expired
     // conditions, unknown InResponseTo) throws here. These are
     // controlled auth failures, not server faults.
-    return {
-      kind: "denied",
-      reason: `assertion rejected: ${
-        e instanceof Error ? e.message : String(e)
-      }`,
+    const msg = e instanceof Error ? e.message : String(e)
+    // node-saml throws this exact message when an EncryptedAssertion
+    // arrives but no decryptionPvk is configured. Give the operator a
+    // signal that the *connection* is mis/under-configured rather than
+    // a generic "assertion rejected".
+    if (
+      !config.allowEncryptedAssertions &&
+      msg.includes("No decryption key")
+    ) {
+      return {
+        kind: "denied",
+        reason:
+          "encrypted assertion received but encrypted assertions are not " +
+          "enabled for this SAML connection (set allowEncryptedAssertions " +
+          "+ decryptionKey)",
+      }
     }
+    return { kind: "denied", reason: `assertion rejected: ${msg}` }
   }
 
   if (!profile || !profile.nameID) {

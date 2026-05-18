@@ -71,6 +71,13 @@ const samlSpConfigSchema = z
         certPem: z.string().min(1),
       })
       .optional(),
+    allowEncryptedAssertions: z.boolean().optional(),
+    decryptionKey: z
+      .object({
+        privateKeyPem: z.string().min(1),
+        certPem: z.string().min(1),
+      })
+      .optional(),
     idpInitiated: idpInitiatedSchema.optional(),
     clockSkewSeconds: z.number().int().nonnegative().optional(),
   })
@@ -78,6 +85,14 @@ const samlSpConfigSchema = z
     message: "signingKey is required when signAuthnRequest is true",
     path: ["signingKey"],
   })
+  .refine(
+    (c) => !c.allowEncryptedAssertions || c.decryptionKey !== undefined,
+    {
+      message:
+        "decryptionKey is required when allowEncryptedAssertions is true",
+      path: ["decryptionKey"],
+    },
+  )
 
 export type SamlSpFactoryConfig = z.infer<typeof samlSpConfigSchema>
 

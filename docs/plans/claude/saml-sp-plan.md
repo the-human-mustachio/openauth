@@ -186,13 +186,27 @@ precedent): `SamlSpConfig.allowEncryptedAssertions` (default `false`)
   send→302+`SAMLRequest`+no-side-effect, missing-nameId→denied,
   signed-`LogoutResponse`→200, forged→denied, gating. Conformance 16
   round-trip ✅.
-- ⏳ **3e** — encrypted assertions behind a flag. Then **3f** polish.
+- ✅ **3e — encrypted assertions behind a flag.**
+  `SamlSpConfig.allowEncryptedAssertions` (default `false`) +
+  per-connection `decryptionKey: { privateKeyPem, certPem }` (mirrors
+  the O3 `signingKey` precedent — decoupled from the OIDC `KeyStore`,
+  no port change; `certPem` added so SP metadata can advertise the
+  encryption cert). Wired to node-saml `decryptionPvk` (its
+  `xml-encryption` integration); the decrypted assertion's XML-DSig is
+  still fully enforced (`wantAssertionsSigned`). Off ⇒ no
+  `decryptionPvk` ⇒ rejected, with an operator-legible reason. SP
+  metadata advertises a `use="encryption"` `KeyDescriptor` iff
+  configured (same advertise-only-what-we-serve invariant). Zod refine
+  `allowEncryptedAssertions ⇒ decryptionKey`. Tested end-to-end
+  (`acs-encrypted.test.ts`: on→success w/ signature still enforced,
+  off→denied, metadata) + schema (`config-schema.test.ts`).
+- ⏳ **3f** — production polish (audit catalog, perf bench vs OIDC,
+  internal security-review checklist, `INTEGRATION.md` §9.5 SLO +
+  encrypted-assertion docs).
 
-**Recommended next action:** implement increment **3e** (encrypted
-assertions behind `allowEncryptedAssertions` + per-connection
-`decryptionKey`, mirroring the O3 `signingKey` precedent). The live
-Okta/Entra test remains a tracked follow-up (deferred, needs creds),
-not a sequencing blocker.
+**Recommended next action:** implement increment **3f** (production
+polish), then Phase 3 is complete. The live Okta/Entra test remains a
+tracked follow-up (deferred, needs creds), not a sequencing blocker.
 
 **Five framework changes SAML drove** (documented in
 `ARCHITECTURE.md`), each a *general* capability, not SAML-specific
@@ -989,8 +1003,8 @@ node-saml's message, free-text — **not** typed reason codes) / `error`.
 | 14| IdP-initiated with hostile `RelayState`           | 2     | ✅ (never a redirect; replay deduped) |
 | 15| SP metadata XML matches IdP-importer expectations | 2     | ✅ (`metadata.test.ts`; anti-drift vs AuthnRequest) |
 | 16| Front-channel SLO round-trip                      | 3     | ✅ receive (`sls-http.test.ts`: signed→302+revoke+audit, forged→denied, replay→rejected) + SP-initiated send & `LogoutResponse` return leg (`slo-initiate-http.test.ts`) |
-| 17| Encrypted assertion off → rejected                | 3     | ⏳ |
-| 18| Encrypted assertion on → accepted                 | 3     | ⏳ |
+| 17| Encrypted assertion off → rejected                | 3     | ✅ (`acs-encrypted.test.ts`; operator-legible deny reason) |
+| 18| Encrypted assertion on → accepted                 | 3     | ✅ (`acs-encrypted.test.ts`; decrypted, inner XML-DSig still enforced) |
 
 OASIS interop suite integration is **not in scope** (matches existing
 posture per `idp-rebuild-plan.md` § Conformance Scope — hand-built

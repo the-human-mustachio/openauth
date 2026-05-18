@@ -126,6 +126,29 @@ export type SamlSpConfig = {
    * its own resolver) — same handling as any per-tenant credential.
    */
   signingKey?: { privateKeyPem: string; certPem: string }
+  /**
+   * Accept `<saml:EncryptedAssertion>` responses. **Off by default** —
+   * a connection only opts in when its IdP is configured to encrypt.
+   * When `false`, an encrypted assertion is rejected (the SP advertises
+   * no decryption cert and node-saml has no `decryptionPvk`). Requires
+   * `decryptionKey` when `true` (enforced by `configSchema`).
+   */
+  allowEncryptedAssertions?: boolean
+  /**
+   * Per-connection SP **decryption** keypair — the private half the IdP
+   * encrypts assertions to. Same SAML-AD O3 rationale as `signingKey`:
+   * decoupled from the OIDC `KeyStore` (the IdP pins the matching cert
+   * via SP metadata; rotation is an IdP-coordination event;
+   * KMS-agnostic). Required iff `allowEncryptedAssertions` is `true`.
+   * Treat `privateKeyPem` as a secret: the host should encrypt the
+   * `MethodStore` at rest (or supply it via its own resolver) — same
+   * handling as `signingKey.privateKeyPem` and any per-tenant
+   * credential. `certPem` is the matching X.509 cert the IdP encrypts
+   * to; SP metadata advertises it as a `use="encryption"`
+   * `KeyDescriptor` (same advertise-only-what-we-serve invariant as
+   * `signingKey`).
+   */
+  decryptionKey?: { privateKeyPem: string; certPem: string }
   idpInitiated?: SamlIdpInitiatedConfig
   /** Clock skew allowance for `NotBefore` / `NotOnOrAfter`. Seconds. */
   clockSkewSeconds?: number

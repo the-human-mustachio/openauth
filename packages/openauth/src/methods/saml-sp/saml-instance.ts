@@ -80,6 +80,15 @@ export type SamlBindingContext = {
    * SSO paths leave it unset.
    */
   logoutUrl?: string
+  /**
+   * SP decryption private key PEM (`SamlSpConfig.decryptionKey`),
+   * passed through to node-saml's `decryptionPvk`. Present ⇒ node-saml
+   * decrypts `<saml:EncryptedAssertion>` (the decrypted assertion's
+   * XML-DSig is still fully enforced). Set only when the connection
+   * opted into `allowEncryptedAssertions`; absent ⇒ an encrypted
+   * assertion is rejected.
+   */
+  decryptionPvk?: string
 }
 
 /**
@@ -156,5 +165,9 @@ export function buildSamlInstance(
     // SP-emitted LogoutResponse / LogoutRequest destination (the IdP's
     // SLO endpoint). node-saml's logout URL builder reads `logoutUrl`.
     ...(binding.logoutUrl ? { logoutUrl: binding.logoutUrl } : {}),
+    // Encrypted-assertion decryption (opt-in per connection).
+    ...(binding.decryptionPvk
+      ? { decryptionPvk: binding.decryptionPvk }
+      : {}),
   })
 }
