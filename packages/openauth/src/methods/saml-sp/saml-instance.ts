@@ -56,12 +56,20 @@ export type SamlBindingContext = {
    * Per-connection SP signing material (SAML-AD: O3 — decoupled from
    * the OIDC `KeyStore`; the IdP pins this cert, rotation is an
    * IdP-coordination event). Present ⇒ node-saml signs the outbound
-   * `AuthnRequest` (HTTP-Redirect binding) with it.
+   * `AuthnRequest` (HTTP-Redirect binding) **and** outbound logout
+   * messages (`LogoutRequest` / `LogoutResponse`) with it.
    */
   signing?: {
     privateKeyPem: string
     certPem: string
   }
+  /**
+   * IdP Single Logout endpoint (`SamlSpConfig.idp.sloUrl`). Destination
+   * for SP-emitted `LogoutResponse` (front-channel SLO, Phase 3) and
+   * SP-initiated `LogoutRequest`. Only needed on the `/sls` path; the
+   * SSO paths leave it unset.
+   */
+  logoutUrl?: string
 }
 
 /**
@@ -125,7 +133,7 @@ export function buildSamlInstance(
       IN_RESPONSE_TO_TTL_MS,
     ),
     // O3: per-connection SP signing key (opt-in). node-saml signs the
-    // HTTP-Redirect AuthnRequest internally with this PEM keypair.
+    // HTTP-Redirect AuthnRequest / logout messages with this PEM keypair.
     ...(binding.signing
       ? {
           privateKey: binding.signing.privateKeyPem,
@@ -133,5 +141,8 @@ export function buildSamlInstance(
           signatureAlgorithm: "sha256" as const,
         }
       : {}),
+    // SP-emitted LogoutResponse / LogoutRequest destination (the IdP's
+    // SLO endpoint). node-saml's logout URL builder reads `logoutUrl`.
+    ...(binding.logoutUrl ? { logoutUrl: binding.logoutUrl } : {}),
   })
 }

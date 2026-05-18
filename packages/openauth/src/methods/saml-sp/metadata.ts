@@ -14,11 +14,11 @@
  * that could drift. `metadata.test.ts` asserts this equality against
  * `buildAuthnRequestRedirect` so drift fails CI.
  *
- * v1 omits `KeyDescriptor` (we neither sign AuthnRequests nor accept
- * encrypted assertions yet — advertising a cert we cannot use would be
- * the bug) and `SingleLogoutService` (SLO is a later phase —
- * advertising an endpoint we do not serve would break interop). Both
- * are standards-valid omissions; `AuthnRequestsSigned="false"` /
+ * `KeyDescriptor` is emitted only when we actually sign AuthnRequests
+ * (advertising a cert we cannot use would be the bug);
+ * `SingleLogoutService` only when an IdP SLO endpoint is configured
+ * and the `/sls` route is therefore served (advertising an endpoint we
+ * do not serve would break interop). `AuthnRequestsSigned` /
  * `WantAssertionsSigned="true"` truthfully state actual behaviour.
  */
 import { authError } from "../../types/error"
@@ -40,6 +40,8 @@ const NAME_ID_FORMAT_URN: Record<SamlNameIdFormat, string> = {
 }
 
 const HTTP_POST = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+const HTTP_REDIRECT =
+  "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
 
 /** Minimal XML attribute/text escaping for URL-shaped values. */
 function xmlEscape(s: string): string {
@@ -53,6 +55,13 @@ function xmlEscape(s: string): string {
 export type SpMetadataInput = {
   spEntityId: string
   acsUrl: string
+  /**
+   * The SP's own Single Logout Service URL (`/m/<methodId>/sls`).
+   * Present ⇒ front-channel SLO is served, so the metadata advertises
+   * `SingleLogoutService` for both bindings we accept. Same
+   * advertise-only-what-we-serve invariant as the ACS / signing cert.
+   */
+  slsUrl?: string
   nameIdFormat?: SamlNameIdFormat
   /**
    * SP signing cert (PEM). Present ⇒ we sign AuthnRequests, so the
@@ -91,6 +100,15 @@ export function buildSpMetadataXml(input: SpMetadataInput): string {
       `</ds:X509Certificate></ds:X509Data></ds:KeyInfo>` +
       `</md:KeyDescriptor>`
     : ""
+  // Schema order: KeyDescriptor → SingleLogoutService → NameIDFormat →
+  // AssertionConsumerService. Advertise both bindings we accept at /sls.
+  const sls =
+    input.slsUrl !== undefined
+      ? `\n    <md:SingleLogoutService ` +
+        `Binding="${HTTP_REDIRECT}" Location="${xmlEscape(input.slsUrl)}"/>` +
+        `\n    <md:SingleLogoutService ` +
+        `Binding="${HTTP_POST}" Location="${xmlEscape(input.slsUrl)}"/>`
+      : ""
 
   return (
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
@@ -101,6 +119,7 @@ export function buildSpMetadataXml(input: SpMetadataInput): string {
     `WantAssertionsSigned="true" ` +
     `protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">` +
     keyDescriptor +
+    sls +
     nameIdLine +
     `\n    <md:AssertionConsumerService ` +
     `Binding="${HTTP_POST}" Location="${acs}" index="0" isDefault="true"/>` +
@@ -134,9 +153,16 @@ export async function buildSpMetadata(
     ctx.tenant.id,
     methodId,
   )
+  // SP SLS URL — same host as the ACS callback, at the public method
+  // mount `/m/<methodId>/sls`. Only advertised when SLO is actually
+  // served (idp.sloUrl set ⇒ /sls is in publicRoutes). Derived from the
+  // same dispatch input as the ACS so it cannot drift.
+  const cb = new URL(ctx.dispatch.callbackUrl)
+  const slsUrl = `${cb.protocol}//${cb.host}/m/${methodId}/sls`
   const xml = buildSpMetadataXml({
     spEntityId,
     acsUrl: ctx.dispatch.callbackUrl,
+    ...(config.idp.sloUrl ? { slsUrl } : {}),
     ...(config.idp.nameIdFormat !== undefined
       ? { nameIdFormat: config.idp.nameIdFormat }
       : {}),

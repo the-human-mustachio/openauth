@@ -146,11 +146,35 @@ precedent): `SamlSpConfig.allowEncryptedAssertions` (default `false`)
 + per-connection `decryptionKey?: { privateKeyPem }` → node-saml
 `decryptionPvk`; no port change.
 
-**Recommended next action:** implement increment **3b** (framework
-core: `onLogout` + `challenge.logout` + public-logout domain path +
-audit events + tests on the privileged side-effect path), then 3c→3f.
-The live Okta/Entra test remains a tracked follow-up (deferred, needs
-creds), not a sequencing blocker.
+**Progress:**
+
+- ✅ **3b — framework core** (commit `ab246e0`). `IdPOptions.onLogout`
+  + `MethodResult.challenge.logout` + public-logout domain pipeline
+  ({onLogout?, tokenStore, auditLog?, clock}) + `session_logout`
+  `via` discriminant. Riskiest layer (privileged side-effect path)
+  tested in `test/domain/method-route-public.test.ts`. The 5th
+  general framework change, documented in `ARCHITECTURE.md`.
+- ✅ **3c — inbound `LogoutRequest` (IdP-initiated receive).**
+  `GET|POST /m/<id>/sls` public route (`sls.ts`), gated public iff
+  `idp.sloUrl` is set (mirrors `unsolicitedCallback` ⇐ `idpInitiated`).
+  Verifies the signed `LogoutRequest` via node-saml
+  (`validateRedirectAsync` / `validatePostRequestAsync` — SAML-AD1,
+  both bindings), front-channel replay-dedups the request `@ID` via
+  `methodScratch`, emits a signed `LogoutResponse` 302 to `idp.sloUrl`,
+  and returns `challenge` + `logout` so 3b's pipeline fires
+  `onLogout` → optional `revokeAllForSubject`. SP metadata now
+  advertises `SingleLogoutService` (both bindings, same-host anti-drift)
+  iff SLO is configured. Tested end-to-end through the real router
+  (`sls-http.test.ts`): signed→302+revoke+audit, forged→denied/no
+  side effect, replay→rejected, gating, metadata.
+- ⏳ **3d** — SP-initiated *send* (host-driven route → `LogoutRequest`
+  to `idp.sloUrl`; the `/sls` `SAMLResponse` branch is stubbed,
+  validated-and-ack'd, pending 3d enrichment). Then 3e, 3f.
+
+**Recommended next action:** implement increment **3d** (SP-initiated
+logout send), completing the front-channel round-trip (conformance
+case 16). The live Okta/Entra test remains a tracked follow-up
+(deferred, needs creds), not a sequencing blocker.
 
 **Five framework changes SAML drove** (documented in
 `ARCHITECTURE.md`), each a *general* capability, not SAML-specific
@@ -946,7 +970,7 @@ node-saml's message, free-text — **not** typed reason codes) / `error`.
 | 13| IdP-initiated success with `defaultClientId`      | 2     | ✅ (`idp-initiated.test.ts` — 302+code) |
 | 14| IdP-initiated with hostile `RelayState`           | 2     | ✅ (never a redirect; replay deduped) |
 | 15| SP metadata XML matches IdP-importer expectations | 2     | ✅ (`metadata.test.ts`; anti-drift vs AuthnRequest) |
-| 16| Front-channel SLO round-trip                      | 3     | ⏳ |
+| 16| Front-channel SLO round-trip                      | 3     | 🟡 receive half ✅ (`sls-http.test.ts`: signed→302+revoke+audit, forged→denied, replay→rejected); SP-initiated send ⏳ 3d |
 | 17| Encrypted assertion off → rejected                | 3     | ⏳ |
 | 18| Encrypted assertion on → accepted                 | 3     | ⏳ |
 
