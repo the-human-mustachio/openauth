@@ -998,6 +998,80 @@ credential. When signing is enabled, the SP metadata automatically
 advertises `AuthnRequestsSigned="true"` and a signing `KeyDescriptor`,
 so it stays truthful to runtime behaviour.
 
+**Single Logout (front-channel SLO).** Set `idp.sloUrl` to enable it.
+Two anonymous routes become active (gated on `idp.sloUrl` — absent ⇒
+they are not served, and SP metadata advertises no
+`SingleLogoutService`, so an IdP never sends a logout we cannot
+complete):
+
+```
+GET|POST /m/<methodId>/sls       ← IdP LogoutRequest / LogoutResponse
+POST     /m/<methodId>/logout    ← host-driven SP-initiated logout
+```
+
+- **IdP-initiated (receive).** The IdP delivers a signed
+  `LogoutRequest` to `/sls` (HTTP-Redirect or HTTP-POST). The library
+  verifies the XML-DSig against `idp.signingCerts` (node-saml — no
+  hand-rolled crypto), replay-dedups the request `@ID`, emits a signed
+  `LogoutResponse` 302 back to `idp.sloUrl`, and — *before* responding
+  — fires your **`onLogout`** hook. Authenticity is the signature, not
+  a cookie: a forged request gets a 403 and no side effect.
+- **`onLogout` host hook** (top-level `IdPOptions.onLogout`, a sibling
+  of `success`). The library cannot map a SAML `NameID` to your OIDC
+  `subject` — that mapping lives in your `success` callback — so it
+  hands you the verified logout and you decide:
+
+  ```ts
+  onLogout: async ({ tenant, methodId, nameId, sessionIndex }) => {
+    await myApp.endSessionFor(nameId)          // your session teardown
+    const subject = await myApp.subjectFor(nameId)
+    return subject ? { revokeSubject: subject } : undefined
+    // returning { revokeSubject } makes the library run the same
+    // revokeAllForSubject that /end_session uses. Omit ⇒ no library
+    // revocation (you handled it). A throw fails the SLO closed.
+  }
+  ```
+
+  Absent ⇒ the library still verifies + acknowledges the logout and
+  emits a `session_logout` audit event (`via: "upstream_slo"`), but
+  revokes nothing (it cannot resolve the subject without you).
+
+- **SP-initiated (send).** From your authenticated logout UX, `POST`
+  to `/m/<methodId>/logout` with form fields `nameId` (required),
+  `sessionIndex` / `nameIdFormat` / `relayState` (optional). The
+  library emits a (signed iff `signingKey`) `LogoutRequest` 302 to
+  `idp.sloUrl`; the IdP's `LogoutResponse` returns to `/sls`. This is
+  **pure protocol propagation — it does not revoke library tokens**:
+  OIDC token/session termination stays `/end_session`'s job (call
+  both from your logout flow). **Security:** this route is anonymous
+  at the library boundary and emits a signed `LogoutRequest` for
+  whatever `nameId` you post, so you MUST only invoke it for the
+  authenticated subject, with that subject's own `NameID`, behind your
+  own CSRF protection. Forced-logout is a host-owned risk — the
+  library cannot authenticate the caller without owning a session it
+  deliberately does not. Back-channel (SOAP) SLO is not supported.
+
+**Encrypted assertions** (`allowEncryptedAssertions` + `decryptionKey`).
+Off by default. Opt in per connection when the IdP encrypts the
+assertion:
+
+```ts
+allowEncryptedAssertions: true,
+decryptionKey: {
+  privateKeyPem: "-----BEGIN PRIVATE KEY-----\n…",  // decrypts the assertion
+  certPem: "-----BEGIN CERTIFICATE-----\n…",         // IdP encrypts to this; metadata advertises it
+}
+```
+
+`decryptionKey` is required when `allowEncryptedAssertions` is `true`
+(schema-enforced) and `privateKeyPem` is a **secret** (same at-rest
+handling as `signingKey.privateKeyPem`). The decrypted assertion's
+XML-DSig is still **fully enforced** — encryption does not relax
+signature verification. With the flag off (or no `decryptionKey`), an
+encrypted assertion is rejected with an operator-legible reason. SP
+metadata advertises a `use="encryption"` `KeyDescriptor` iff this is
+configured, so the IdP knows which cert to encrypt to.
+
 **Configuring the IdP side (manual — no metadata importer yet).** Both
 values the host registers at the IdP are *derived*, not configured, so
 they are stable across deploys:
@@ -1048,13 +1122,21 @@ No `idp.flow` cookie, no session — paste this URL straight into the
 IdP admin console. The document's `entityID` and ACS `Location` are
 derived from the *same* logic the live AuthnRequest/ACS path uses, so
 they cannot drift from what the runtime actually accepts (a CI test
-asserts this equality). It advertises `AuthnRequestsSigned="false"`,
-`WantAssertionsSigned="true"`, the HTTP-POST ACS, and `NameIDFormat`
-iff `config.idp.nameIdFormat` is set. It deliberately carries no
-`KeyDescriptor` (SP request-signing / encrypted assertions are not yet
-supported — advertising a cert we can't use would be the bug) and no
-`SingleLogoutService` (SLO is a later phase). Served with
-`Cache-Control: s-maxage=300`.
+asserts this equality). It advertises `WantAssertionsSigned="true"`,
+the HTTP-POST ACS, and `NameIDFormat` iff `config.idp.nameIdFormat` is
+set. Every other element is **truthful to runtime config** — emitted
+only when the corresponding capability is actually enabled, so the
+metadata never advertises something the SP cannot honour:
+
+- `AuthnRequestsSigned="true"` + a `use="signing"` `KeyDescriptor`
+  iff `signAuthnRequest` + `signingKey` (else
+  `AuthnRequestsSigned="false"`, no descriptor);
+- a `use="encryption"` `KeyDescriptor` iff `allowEncryptedAssertions`
+  + `decryptionKey`;
+- `SingleLogoutService` (HTTP-Redirect **and** HTTP-POST, same-host
+  as the ACS) iff `idp.sloUrl` is configured.
+
+Served with `Cache-Control: s-maxage=300`.
 
 Mechanically this is the first user of the framework's general
 `publicRoutes` opt-in (a method declares which route keys are

@@ -20,11 +20,12 @@ test deferred) → **2** IdP-initiated SSO + SP metadata + explicit
 Recipient + signed-AuthnRequest (**done** — Recipient check,
 `parseSamlIdpMetadata`, SP-metadata endpoint, IdP-initiated SSO,
 signed-AuthnRequest all shipped) → **3** Single Logout +
-production polish (**in progress** — architecture signed off:
-front-channel SLO both directions via a new *general*
-`IdPOptions.onLogout` host hook + `MethodResult.challenge.logout`
-field; encrypted assertions behind a flag). Total estimated effort:
-~7–9 weeks. See _Status & Resume Point_ for current state.
+production polish (**done** — front-channel SLO both directions via a
+new *general* `IdPOptions.onLogout` host hook +
+`MethodResult.challenge.logout` field; encrypted assertions behind a
+flag; security review + perf tripwire). **SAML SP is
+feature-complete** (conformance matrix 1–18 ✅). See _Status & Resume
+Point_ for current state.
 
 ## Status & Resume Point
 
@@ -111,9 +112,9 @@ items shipped after their design passes + sign-off:
   AuthnRequest; SP metadata auto-advertises `AuthnRequestsSigned="true"`
   + a signing `KeyDescriptor` when enabled (kept truthful).
 
-**Phase 3 — IN PROGRESS (architecture signed off 2026-05-18).**
-Single Logout (SLO) + production polish. The two forking decisions
-were taken with the user:
+**Phase 3 — COMPLETE (2026-05-18).** Single Logout (SLO) + production
+polish. Full SAML conformance matrix (cases 1–18) is ✅. The two
+forking decisions were taken with the user:
 
 - **Inbound `LogoutRequest` is host-collaborative.** The library
   cannot unilaterally terminate the right session: a public route has
@@ -200,13 +201,24 @@ precedent): `SamlSpConfig.allowEncryptedAssertions` (default `false`)
   `allowEncryptedAssertions ⇒ decryptionKey`. Tested end-to-end
   (`acs-encrypted.test.ts`: on→success w/ signature still enforced,
   off→denied, metadata) + schema (`config-schema.test.ts`).
-- ⏳ **3f** — production polish (audit catalog, perf bench vs OIDC,
-  internal security-review checklist, `INTEGRATION.md` §9.5 SLO +
-  encrypted-assertion docs).
+- ✅ **3f — production polish.** Audit mapping decided + recorded (no
+  SAML-named kinds; rides general events — `SAML-AD3`); internal
+  security-review checklist `saml-sp-security-review.md` (OASIS SAML
+  2.0 Security Considerations + OWASP SAML cheatsheet walked, controls
+  + accepted residuals documented); ACS perf tripwire
+  (`perf.test.ts` — p95 ≈ 5ms, generous 500ms catastrophic-regression
+  ceiling; precise OIDC ratio is too env-sensitive for CI so an
+  absolute bound + printed distribution is used instead);
+  `INTEGRATION.md` §9.5 extended (SLO both directions, `onLogout`
+  host hook, encrypted assertions, SP-initiated CSRF host contract;
+  stale "no KeyDescriptor / SLO" paragraph corrected; phase language
+  kept out of the public doc).
 
-**Recommended next action:** implement increment **3f** (production
-polish), then Phase 3 is complete. The live Okta/Entra test remains a
-tracked follow-up (deferred, needs creds), not a sequencing blocker.
+**Recommended next action:** **Phase 3 is complete — SAML SP is
+feature-complete.** Remaining: the owner-deferred live Okta/Entra
+dev-tenant integration test (needs real credentials; tracked, not a
+blocker). Optional future work is per-deal only (Holder-of-Key, ECP,
+Artifact, back-channel SOAP SLO — all declared non-goals).
 
 **Five framework changes SAML drove** (documented in
 `ARCHITECTURE.md`), each a *general* capability, not SAML-specific
