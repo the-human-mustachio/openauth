@@ -182,11 +182,28 @@ export async function consumeSls(
     if (!profile) {
       return { kind: "denied", reason: "logout request produced no profile" }
     }
+    // Fail-closed: the replay guard below is load-bearing (it stops a
+    // captured validly-signed LogoutRequest from repeatedly driving
+    // onLogout/revokeAllForSubject). node-saml v5.1.0 already throws
+    // before returning a profile when `@ID` is absent, so this is
+    // unreachable for a conformant message — but asserting it here
+    // makes the documented fail-closed posture true in code rather
+    // than silently dependent on an upstream library invariant
+    // (mirrors the IdP-init assertion-replay handling in acs.ts).
+    if (!profile.ID) {
+      return {
+        kind: "error",
+        error: authError.internalError(
+          "saml-sp: LogoutRequest carries no @ID — front-channel replay " +
+            "protection cannot be established. Refusing to process.",
+        ),
+      }
+    }
 
     // Front-channel replay dedup on the verified LogoutRequest @ID.
     // Logout is idempotent so the blast radius is low, but a replayed
     // signed message should not repeatedly drive revocation.
-    if (profile.ID) {
+    {
       const key = `slo-replay:${profile.ID}`
       const seen = await ctx.methodScratch.get(key)
       if (seen.ok) {

@@ -35,7 +35,12 @@ import {
   deriveSpEntityId,
   NAME_ID_FORMAT_URN,
 } from "./saml-instance"
-import type { SamlSpConfig, SamlSpProperties, SamlSpState } from "./types"
+import type {
+  SamlNameIdFormat,
+  SamlSpConfig,
+  SamlSpProperties,
+  SamlSpState,
+} from "./types"
 
 export async function initiateSpLogout(
   ctx: MethodContext<SamlSpState>,
@@ -84,12 +89,28 @@ export async function initiateSpLogout(
   }
 
   // NameID format: explicit param wins; else the connection's
-  // configured format; else persistent (the SSO default).
+  // configured format; else persistent (the SSO default). The param is
+  // a friendly key (same vocabulary as `config.idp.nameIdFormat`), not
+  // a raw URN — validate it rather than passing an arbitrary
+  // host-supplied string straight into the LogoutRequest, where a
+  // typo'd format silently produces a cryptic IdP-side rejection.
+  if (
+    nameIdFormatParam !== null &&
+    !(nameIdFormatParam in NAME_ID_FORMAT_URN)
+  ) {
+    return {
+      kind: "denied",
+      reason:
+        `unrecognized nameIdFormat "${nameIdFormatParam}" — expected one ` +
+        `of: ${Object.keys(NAME_ID_FORMAT_URN).join(", ")}`,
+    }
+  }
   const nameIDFormat =
-    nameIdFormatParam ??
-    (config.idp.nameIdFormat !== undefined
-      ? NAME_ID_FORMAT_URN[config.idp.nameIdFormat]
-      : NAME_ID_FORMAT_URN.persistent)
+    nameIdFormatParam !== null
+      ? NAME_ID_FORMAT_URN[nameIdFormatParam as SamlNameIdFormat]
+      : config.idp.nameIdFormat !== undefined
+        ? NAME_ID_FORMAT_URN[config.idp.nameIdFormat]
+        : NAME_ID_FORMAT_URN.persistent
 
   const spEntityId = deriveSpEntityId(
     ctx.dispatch.issuerUrl,

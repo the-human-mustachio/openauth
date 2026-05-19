@@ -1038,7 +1038,10 @@ POST     /m/<methodId>/logout    ← host-driven SP-initiated logout
 
 - **SP-initiated (send).** From your authenticated logout UX, `POST`
   to `/m/<methodId>/logout` with form fields `nameId` (required),
-  `sessionIndex` / `nameIdFormat` / `relayState` (optional). The
+  `sessionIndex` / `relayState` (optional), and `nameIdFormat`
+  (optional — one of `persistent` / `transient` / `emailAddress` /
+  `unspecified`; an unrecognized value is refused, not passed
+  through). The
   library emits a (signed iff `signingKey`) `LogoutRequest` 302 to
   `idp.sloUrl`; the IdP's `LogoutResponse` returns to `/sls`. This is
   **pure protocol propagation — it does not revoke library tokens**:

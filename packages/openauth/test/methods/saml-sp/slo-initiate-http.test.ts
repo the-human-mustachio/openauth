@@ -127,6 +127,35 @@ describe("SAML SP-initiated SLO over HTTP (idp.handle)", () => {
     expect((await res.text()).toLowerCase()).toContain("nameid")
   })
 
+  test("POST /logout with an unrecognized nameIdFormat → denied (input validated, not passed through)", async () => {
+    const { idp } = await buildSamlIdp()
+    const res = await idp.handle(
+      new Request(LOGOUT_URL, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: form({ nameId: "alice@corp.example", nameIdFormat: "kerberos" }),
+      }),
+    )
+    expect(res.status).toBe(403)
+    expect((await res.text()).toLowerCase()).toContain("nameidformat")
+  })
+
+  test("POST /logout with a valid friendly nameIdFormat key → 302", async () => {
+    const { idp } = await buildSamlIdp()
+    const res = await idp.handle(
+      new Request(LOGOUT_URL, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: form({
+          nameId: "alice@corp.example",
+          nameIdFormat: "emailAddress",
+        }),
+      }),
+    )
+    expect(res.status).toBe(302)
+    expect((res.headers.get("location") ?? "").startsWith(SLO_URL)).toBe(true)
+  })
+
   test("return leg: signed IdP LogoutResponse → /sls → 200, no side effect", async () => {
     const { idp, onLogoutCalls, audit } = await buildSamlIdp()
     const samlResponse = postLogoutResponse({

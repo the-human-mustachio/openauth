@@ -37,8 +37,8 @@ re-running the gauntlet, per the plan).
 | --- | --- | --- |
 | SP-initiated assertion replay | `InResponseTo` single-use via `methodScratch`-backed cache (cross-node) | `acs.test.ts` + `acs-postgres.test.ts` "replay rejected" |
 | IdP-initiated assertion replay (no `InResponseTo`) | Explicit assertion-`@ID` dedup via `methodScratch`, TTL = `NotOnOrAfter` + skew (clamped) | `idp-initiated.test.ts` |
-| Front-channel `LogoutRequest` replay | `LogoutRequest @ID` dedup via `methodScratch` | `sls-http.test.ts` "replay … 2nd rejected" |
-| Scratch store unavailable ⇒ fail-open replay | Fail-closed: `error` rather than skip the check | `acs.ts` (replay record failure → `internal_error`); `authnrequest.ts` scratch probe |
+| Front-channel `LogoutRequest` replay | `LogoutRequest @ID` dedup via `methodScratch`; a verified request with no `@ID` is refused (`internal_error`) rather than processed un-deduped | `sls-http.test.ts` "replay … 2nd rejected"; `sls.ts` explicit no-`@ID` fail-closed guard |
+| Scratch store unavailable ⇒ fail-open replay | Fail-closed: `error` rather than skip the check | `acs.ts` (replay record failure → `internal_error`); `sls.ts` (LogoutRequest record failure → `internal_error`); `authnrequest.ts` scratch probe |
 
 ## Open redirect & flowless surface
 
