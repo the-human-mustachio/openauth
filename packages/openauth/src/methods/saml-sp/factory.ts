@@ -85,14 +85,10 @@ const samlSpConfigSchema = z
     message: "signingKey is required when signAuthnRequest is true",
     path: ["signingKey"],
   })
-  .refine(
-    (c) => !c.allowEncryptedAssertions || c.decryptionKey !== undefined,
-    {
-      message:
-        "decryptionKey is required when allowEncryptedAssertions is true",
-      path: ["decryptionKey"],
-    },
-  )
+  .refine((c) => !c.allowEncryptedAssertions || c.decryptionKey !== undefined, {
+    message: "decryptionKey is required when allowEncryptedAssertions is true",
+    path: ["decryptionKey"],
+  })
 
 export type SamlSpFactoryConfig = z.infer<typeof samlSpConfigSchema>
 

@@ -86,8 +86,7 @@ async function buildSamlIdp(opts?: { withSlo?: boolean }) {
   return { idp, audit, onLogoutCalls }
 }
 
-const form = (o: Record<string, string>) =>
-  new URLSearchParams(o).toString()
+const form = (o: Record<string, string>) => new URLSearchParams(o).toString()
 
 describe("SAML SP-initiated SLO over HTTP (idp.handle)", () => {
   test("POST /logout → 302 signed-less LogoutRequest to IdP SLO; NO token side effect", async () => {

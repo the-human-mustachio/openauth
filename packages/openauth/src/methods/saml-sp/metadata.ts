@@ -40,8 +40,7 @@ const NAME_ID_FORMAT_URN: Record<SamlNameIdFormat, string> = {
 }
 
 const HTTP_POST = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
-const HTTP_REDIRECT =
-  "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+const HTTP_REDIRECT = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
 
 /** Minimal XML attribute/text escaping for URL-shaped values. */
 function xmlEscape(s: string): string {

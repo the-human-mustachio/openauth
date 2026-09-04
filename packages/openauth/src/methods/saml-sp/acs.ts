@@ -116,10 +116,7 @@ function checkRecipient(
   }
 
   // Namespace-agnostic: match by local name regardless of prefix.
-  const nodes = doc.getElementsByTagNameNS(
-    "*",
-    "SubjectConfirmationData",
-  )
+  const nodes = doc.getElementsByTagNameNS("*", "SubjectConfirmationData")
   const recipients: string[] = []
   for (let i = 0; i < nodes.length; i++) {
     const r = nodes[i]?.getAttribute("Recipient")
@@ -173,7 +170,8 @@ function extractReplayInfo(
       const v = els[i]?.getAttribute("NotOnOrAfter")
       if (!v) continue
       const ms = Date.parse(v)
-      if (!Number.isNaN(ms)) earliest = earliest === null ? ms : Math.min(earliest, ms)
+      if (!Number.isNaN(ms))
+        earliest = earliest === null ? ms : Math.min(earliest, ms)
     }
   }
   return { assertionId, notOnOrAfterMs: earliest }
@@ -299,10 +297,7 @@ export async function consumeAssertion(
     // arrives but no decryptionPvk is configured. Give the operator a
     // signal that the *connection* is mis/under-configured rather than
     // a generic "assertion rejected".
-    if (
-      !config.allowEncryptedAssertions &&
-      msg.includes("No decryption key")
-    ) {
+    if (!config.allowEncryptedAssertions && msg.includes("No decryption key")) {
       return {
         kind: "denied",
         reason:

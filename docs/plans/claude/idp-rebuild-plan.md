@@ -216,8 +216,7 @@ This is the contract that drives everything else. Get it right before writing an
 ```ts
 // types/result.ts
 export type Result<T, E = AuthError> =
-  | { ok: true; value: T }
-  | { ok: false; error: E }
+  { ok: true; value: T } | { ok: false; error: E }
 
 export const ok = <T>(value: T): Result<T, never> => ({ ok: true, value })
 export const err = <E>(error: E): Result<never, E> => ({ ok: false, error })
@@ -294,13 +293,7 @@ export type MethodConfig = {
 // is resolved by `kind`.
 
 export type MethodType =
-  | "oauth2"
-  | "oidc"
-  | "password"
-  | "code"
-  | "m2m"
-  | "passkey"
-  | "custom"
+  "oauth2" | "oidc" | "password" | "code" | "m2m" | "passkey" | "custom"
 
 export type TenantContext = {
   id: TenantId

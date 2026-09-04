@@ -48,9 +48,7 @@ const ASSERTION_RE = /<saml:Assertion[\s\S]*?<\/saml:Assertion>/
 export async function buildEncryptedSamlResponse(
   opts: BuildOpts,
 ): Promise<string> {
-  const xml = Buffer.from(buildSamlResponse(opts), "base64").toString(
-    "utf8",
-  )
+  const xml = Buffer.from(buildSamlResponse(opts), "base64").toString("utf8")
   const m = xml.match(ASSERTION_RE)
   if (!m) throw new Error("fixture: no <saml:Assertion> to encrypt")
 
@@ -62,8 +60,7 @@ export async function buildEncryptedSamlResponse(
     rsa_pub: rsaPub,
     pem: DECRYPTION_CERT,
     encryptionAlgorithm: "http://www.w3.org/2001/04/xmlenc#aes256-cbc",
-    keyEncryptionAlgorithm:
-      "http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p",
+    keyEncryptionAlgorithm: "http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p",
   })
 
   const wrapped =
@@ -72,7 +69,5 @@ export async function buildEncryptedSamlResponse(
     encryptedData +
     `</saml:EncryptedAssertion>`
 
-  return Buffer.from(xml.replace(m[0], wrapped), "utf8").toString(
-    "base64",
-  )
+  return Buffer.from(xml.replace(m[0], wrapped), "utf8").toString("base64")
 }

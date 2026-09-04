@@ -69,31 +69,23 @@ async function buildSamlIdp() {
 describe("SAML SP metadata over HTTP (idp.handle)", () => {
   test("GET /m/<id>/metadata with NO cookie → 200 samlmetadata+xml, cached", async () => {
     const idp = await buildSamlIdp()
-    const res = await idp.handle(
-      new Request(`${ISSUER}/m/${MID}/metadata`),
-    )
+    const res = await idp.handle(new Request(`${ISSUER}/m/${MID}/metadata`))
     expect(res.status).toBe(200)
-    expect(res.headers.get("content-type")).toBe(
-      "application/samlmetadata+xml",
-    )
+    expect(res.headers.get("content-type")).toBe("application/samlmetadata+xml")
     // The framework owns Cache-Control; the public path must serialize
     // the method's CachePolicy (the old /m/* challenge path did not).
     expect(res.headers.get("cache-control")).toContain("s-maxage=300")
     const body = await res.text()
     expect(body).toContain("<md:EntityDescriptor")
     expect(body).toContain('entityID="https://idp.example/acme/corp-saml"')
-    expect(body).toContain(
-      'Location="https://idp.example/cb/corp-saml"',
-    )
+    expect(body).toContain('Location="https://idp.example/cb/corp-saml"')
   })
 
   test("FAIL-CLOSED: non-public /m route with no cookie → original 400", async () => {
     const idp = await buildSamlIdp()
     // "GET /authorize" is a real SAML route but NOT in publicRoutes —
     // it must still hit the unchanged flow-cookie gate.
-    const r1 = await idp.handle(
-      new Request(`${ISSUER}/m/${MID}/authorize`),
-    )
+    const r1 = await idp.handle(new Request(`${ISSUER}/m/${MID}/authorize`))
     expect(r1.status).toBe(400)
     const b1 = await r1.text()
     expect(b1).toContain("invalid_request")
@@ -119,9 +111,7 @@ describe("SAML SP metadata over HTTP (idp.handle)", () => {
     // Public path ignores the cookie entirely — it must not try to
     // read/consume the (bogus) flow and 4xx.
     expect(res.status).toBe(200)
-    expect(res.headers.get("content-type")).toBe(
-      "application/samlmetadata+xml",
-    )
+    expect(res.headers.get("content-type")).toBe("application/samlmetadata+xml")
   })
 
   test("unknown methodId on the public path does not 200", async () => {

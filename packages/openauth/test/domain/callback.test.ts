@@ -13,10 +13,7 @@ import { MethodCache } from "../../src/domain/method-cache"
 import { mintStateEnvelope } from "../../src/domain/state-envelope"
 import { startAuthorize } from "../../src/domain/authorize"
 import type { AuthorizationRequest } from "../../src/types/authorization"
-import type {
-  AuthMethod,
-  AuthMethodFactory,
-} from "../../src/types/method"
+import type { AuthMethod, AuthMethodFactory } from "../../src/types/method"
 import { redirectFactory, type StubProps } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant, tenantContextFor } from "../helpers/tenant"

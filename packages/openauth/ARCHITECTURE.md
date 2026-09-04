@@ -246,7 +246,7 @@ A route key listed here is dispatched through `handlePublicMethodRoute`
 (`domain/method-route.ts`): no cookie, `ctx.flow === null`,
 `ctx.methodState === null`. The handler must be a pure function of
 `ctx.tenant` + `ctx.dispatch` + captured config. **Fail-closed:** the
-gate opens *only* for a route key the method explicitly enumerates;
+gate opens _only_ for a route key the method explicitly enumerates;
 absent (every method's default) the behaviour is unchanged, and the
 domain function re-checks membership rather than trusting the HTTP
 caller. A flowless route returning `success` is a programming error
@@ -284,13 +284,13 @@ Key points:
 - **`unsolicitedBinding` is a minimal optional field on the existing
   `success` variant**, not a new `MethodResult` kind — AD3's "no new
   variant" holds while AD7's IdP-init carve-out is satisfied. It is
-  consulted *only* when `flow === null`; on the normal path a flow
+  consulted _only_ when `flow === null`; on the normal path a flow
   exists and it is ignored. Flowless `success` without it is a
   programming error (no RP request to bind to) → `internal_error`.
 - **`RelayState` ≠ state envelope.** A SAML IdP-init POST may carry a
   `RelayState`; "RelayState present" does not mean "framework envelope
   present". The envelope is real only if it MAC-verifies, so the
-  IdP-init path is attempted whenever there is no *verifiable*
+  IdP-init path is attempted whenever there is no _verifiable_
   envelope — not merely when state is absent. `RelayState` is never
   interpreted as a redirect target (open-redirect guard); the redirect
   is the config-validated `defaultRedirectUri`.
@@ -330,7 +330,7 @@ Key points:
 - **`logout` is a minimal optional field on the existing `challenge`
   variant**, not a new `MethodResult` kind — same shape as Phase 2's
   `success.unsolicitedBinding` (V′). It is consulted **only** on a
-  *public* (flowless) route; an authenticated flow-bearing method
+  _public_ (flowless) route; an authenticated flow-bearing method
   route never logs anyone out, so the field is inert there.
 - **Fail-closed.** A throwing `onLogout`, or a failed
   `revokeAllForSubject`, withholds the `LogoutResponse` (returns
@@ -340,10 +340,10 @@ Key points:
   `ports/`/`http/`; the framework owns the `tokenStore` + hook. This
   preserves the same invariant every other method obeys.
 - **Audit.** Always emits `session_logout` with `via: "upstream_slo"`
-  + `methodId`/`methodKind` (and `subjectId` only when one was
-  revoked). `via` is general — OIDC RP-Initiated Logout is
-  `rp_initiated` (the default), and a future OIDC back-channel logout
-  reuses `upstream_slo`.
+  - `methodId`/`methodKind` (and `subjectId` only when one was
+    revoked). `via` is general — OIDC RP-Initiated Logout is
+    `rp_initiated` (the default), and a future OIDC back-channel logout
+    reuses `upstream_slo`.
 - **Conservative default preserved.** Absent `onLogout`, the library
   still verifies + acknowledges the logout and audits it, but revokes
   nothing (it cannot resolve the upstream id without the host).

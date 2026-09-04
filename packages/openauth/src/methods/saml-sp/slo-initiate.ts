@@ -78,7 +78,9 @@ export async function initiateSpLogout(
   } catch {
     return {
       kind: "error",
-      error: authError.internalError("saml-sp: /logout could not read POST body"),
+      error: authError.internalError(
+        "saml-sp: /logout could not read POST body",
+      ),
     }
   }
 

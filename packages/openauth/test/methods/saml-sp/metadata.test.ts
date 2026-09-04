@@ -31,7 +31,9 @@ const TENANT = "acme"
 const METHOD_ID = "corp-saml"
 const IDP_ENTITY = "https://corp-idp.example/saml/metadata"
 
-function config(nameIdFormat?: SamlSpConfig["idp"]["nameIdFormat"]): SamlSpConfig {
+function config(
+  nameIdFormat?: SamlSpConfig["idp"]["nameIdFormat"],
+): SamlSpConfig {
   return {
     idp: {
       entityId: IDP_ENTITY,
@@ -57,7 +59,10 @@ async function tenantCtx(): Promise<TenantContext> {
   return {
     id: asTenantId(TENANT),
     config: await buildTenant({ id: TENANT }),
-    request: { raw: new Request(`${ISSUER_URL}/m/${METHOD_ID}/metadata`), custom: {} },
+    request: {
+      raw: new Request(`${ISSUER_URL}/m/${METHOD_ID}/metadata`),
+      custom: {},
+    },
   }
 }
 
@@ -74,9 +79,7 @@ describe("buildSpMetadataXml (pure)", () => {
       acsUrl: "https://idp.example/cb/corp-saml",
     })
     expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>')
-    expect(xml).toContain(
-      'entityID="https://idp.example/acme/corp-saml"',
-    )
+    expect(xml).toContain('entityID="https://idp.example/acme/corp-saml"')
     expect(xml).toContain(
       'protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"',
     )
@@ -94,9 +97,9 @@ describe("buildSpMetadataXml (pure)", () => {
   })
 
   test("NameIDFormat present iff configured", () => {
-    expect(
-      buildSpMetadataXml({ spEntityId: "e", acsUrl: "a" }),
-    ).not.toContain("NameIDFormat")
+    expect(buildSpMetadataXml({ spEntityId: "e", acsUrl: "a" })).not.toContain(
+      "NameIDFormat",
+    )
     expect(
       buildSpMetadataXml({
         spEntityId: "e",
@@ -108,7 +111,7 @@ describe("buildSpMetadataXml (pure)", () => {
     )
   })
 
-  test("XML-escapes &, <, >, \" in values", () => {
+  test('XML-escapes &, <, >, " in values', () => {
     const xml = buildSpMetadataXml({
       spEntityId: 'https://idp.example/t?a=1&b=<2>"x"',
       acsUrl: "https://idp.example/cb?x=1&y=2",
@@ -134,27 +137,18 @@ describe("buildSpMetadataXml (pure)", () => {
       "text/xml",
     ) as unknown as Document
     expect(doc.documentElement?.localName).toBe("EntityDescriptor")
-    const acs = doc.getElementsByTagNameNS(
-      "*",
-      "AssertionConsumerService",
-    )
+    const acs = doc.getElementsByTagNameNS("*", "AssertionConsumerService")
     expect(acs.length).toBe(1)
     expect(acs[0]?.getAttribute("Binding")).toBe(
       "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST",
     )
     expect(acs[0]?.getAttribute("index")).toBe("0")
-    expect(
-      doc.getElementsByTagNameNS("*", "KeyDescriptor").length,
-    ).toBe(0)
-    expect(
-      doc.getElementsByTagNameNS("*", "SingleLogoutService").length,
-    ).toBe(0)
-    expect(
-      doc.getElementsByTagNameNS("*", "SPSSODescriptor").length,
-    ).toBe(1)
-    expect(
-      doc.getElementsByTagNameNS("*", "IDPSSODescriptor").length,
-    ).toBe(0)
+    expect(doc.getElementsByTagNameNS("*", "KeyDescriptor").length).toBe(0)
+    expect(doc.getElementsByTagNameNS("*", "SingleLogoutService").length).toBe(
+      0,
+    )
+    expect(doc.getElementsByTagNameNS("*", "SPSSODescriptor").length).toBe(1)
+    expect(doc.getElementsByTagNameNS("*", "IDPSSODescriptor").length).toBe(0)
   })
 
   test("signing configured → AuthnRequestsSigned=true + signing KeyDescriptor", () => {
@@ -259,9 +253,7 @@ describe("GET /metadata route", () => {
     // Sanity: the AuthnRequest XML's Issuer is that same SP entityID.
     const loc = authz.value.response.headers.get("location") as string
     const sr = new URL(loc).searchParams.get("SAMLRequest") as string
-    const reqXml = inflateRawSync(
-      Buffer.from(sr, "base64"),
-    ).toString("utf8")
+    const reqXml = inflateRawSync(Buffer.from(sr, "base64")).toString("utf8")
     expect(reqXml).toContain(`>${st.spEntityId}</saml:Issuer>`)
 
     // Now the metadata, same dispatch inputs.

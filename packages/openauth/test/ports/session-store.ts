@@ -268,11 +268,7 @@ export function describeSessionStore(opts: SessionStoreSuiteOptions): void {
         })
 
         test("deleteScratch removes the entry and is idempotent", async () => {
-          if (
-            !store.saveScratch ||
-            !store.readScratch ||
-            !store.deleteScratch
-          )
+          if (!store.saveScratch || !store.readScratch || !store.deleteScratch)
             return
           const key = `scratch:t:m:${uniqueSuffix("d")}`
           await store.saveScratch(key, "doomed", TTL)

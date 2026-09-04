@@ -25,10 +25,7 @@
  *   - `unspecified`    — IdP picks; pass through verbatim.
  */
 export type SamlNameIdFormat =
-  | "persistent"
-  | "transient"
-  | "emailAddress"
-  | "unspecified"
+  "persistent" | "transient" | "emailAddress" | "unspecified"
 
 /**
  * One field's source. Either the assertion's NameID or a named
@@ -36,8 +33,7 @@ export type SamlNameIdFormat =
  * multiple attributes with the same `Name` but different `NameFormat`.
  */
 export type SamlAttributeRef =
-  | { source: "nameId" }
-  | { source: "attribute"; name: string; format?: string }
+  { source: "nameId" } | { source: "attribute"; name: string; format?: string }
 
 /**
  * How the SAML method translates a verified assertion into the

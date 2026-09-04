@@ -33,19 +33,23 @@ const FORBIDDEN_PATTERNS: ReadonlyArray<{
 }> = [
   {
     pattern: "@node-saml/",
-    reason: "@node-saml/* is a Node-only dep — must stay isolated to src/methods/saml-sp/",
+    reason:
+      "@node-saml/* is a Node-only dep — must stay isolated to src/methods/saml-sp/",
   },
   {
     pattern: "xml-crypto",
-    reason: "xml-crypto requires node:crypto — must stay isolated to src/methods/saml-sp/",
+    reason:
+      "xml-crypto requires node:crypto — must stay isolated to src/methods/saml-sp/",
   },
   {
     pattern: "@xmldom/",
-    reason: "@xmldom/* is a Node-targeted XML parser — must stay isolated to src/methods/saml-sp/",
+    reason:
+      "@xmldom/* is a Node-targeted XML parser — must stay isolated to src/methods/saml-sp/",
   },
   {
     pattern: "xml-encryption",
-    reason: "xml-encryption is Node-only — must stay isolated to src/methods/saml-sp/",
+    reason:
+      "xml-encryption is Node-only — must stay isolated to src/methods/saml-sp/",
   },
   {
     pattern: "xml2js",
@@ -53,16 +57,17 @@ const FORBIDDEN_PATTERNS: ReadonlyArray<{
   },
   {
     pattern: "xmlbuilder",
-    reason: "xmlbuilder is Node-only — must stay isolated to src/methods/saml-sp/",
+    reason:
+      "xmlbuilder is Node-only — must stay isolated to src/methods/saml-sp/",
   },
   {
     pattern: "methods/saml-sp",
-    reason: "SAML SP module must not be imported from anywhere else — keeps the root entry edge-clean",
+    reason:
+      "SAML SP module must not be imported from anywhere else — keeps the root entry edge-clean",
   },
 ]
 
-const IMPORT_LIKE_RE =
-  /(?:from|import)\s*(?:\(\s*)?(?:"([^"]+)"|'([^']+)')/g
+const IMPORT_LIKE_RE = /(?:from|import)\s*(?:\(\s*)?(?:"([^"]+)"|'([^']+)')/g
 
 async function scanFile(absPath: string): Promise<string[]> {
   const text = await readFile(absPath, "utf8")

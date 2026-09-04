@@ -166,8 +166,6 @@ export function buildSamlInstance(
     // SLO endpoint). node-saml's logout URL builder reads `logoutUrl`.
     ...(binding.logoutUrl ? { logoutUrl: binding.logoutUrl } : {}),
     // Encrypted-assertion decryption (opt-in per connection).
-    ...(binding.decryptionPvk
-      ? { decryptionPvk: binding.decryptionPvk }
-      : {}),
+    ...(binding.decryptionPvk ? { decryptionPvk: binding.decryptionPvk } : {}),
   })
 }

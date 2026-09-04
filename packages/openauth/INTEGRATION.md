@@ -794,16 +794,12 @@ success: async ({ methodId, methodKind, providerSubject }) => {
   if (methodId === "google-workspace") {
     return {
       type: "admin",
-      properties: {
-        /* ... */
-      },
+      properties: {/* ... */},
     }
   }
   return {
     type: "user",
-    properties: {
-      /* ... */
-    },
+    properties: {/* ... */},
   }
 }
 ```
@@ -1013,7 +1009,7 @@ POST     /m/<methodId>/logout    ← host-driven SP-initiated logout
   `LogoutRequest` to `/sls` (HTTP-Redirect or HTTP-POST). The library
   verifies the XML-DSig against `idp.signingCerts` (node-saml — no
   hand-rolled crypto), replay-dedups the request `@ID`, emits a signed
-  `LogoutResponse` 302 back to `idp.sloUrl`, and — *before* responding
+  `LogoutResponse` 302 back to `idp.sloUrl`, and — _before_ responding
   — fires your **`onLogout`** hook. Authenticity is the signature, not
   a cookie: a forged request gets a 403 and no side effect.
 - **`onLogout` host hook** (top-level `IdPOptions.onLogout`, a sibling
@@ -1023,7 +1019,7 @@ POST     /m/<methodId>/logout    ← host-driven SP-initiated logout
 
   ```ts
   onLogout: async ({ tenant, methodId, nameId, sessionIndex }) => {
-    await myApp.endSessionFor(nameId)          // your session teardown
+    await myApp.endSessionFor(nameId) // your session teardown
     const subject = await myApp.subjectFor(nameId)
     return subject ? { revokeSubject: subject } : undefined
     // returning { revokeSubject } makes the library run the same
@@ -1076,7 +1072,7 @@ metadata advertises a `use="encryption"` `KeyDescriptor` iff this is
 configured, so the IdP knows which cert to encrypt to.
 
 **Configuring the IdP side (manual — no metadata importer yet).** Both
-values the host registers at the IdP are *derived*, not configured, so
+values the host registers at the IdP are _derived_, not configured, so
 they are stable across deploys:
 
 - **SP EntityID / Audience** = `<issuerUrl>/<tenantId>/<methodId>`
@@ -1113,7 +1109,7 @@ document missing an `IDPSSODescriptor` / signing cert / `entityID`.
 `attributeMapping` is still authored by hand — it is a per-deployment
 policy decision, not data the IdP publishes.
 
-**The reverse direction — publishing *our* SP metadata.** Most IdPs
+**The reverse direction — publishing _our_ SP metadata.** Most IdPs
 also accept an SP metadata URL/file instead of hand-entered EntityID +
 ACS. The library serves it, **unauthenticated**, at:
 
@@ -1123,7 +1119,7 @@ GET /m/<methodId>/metadata        → application/samlmetadata+xml
 
 No `idp.flow` cookie, no session — paste this URL straight into the
 IdP admin console. The document's `entityID` and ACS `Location` are
-derived from the *same* logic the live AuthnRequest/ACS path uses, so
+derived from the _same_ logic the live AuthnRequest/ACS path uses, so
 they cannot drift from what the runtime actually accepts (a CI test
 asserts this equality). It advertises `WantAssertionsSigned="true"`,
 the HTTP-POST ACS, and `NameIDFormat` iff `config.idp.nameIdFormat` is
@@ -1135,7 +1131,7 @@ metadata never advertises something the SP cannot honour:
   iff `signAuthnRequest` + `signingKey` (else
   `AuthnRequestsSigned="false"`, no descriptor);
 - a `use="encryption"` `KeyDescriptor` iff `allowEncryptedAssertions`
-  + `decryptionKey`;
+  - `decryptionKey`;
 - `SingleLogoutService` (HTTP-Redirect **and** HTTP-POST, same-host
   as the ACS) iff `idp.sloUrl` is configured.
 
@@ -1613,9 +1609,7 @@ createIdP({
       redirectUris: request.redirect_uris,
     })
     return ok({
-      client: {
-        /* the ClientConfig you just persisted */
-      },
+      client: {/* the ClientConfig you just persisted */},
       ...(secret ? { secret } : {}),
     })
   },

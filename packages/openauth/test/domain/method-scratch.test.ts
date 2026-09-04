@@ -178,8 +178,7 @@ describe("methodScratch — unsupported adapter", () => {
   const flowsOnlyStore: SessionStore = {
     saveFlow: async () => ok(undefined),
     updateFlowMethodState: async () => ok(undefined),
-    readFlow: async () =>
-      err({ code: "unknown_state", description: "stub" }),
+    readFlow: async () => err({ code: "unknown_state", description: "stub" }),
     consumeFlow: async () =>
       err({ code: "unknown_state", description: "stub" }),
   }
