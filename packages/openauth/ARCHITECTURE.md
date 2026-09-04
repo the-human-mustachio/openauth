@@ -128,6 +128,21 @@ Any mismatch → `invalid_request`, audit
 `flow_replay_attempt` / `flow_tenant_mismatch` /
 `flow_callback_mismatch`.
 
+### State on POST-binding callbacks
+
+The MAC envelope normally rides `?state=` on the upstream redirect.
+POST-binding callbacks carry it in the form body instead: OAuth
+`response_mode=form_post` uses `state`; SAML's HTTP-POST binding uses
+`RelayState`. `handleCallback` resolves it via `extractCallbackState`:
+query first (the common, cheap path), then a **cloned** body read
+(`state ?? RelayState`) when the query param is absent and the request
+is a form-encoded POST. The clone is essential — the method handler
+downstream still needs an unconsumed body to read `code` /
+`SAMLResponse`. Any body-parse failure degrades to "no state",
+identical to the pre-existing missing-query behaviour. This is a
+general fix (it unblocks true OAuth `form_post` too), not
+SAML-specific.
+
 ### Why a global state key
 
 The `state` MAC has to verify **before** tenant config is loaded — that's
@@ -178,6 +193,165 @@ the source of truth for the rest of the request; the framework does
 Methods may not call `SessionStore` directly to mutate the flow record.
 They observe via `MethodContext.flow` / `MethodContext.methodState` and
 request updates via `MethodResult.challenge.saveMethodState`.
+
+## `methodScratch` — cross-flow per-instance state
+
+`methodState` is per-flow and disposed when the flow consumes. Some
+methods need state that **outlives** any single flow — e.g. a SAML SP
+remembering recently-seen assertion IDs for replay protection across
+unrelated logins. For that, `MethodContext` exposes:
+
+```
+methodScratch: {
+  put(key, value, ttlMs): Promise<Result<void>>
+  get(key):               Promise<Result<string>>
+  delete(key):            Promise<Result<void>>
+}
+```
+
+Scope is always `(tenantId, methodId)` — the framework rewrites
+user-supplied keys to `scratch:<tenantId>:<methodId>:<userKey>` before
+delegating to `SessionStore.{saveScratch,readScratch,deleteScratch}`.
+Two method instances cannot observe each other's keys even on a shared
+store; the dispatch-shim test in
+`test/domain/method-scratch.test.ts` covers this.
+
+Use this sparingly. Most methods need only `methodState`. The cases
+that justify scratch are exactly: cross-flow deduplication / replay
+state, and per-instance configuration caches the method wants to own
+rather than read from `MethodConfig` each request. Anything else
+belongs in `methodState` or in a port.
+
+`saveScratch` / `readScratch` / `deleteScratch` are **optional** on
+`SessionStore`. Adapters that don't implement them cause every
+`methodScratch.*` call to fail with `internal_error` naming the missing
+operation — methods surface this in `MethodResult.error`. Memory **and
+all four production adapters** (Postgres, D1, DynamoDB, Durable Object)
+implement the trio, each opted into the `supportsScratch` conformance
+cases.
+
+## `publicRoutes` — anonymous per-instance documents
+
+`/m/<methodId>/*` is normally gated on the framework-set `idp.flow`
+cookie: every request must belong to an in-flight authorization. A few
+method routes are inherently **public** — a SAML SP must publish its
+metadata XML at a stable URL an enterprise IdP admin fetches with no
+session. For that, `AuthMethod` exposes an opt-in allowlist:
+
+```
+publicRoutes?: ReadonlyArray<string>   // e.g. ["GET /metadata"]
+```
+
+A route key listed here is dispatched through `handlePublicMethodRoute`
+(`domain/method-route.ts`): no cookie, `ctx.flow === null`,
+`ctx.methodState === null`. The handler must be a pure function of
+`ctx.tenant` + `ctx.dispatch` + captured config. **Fail-closed:** the
+gate opens *only* for a route key the method explicitly enumerates;
+absent (every method's default) the behaviour is unchanged, and the
+domain function re-checks membership rather than trusting the HTTP
+caller. A flowless route returning `success` is a programming error
+(no flow to consume into an auth code) and surfaces as `internal_error`
+rather than authenticating.
+
+This is the third framework change SAML drove — after `methodScratch`
+and `handleCallback` POST-body state recovery — and like both it is a
+**general** capability, not SAML-specific surface (any method may
+declare public routes).
+
+## `unsolicitedCallback` — flowless inbound authentication
+
+The normal callback (`/cb/<methodId>`) recovers a MAC-signed state
+envelope and `consumeFlow`s a pre-existing flow. SAML IdP-initiated
+SSO has neither: the IdP posts an unsolicited signed assertion with no
+prior AuthnRequest. `AuthMethod.unsolicitedCallback?: boolean` opts a
+method instance into handling that. When set, `handleCallback`, on
+finding **no verifiable state envelope** (none present, or a value —
+e.g. an IdP `RelayState` deep-link token — that fails MAC
+verification), dispatches `GET /callback` with `flow === null` and a
+derived `dispatch` (issuer/ACS) instead of erroring. The method
+verifies the assertion (signature/issuer/audience/conditions still
+fully enforced; `InResponseTo` relaxed to `ifPresent` since none
+exists; explicit assertion-ID replay dedup via `methodScratch`) and
+returns `success` **with `unsolicitedBinding`** — the operator-
+configured `{clientId, redirectUri, scopes}`.
+
+Key points:
+
+- **No `FlowRecord` is synthesized.** `saveEncryptedCode` takes an
+  in-memory `CodePayload`; the framework builds one from
+  `unsolicitedBinding` + the verified subject and mints a code
+  directly. Simpler than the original "synthesize a flow" framing.
+- **`unsolicitedBinding` is a minimal optional field on the existing
+  `success` variant**, not a new `MethodResult` kind — AD3's "no new
+  variant" holds while AD7's IdP-init carve-out is satisfied. It is
+  consulted *only* when `flow === null`; on the normal path a flow
+  exists and it is ignored. Flowless `success` without it is a
+  programming error (no RP request to bind to) → `internal_error`.
+- **`RelayState` ≠ state envelope.** A SAML IdP-init POST may carry a
+  `RelayState`; "RelayState present" does not mean "framework envelope
+  present". The envelope is real only if it MAC-verifies, so the
+  IdP-init path is attempted whenever there is no *verifiable*
+  envelope — not merely when state is absent. `RelayState` is never
+  interpreted as a redirect target (open-redirect guard); the redirect
+  is the config-validated `defaultRedirectUri`.
+- **Conservative default preserved.** Absent `unsolicitedCallback`
+  (every other method, and SAML instances with no `idpInitiated`
+  config), a stateless callback stays `invalid_request` exactly as
+  before — byte-identical, fail-closed.
+
+This is the fourth general framework change SAML drove (after
+`methodScratch`, POST-body state recovery, and `publicRoutes`);
+likewise method-agnostic — any method that can authenticate from an
+unsolicited inbound POST may opt in.
+
+## `onLogout` + `challenge.logout` — host-collaborative upstream logout
+
+The library terminates a session by revoking the subject's refresh
+tokens (`revokeAllForSubject`, the same primitive `/end_session`
+uses). But for an **upstream** logout — a SAML front-channel
+`LogoutRequest` arriving at the SP's SLS endpoint — the library hits
+two deliberate boundaries: a public route's domain context has no
+`tokenStore`, and the library has **no map from an upstream identifier
+(SAML `NameID`) to an OIDC `subject`** — that mapping lives in the
+host's `success` callback (the host owns the final `SubjectClaim`).
+
+So upstream logout is split the same way `success` is: the method does
+**protocol only** (verify the signed `LogoutRequest` via node-saml —
+no hand-rolled XML-DSig; build the signed `LogoutResponse`) and returns
+`MethodResult.challenge` with an optional **`logout: { nameId?,
+sessionIndex? }`** field. The privileged side effect runs in the
+framework's public-route pipeline, which fires the new general
+`IdPOptions.onLogout(input) → { revokeSubject? } | void` hook; if the
+host names a subject, the framework runs `revokeAllForSubject` for it,
+then returns the `LogoutResponse`.
+
+Key points:
+
+- **`logout` is a minimal optional field on the existing `challenge`
+  variant**, not a new `MethodResult` kind — same shape as Phase 2's
+  `success.unsolicitedBinding` (V′). It is consulted **only** on a
+  *public* (flowless) route; an authenticated flow-bearing method
+  route never logs anyone out, so the field is inert there.
+- **Fail-closed.** A throwing `onLogout`, or a failed
+  `revokeAllForSubject`, withholds the `LogoutResponse` (returns
+  `internal_error`/the revoke error) rather than telling the IdP the
+  user is logged out when they may not be.
+- **Method stays port-free.** The method never imports
+  `ports/`/`http/`; the framework owns the `tokenStore` + hook. This
+  preserves the same invariant every other method obeys.
+- **Audit.** Always emits `session_logout` with `via: "upstream_slo"`
+  + `methodId`/`methodKind` (and `subjectId` only when one was
+  revoked). `via` is general — OIDC RP-Initiated Logout is
+  `rp_initiated` (the default), and a future OIDC back-channel logout
+  reuses `upstream_slo`.
+- **Conservative default preserved.** Absent `onLogout`, the library
+  still verifies + acknowledges the logout and audits it, but revokes
+  nothing (it cannot resolve the upstream id without the host).
+
+This is the fifth general framework change SAML drove (after
+`methodScratch`, POST-body state recovery, `publicRoutes`, and
+`unsolicitedCallback`); likewise method-agnostic — any federation
+method that can verify an upstream logout signal may use it.
 
 ## Response sanitization
 

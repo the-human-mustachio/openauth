@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { z } from "zod"
 
 import {
   MemoryAuditLog,
@@ -12,9 +13,75 @@ import { MethodCache } from "../../src/domain/method-cache"
 import { mintStateEnvelope } from "../../src/domain/state-envelope"
 import { startAuthorize } from "../../src/domain/authorize"
 import type { AuthorizationRequest } from "../../src/types/authorization"
-import { redirectFactory } from "../helpers/method"
+import type {
+  AuthMethod,
+  AuthMethodFactory,
+} from "../../src/types/method"
+import { redirectFactory, type StubProps } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant, tenantContextFor } from "../helpers/tenant"
+
+/**
+ * Like `redirectFactory` but its `GET /callback` reads `code` from the
+ * query string OR the POST body (mirroring real OAuth methods). It
+ * succeeds only when it actually observes `code=upstream-code` — so a
+ * POST test that puts `code` *only* in the body proves the body
+ * survived `handleCallback`'s cloned state-extraction read.
+ */
+function bodyEchoFactory(
+  kind: string,
+): AuthMethodFactory<StubProps, { upstreamNonce: string }, object> {
+  return {
+    kind,
+    configSchema: z.object({}).strict(),
+    build: async ({
+      id,
+      kind: k,
+    }): Promise<AuthMethod<StubProps, { upstreamNonce: string }>> => ({
+      id,
+      kind: k,
+      type: "oauth2",
+      routes: {
+        "GET /authorize": async (ctx) => {
+          const upstream = new URL(
+            ctx.dispatch ? "https://upstream.example/auth" : "about:blank",
+          )
+          if (ctx.dispatch) {
+            upstream.searchParams.set("state", ctx.dispatch.state)
+            upstream.searchParams.set("redirect_uri", ctx.dispatch.callbackUrl)
+          }
+          return {
+            kind: "challenge",
+            response: new Response(null, {
+              status: 302,
+              headers: { location: upstream.toString() },
+            }),
+            saveMethodState: { upstreamNonce: "abc123" },
+          }
+        },
+        "GET /callback": async (ctx) => {
+          const qs = new URL(ctx.request.url).searchParams
+          let code = qs.get("code")
+          if (!code) {
+            const body = await ctx.request.text()
+            code = new URLSearchParams(body).get("code")
+          }
+          if (code === "upstream-code") {
+            return {
+              kind: "success",
+              providerSubject: "upstream-subject",
+              properties: { handle: "ada" },
+            }
+          }
+          return {
+            kind: "denied",
+            reason: `body not preserved (code=${code ?? "<none>"})`,
+          }
+        },
+      },
+    }),
+  }
+}
 
 async function fixture() {
   const tenant = await buildTenant({
@@ -227,6 +294,213 @@ describe("handleCallback: full authorize → callback", () => {
     )
     expect(second.ok).toBe(false)
     expect(f.auditLog.byKind("flow_replay_attempt").length).toBeGreaterThan(0)
+  })
+
+  test("POST form_post: state in body, code in body → issue-code", async () => {
+    const f = await fixture()
+    const methodCache = new MethodCache({
+      factories: { stub: bodyEchoFactory("stub") as never },
+      auditLog: f.auditLog,
+      now: f.clock,
+    })
+    const authorize = await startAuthorize(
+      {
+        request: authorizeRequest(),
+        rawRequest: new Request("https://idp.example/authorize"),
+        tenant: tenantContextFor(f.tenant),
+        cookies: new Map(),
+      },
+      {
+        sessionStore: f.sessionStore,
+        tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
+        methodCache,
+        stateKeys: f.stateKeys,
+        issuerUrl: "https://idp.example",
+        clock: f.clock,
+      },
+    )
+    if (!authorize.ok || authorize.value.kind !== "challenge")
+      throw new Error("auth")
+    const state = new URL(
+      authorize.value.response.headers.get("location")!,
+    ).searchParams.get("state")!
+
+    const r = await handleCallback(
+      {
+        rawRequest: new Request("https://idp.example/cb/stub", {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            state,
+            code: "upstream-code",
+          }).toString(),
+        }),
+        cookies: new Map(),
+      },
+      {
+        configStore: f.configStore,
+        sessionStore: f.sessionStore,
+        tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
+        auditLog: f.auditLog,
+        methodCache,
+        stateKeys: f.stateKeys,
+        clock: f.clock,
+      },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    // issue-code proves BOTH: state recovered from the body, and the
+    // body survived the clone so the method still read `code`.
+    expect(r.value.kind).toBe("issue-code")
+  })
+
+  test("POST SAML binding: RelayState in body carries the envelope", async () => {
+    const f = await fixture()
+    const methodCache = new MethodCache({
+      factories: { stub: bodyEchoFactory("stub") as never },
+      auditLog: f.auditLog,
+      now: f.clock,
+    })
+    const authorize = await startAuthorize(
+      {
+        request: authorizeRequest(),
+        rawRequest: new Request("https://idp.example/authorize"),
+        tenant: tenantContextFor(f.tenant),
+        cookies: new Map(),
+      },
+      {
+        sessionStore: f.sessionStore,
+        tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
+        methodCache,
+        stateKeys: f.stateKeys,
+        issuerUrl: "https://idp.example",
+        clock: f.clock,
+      },
+    )
+    if (!authorize.ok || authorize.value.kind !== "challenge")
+      throw new Error("auth")
+    const state = new URL(
+      authorize.value.response.headers.get("location")!,
+    ).searchParams.get("state")!
+
+    const r = await handleCallback(
+      {
+        rawRequest: new Request("https://idp.example/cb/stub", {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          // code only in the body — if the clone consumed the stream
+          // the method would see no code and return `denied`.
+          body: new URLSearchParams({
+            RelayState: state,
+            code: "upstream-code",
+          }).toString(),
+        }),
+        cookies: new Map(),
+      },
+      {
+        configStore: f.configStore,
+        sessionStore: f.sessionStore,
+        tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
+        auditLog: f.auditLog,
+        methodCache,
+        stateKeys: f.stateKeys,
+        clock: f.clock,
+      },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.value.kind).toBe("issue-code")
+  })
+
+  test("GET callback is unaffected by the body-fallback (non-regression)", async () => {
+    const f = await fixture()
+    const methodCache = new MethodCache({
+      factories: { stub: bodyEchoFactory("stub") as never },
+      auditLog: f.auditLog,
+      now: f.clock,
+    })
+    const authorize = await startAuthorize(
+      {
+        request: authorizeRequest(),
+        rawRequest: new Request("https://idp.example/authorize"),
+        tenant: tenantContextFor(f.tenant),
+        cookies: new Map(),
+      },
+      {
+        sessionStore: f.sessionStore,
+        tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
+        methodCache,
+        stateKeys: f.stateKeys,
+        issuerUrl: "https://idp.example",
+        clock: f.clock,
+      },
+    )
+    if (!authorize.ok || authorize.value.kind !== "challenge")
+      throw new Error("auth")
+    const state = new URL(
+      authorize.value.response.headers.get("location")!,
+    ).searchParams.get("state")!
+
+    const r = await handleCallback(
+      {
+        rawRequest: new Request(
+          `https://idp.example/cb/stub?state=${encodeURIComponent(
+            state,
+          )}&code=upstream-code`,
+        ),
+        cookies: new Map(),
+      },
+      {
+        configStore: f.configStore,
+        sessionStore: f.sessionStore,
+        tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
+        auditLog: f.auditLog,
+        methodCache,
+        stateKeys: f.stateKeys,
+        clock: f.clock,
+      },
+    )
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.value.kind).toBe("issue-code")
+  })
+
+  test("POST with no state anywhere is still rejected", async () => {
+    const f = await fixture()
+    const r = await handleCallback(
+      {
+        rawRequest: new Request("https://idp.example/cb/stub", {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: "code=upstream-code",
+        }),
+        cookies: new Map(),
+      },
+      {
+        configStore: f.configStore,
+        sessionStore: f.sessionStore,
+        tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
+        auditLog: f.auditLog,
+        methodCache: f.methodCache,
+        stateKeys: f.stateKeys,
+        clock: f.clock,
+      },
+    )
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error.code).toBe("invalid_request")
   })
 
   test("host mismatch is rejected with audit", async () => {

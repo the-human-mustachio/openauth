@@ -227,4 +227,72 @@ export class D1SessionStore implements SessionStore {
     }
     return ok(undefined)
   }
+
+  async saveScratch(
+    key: string,
+    value: string,
+    ttlMs: number,
+  ): Promise<Result<void>> {
+    if (ttlMs <= 0) {
+      return err(
+        authError.internalError(
+          `saveScratch: ttlMs must be positive, got ${ttlMs}`,
+        ),
+      )
+    }
+    const expiresAt = this.#clock() + ttlMs
+    try {
+      // Pinned to the primary — scratch backs InResponseTo replay
+      // protection, which is read-after-write sensitive at the ACS.
+      await primarySession(this.#db)
+        .prepare(
+          `INSERT INTO openauth_scratch (scratch_key, value, expires_at) VALUES (?1, ?2, ?3)
+           ON CONFLICT(scratch_key) DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at`,
+        )
+        .bind(key, value, expiresAt)
+        .run()
+    } catch (e) {
+      return err(authError.internalError("saveScratch: upsert failed", e))
+    }
+    return ok(undefined)
+  }
+
+  async readScratch(key: string): Promise<Result<string>> {
+    let row: { value: string; expires_at: number } | null
+    try {
+      row = await primarySession(this.#db)
+        .prepare(
+          `SELECT value, expires_at FROM openauth_scratch WHERE scratch_key = ?1`,
+        )
+        .bind(key)
+        .first<{ value: string; expires_at: number }>()
+    } catch (e) {
+      return err(authError.internalError("readScratch: query failed", e))
+    }
+    if (!row) {
+      return err(authError.unknownState(`scratch "${key}" unknown`))
+    }
+    if (this.#clock() >= Number(row.expires_at)) {
+      try {
+        await primarySession(this.#db)
+          .prepare(`DELETE FROM openauth_scratch WHERE scratch_key = ?1`)
+          .bind(key)
+          .run()
+      } catch {}
+      return err(authError.unknownState(`scratch "${key}" expired`))
+    }
+    return ok(row.value)
+  }
+
+  async deleteScratch(key: string): Promise<Result<void>> {
+    try {
+      await primarySession(this.#db)
+        .prepare(`DELETE FROM openauth_scratch WHERE scratch_key = ?1`)
+        .bind(key)
+        .run()
+    } catch (e) {
+      return err(authError.internalError("deleteScratch: delete failed", e))
+    }
+    return ok(undefined)
+  }
 }

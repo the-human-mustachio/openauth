@@ -887,6 +887,308 @@ const myOkta: AuthMethodFactory<Oauth2Properties, Oauth2State, {}> = {
 Reach for `oauth2Factory` / `oidcFactory` first; only drop down to the
 builders when the upstream is fixed at the deployment level.
 
+### 9.5 SAML SP — enterprise SAML 2.0 connections
+
+`samlSpFactory` adds SAML 2.0 **Service Provider** support: the library
+consumes signed assertions from a corporate IdP (Okta, Entra, Ping,
+ADFS, …). It never issues assertions — downstream apps still speak your
+OIDC issuer. It is just another `AuthMethodFactory`; the `/authorize`
+dispatch, state envelope, flow record, and `success` callback all work
+unchanged.
+
+**Node-only — separate subpath.** Everything SAML lives at the
+`@_mustachio/openauth/methods/saml-sp` subpath, which carries a `node`
+export condition. The root entry (`@_mustachio/openauth`) never
+re-exports it, so Workers / browser builds stay edge-clean by
+construction. SAML deployments must run on Node — Workers / Durable
+Object / D1 deployments continue to use OAuth/OIDC methods.
+
+```ts
+// Node host only:
+import {
+  samlSpFactory,
+  type SamlSpConfig,
+} from "@_mustachio/openauth/methods/saml-sp"
+
+const methods = {
+  "saml-sp": samlSpFactory, // map key MUST equal factory.kind
+}
+```
+
+**SessionStore must implement the scratch trio.** SAML SP backs
+`InResponseTo` single-use replay protection with
+`MethodContext.methodScratch`, which requires the `SessionStore` to
+implement `saveScratch` / `readScratch` / `deleteScratch`. The bundled
+memory adapter and **all four production adapters** (Postgres, D1,
+DynamoDB, Durable Object) implement it. For Postgres / D1 the
+`openauth_scratch` table is created by the same `migrate()` call you
+already run. If you wire a custom `SessionStore` that lacks the trio,
+the `GET /authorize` handler fail-fasts with a clear error rather than
+issuing an AuthnRequest whose request id is never cached (which would
+make every assertion fail at the ACS with an opaque message).
+
+**Per-tenant config shape** (`MethodConfig.config`, validated by
+`samlSpFactory.configSchema`):
+
+```ts
+{
+  id: "corp-saml",            // becomes part of the derived SP entityID + ACS URL
+  kind: "saml-sp",            // factory lookup key — routes /<id>/* dispatch
+  type: "custom",             // MethodType has no SAML member; routing is by `kind`
+  enabled: true,
+  config: {
+    idp: {
+      entityId: "https://corp-idp.example/saml/metadata", // IdP EntityID
+      ssoUrl: "https://corp-idp.example/sso",              // IdP SSO endpoint
+      nameIdFormat: "persistent",                          // optional request hint
+      // ≥1 PEM signing cert. Multiple + notBefore/notAfter windows
+      // enable hot rotation with no redeploy.
+      signingCerts: [
+        { pem: "-----BEGIN CERTIFICATE-----\n…\n-----END CERTIFICATE-----" },
+      ],
+    },
+    attributeMapping: { /* see cookbook below */ },
+    clockSkewSeconds: 60,     // default 60; allowance on NotBefore/NotOnOrAfter
+  } satisfies SamlSpConfig,
+}
+```
+
+The assertion must be signed; the outer `<Response>` need not be
+(stricter would reject the Okta/Entra default).
+
+**IdP-initiated SSO** (`idpInitiated`). Set this block to accept
+unsolicited Responses (Okta tile, Entra "My Apps") at the **same** ACS
+(`/cb/<methodId>` — a SAML SP has one ACS; the IdP posts solicited and
+unsolicited there):
+
+```ts
+idpInitiated: {
+  defaultClientId: "your-rp-client-id",          // must be a registered client
+  defaultRedirectUri: "https://app.example/cb",  // must be in that client's redirectUris
+  defaultScopes: ["openid", "email"],
+}
+```
+
+Absent ⇒ unsolicited Responses stay `invalid_request` (the
+conservative default). When present, an unsolicited signed assertion
+mints a code and 302s to `defaultRedirectUri`; the framework
+re-validates `defaultClientId`/`defaultRedirectUri` against the
+registered client (open-redirect defence). `RelayState` is treated as
+opaque — it is **never** a redirect target. Replay is handled by
+assertion-ID dedup (there is no `InResponseTo` to single-use).
+
+**Signed AuthnRequest** (`signAuthnRequest` + `signingKey`). Some IdPs
+require it. The SP signing keypair is **per-connection config**, not a
+KeyStore reference — the IdP pins this cert and rotation is an
+IdP-coordination event, independent of OIDC token-key rotation:
+
+```ts
+signAuthnRequest: true,
+signingKey: {
+  privateKeyPem: "-----BEGIN PRIVATE KEY-----\n…",   // signs the AuthnRequest
+  certPem: "-----BEGIN CERTIFICATE-----\n…",          // IdP pins this; metadata advertises it
+}
+```
+
+`signingKey` is required when `signAuthnRequest` is `true` (schema-
+enforced). `privateKeyPem` is a **secret**: it lives in
+`MethodStore`-backed config, so encrypt that store at rest (or supply
+it via your own resolver) — same handling as any per-tenant
+credential. When signing is enabled, the SP metadata automatically
+advertises `AuthnRequestsSigned="true"` and a signing `KeyDescriptor`,
+so it stays truthful to runtime behaviour.
+
+**Single Logout (front-channel SLO).** Set `idp.sloUrl` to enable it.
+Two anonymous routes become active (gated on `idp.sloUrl` — absent ⇒
+they are not served, and SP metadata advertises no
+`SingleLogoutService`, so an IdP never sends a logout we cannot
+complete):
+
+```
+GET|POST /m/<methodId>/sls       ← IdP LogoutRequest / LogoutResponse
+POST     /m/<methodId>/logout    ← host-driven SP-initiated logout
+```
+
+- **IdP-initiated (receive).** The IdP delivers a signed
+  `LogoutRequest` to `/sls` (HTTP-Redirect or HTTP-POST). The library
+  verifies the XML-DSig against `idp.signingCerts` (node-saml — no
+  hand-rolled crypto), replay-dedups the request `@ID`, emits a signed
+  `LogoutResponse` 302 back to `idp.sloUrl`, and — *before* responding
+  — fires your **`onLogout`** hook. Authenticity is the signature, not
+  a cookie: a forged request gets a 403 and no side effect.
+- **`onLogout` host hook** (top-level `IdPOptions.onLogout`, a sibling
+  of `success`). The library cannot map a SAML `NameID` to your OIDC
+  `subject` — that mapping lives in your `success` callback — so it
+  hands you the verified logout and you decide:
+
+  ```ts
+  onLogout: async ({ tenant, methodId, nameId, sessionIndex }) => {
+    await myApp.endSessionFor(nameId)          // your session teardown
+    const subject = await myApp.subjectFor(nameId)
+    return subject ? { revokeSubject: subject } : undefined
+    // returning { revokeSubject } makes the library run the same
+    // revokeAllForSubject that /end_session uses. Omit ⇒ no library
+    // revocation (you handled it). A throw fails the SLO closed.
+  }
+  ```
+
+  Absent ⇒ the library still verifies + acknowledges the logout and
+  emits a `session_logout` audit event (`via: "upstream_slo"`), but
+  revokes nothing (it cannot resolve the subject without you).
+
+- **SP-initiated (send).** From your authenticated logout UX, `POST`
+  to `/m/<methodId>/logout` with form fields `nameId` (required),
+  `sessionIndex` / `relayState` (optional), and `nameIdFormat`
+  (optional — one of `persistent` / `transient` / `emailAddress` /
+  `unspecified`; an unrecognized value is refused, not passed
+  through). The
+  library emits a (signed iff `signingKey`) `LogoutRequest` 302 to
+  `idp.sloUrl`; the IdP's `LogoutResponse` returns to `/sls`. This is
+  **pure protocol propagation — it does not revoke library tokens**:
+  OIDC token/session termination stays `/end_session`'s job (call
+  both from your logout flow). **Security:** this route is anonymous
+  at the library boundary and emits a signed `LogoutRequest` for
+  whatever `nameId` you post, so you MUST only invoke it for the
+  authenticated subject, with that subject's own `NameID`, behind your
+  own CSRF protection. Forced-logout is a host-owned risk — the
+  library cannot authenticate the caller without owning a session it
+  deliberately does not. Back-channel (SOAP) SLO is not supported.
+
+**Encrypted assertions** (`allowEncryptedAssertions` + `decryptionKey`).
+Off by default. Opt in per connection when the IdP encrypts the
+assertion:
+
+```ts
+allowEncryptedAssertions: true,
+decryptionKey: {
+  privateKeyPem: "-----BEGIN PRIVATE KEY-----\n…",  // decrypts the assertion
+  certPem: "-----BEGIN CERTIFICATE-----\n…",         // IdP encrypts to this; metadata advertises it
+}
+```
+
+`decryptionKey` is required when `allowEncryptedAssertions` is `true`
+(schema-enforced) and `privateKeyPem` is a **secret** (same at-rest
+handling as `signingKey.privateKeyPem`). The decrypted assertion's
+XML-DSig is still **fully enforced** — encryption does not relax
+signature verification. With the flag off (or no `decryptionKey`), an
+encrypted assertion is rejected with an operator-legible reason. SP
+metadata advertises a `use="encryption"` `KeyDescriptor` iff this is
+configured, so the IdP knows which cert to encrypt to.
+
+**Configuring the IdP side (manual — no metadata importer yet).** Both
+values the host registers at the IdP are *derived*, not configured, so
+they are stable across deploys:
+
+- **SP EntityID / Audience** = `<issuerUrl>/<tenantId>/<methodId>`
+  (trailing slash on `issuerUrl` is stripped). E.g. issuer
+  `https://idp.acme.com`, tenant `acme`, method `corp-saml` →
+  `https://idp.acme.com/acme/corp-saml`.
+- **ACS URL** (Assertion Consumer Service, HTTP-POST binding) =
+  `<issuerUrl>/cb/<methodId>` — the framework's universal callback,
+  e.g. `https://idp.acme.com/cb/corp-saml`.
+
+In the IdP admin console: set the SP EntityID and ACS URL to those two
+values, choose the HTTP-POST binding for the assertion, then populate
+`config.idp` from the IdP's metadata. The subpath exports a pure
+`parseSamlIdpMetadata` helper so a console can accept a pasted metadata
+XML / URL instead of hand-copying fields:
+
+```ts
+import { parseSamlIdpMetadata } from "@_mustachio/openauth/methods/saml-sp"
+
+const parsed = parseSamlIdpMetadata(metadataXml)
+if (!parsed.ok) {
+  // parsed.error.code === "invalid_request" — show parsed.error.description
+} else {
+  // parsed.value is the SamlIdpConfig.idp shape:
+  //   { entityId, ssoUrl, sloUrl?, nameIdFormat?, signingCerts: [{ pem }] }
+  // Persist it as config.idp on the method instance.
+}
+```
+
+It returns a `Result` (never throws), is namespace-prefix agnostic
+(Okta `md:`, Entra default-ns, ADFS — all parse), normalises
+`X509Certificate` bodies into PEM, and rejects SP metadata or any
+document missing an `IDPSSODescriptor` / signing cert / `entityID`.
+`attributeMapping` is still authored by hand — it is a per-deployment
+policy decision, not data the IdP publishes.
+
+**The reverse direction — publishing *our* SP metadata.** Most IdPs
+also accept an SP metadata URL/file instead of hand-entered EntityID +
+ACS. The library serves it, **unauthenticated**, at:
+
+```
+GET /m/<methodId>/metadata        → application/samlmetadata+xml
+```
+
+No `idp.flow` cookie, no session — paste this URL straight into the
+IdP admin console. The document's `entityID` and ACS `Location` are
+derived from the *same* logic the live AuthnRequest/ACS path uses, so
+they cannot drift from what the runtime actually accepts (a CI test
+asserts this equality). It advertises `WantAssertionsSigned="true"`,
+the HTTP-POST ACS, and `NameIDFormat` iff `config.idp.nameIdFormat` is
+set. Every other element is **truthful to runtime config** — emitted
+only when the corresponding capability is actually enabled, so the
+metadata never advertises something the SP cannot honour:
+
+- `AuthnRequestsSigned="true"` + a `use="signing"` `KeyDescriptor`
+  iff `signAuthnRequest` + `signingKey` (else
+  `AuthnRequestsSigned="false"`, no descriptor);
+- a `use="encryption"` `KeyDescriptor` iff `allowEncryptedAssertions`
+  + `decryptionKey`;
+- `SingleLogoutService` (HTTP-Redirect **and** HTTP-POST, same-host
+  as the ACS) iff `idp.sloUrl` is configured.
+
+Served with `Cache-Control: s-maxage=300`.
+
+Mechanically this is the first user of the framework's general
+`publicRoutes` opt-in (a method declares which route keys are
+anonymous); it is not SAML-specific HTTP surface — see
+`ARCHITECTURE.md` § `publicRoutes`.
+
+**Attribute-mapping cookbook.** `attributeMapping` normalizes the
+verified assertion into `providerSubject` + the property fields handed
+to your `success(input)` callback. Each ref is either the assertion's
+NameID or a named SAML attribute:
+
+```ts
+attributeMapping: {
+  // providerSubject. Defaults to NameID if omitted — the usual choice
+  // for `persistent` NameIDs.
+  subject: { source: "nameId" },
+
+  // Standard single-valued attributes. `name` is the SAML Attribute
+  // Name exactly as the IdP emits it (Okta and Entra differ — Entra
+  // tends to emit the long claim URIs).
+  email: { source: "attribute", name: "email" },
+  name:  { source: "attribute", name: "displayName" },
+
+  // SAML assertions are issued post-IdP-verification, so email is
+  // effectively verified. This is a literal, not an attribute lookup.
+  emailVerified: { source: "literal", value: true },
+
+  // Multi-valued — array shape is preserved.
+  groups: { source: "attribute", name: "groups" },
+
+  // `format` disambiguates when an IdP emits the same Name twice with
+  // different NameFormats.
+  custom: {
+    department: {
+      source: "attribute",
+      name: "http://schemas.example/department",
+      format: "urn:oasis:names:tc:SAML:2.0:attrname-format:uri",
+    },
+  },
+}
+```
+
+Anything not covered by the standard slots goes under `custom` — there
+is no need to fork the method per IdP. `groups` (and any multi-valued
+attribute) arrives as a string array in
+`SamlSpProperties.attributes`; single-valued attributes arrive as
+strings. The host owns the final `SubjectClaim` mapping in `success`,
+exactly as with OAuth/OIDC.
+
 ---
 
 ## 10. Subject identity & JWT validation in your services

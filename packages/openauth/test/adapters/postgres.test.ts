@@ -60,6 +60,7 @@ const TABLES = [
   "openauth_refresh_tokens",
   "openauth_flows",
   "openauth_sessions",
+  "openauth_scratch",
   "openauth_audit_events",
   "openauth_passkey_credentials",
 ]
@@ -98,6 +99,7 @@ describeTokenStore({
 describeSessionStore({
   adapterName: "postgres (pglite)",
   supportsLongLivedSessions: true,
+  supportsScratch: true,
   async makeStore(clock) {
     return {
       store: new PostgresSessionStore({ exec, clock: clock.now }),

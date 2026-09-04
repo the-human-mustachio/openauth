@@ -32,7 +32,14 @@ import type { SessionStore } from "../ports/session-store"
 import type { TokenStore } from "../ports/token-store"
 import { authError, type AuthError } from "../types/error"
 import type { FlowRecord } from "../types/flow"
-import type { MethodResult, CachePolicy, SetCookie } from "../types/method"
+import type { LogoutEventInput, LogoutHookResult } from "../types/idp"
+import type {
+  AuthMethod,
+  CachePolicy,
+  MethodDispatchData,
+  MethodResult,
+  SetCookie,
+} from "../types/method"
 import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { TenantContext } from "../types/tenant"
@@ -42,6 +49,7 @@ import { AUTH_CODE_TTL_MS } from "./authorize"
 import { randomToken } from "./crypto"
 import { MethodCache } from "./method-cache"
 import { dispatchMethod, type RouteKey } from "./method-dispatch"
+import { revokeAllForSubject } from "./revoke"
 import { saveEncryptedCode } from "./token"
 
 export type MethodRouteOutput =
@@ -210,4 +218,185 @@ async function translate(
     case "error":
       return err(result.error)
   }
+}
+
+/**
+ * Anonymous public method route — the fourth, deliberately narrow,
+ * pipeline. Used only for route keys a method explicitly lists in
+ * `AuthMethod.publicRoutes` (today: SAML SP `GET /metadata`). No flow
+ * cookie, no flow record, no `SessionStore` read: the handler is a pure
+ * function of `tenant` + `dispatch` + captured config.
+ *
+ * Security: this re-checks `publicRoutes` membership against the
+ * resolved method. The HTTP layer also checks before routing here, but
+ * a domain function guarding a no-auth path must not trust its caller —
+ * the gate is enforced here too, fail-closed.
+ *
+ * Only `challenge` (the metadata document) and `denied` are sensible
+ * outcomes; `success` from a flowless route is a programming error
+ * (there is no flow to consume into an auth code) and surfaces as an
+ * internal error rather than silently authenticating.
+ */
+export type HandlePublicMethodRouteInput = {
+  rawRequest: Request
+  tenant: TenantContext
+  /** Pre-resolved by the HTTP layer (it needed it to detect the public route). */
+  method: AuthMethod
+  route: RouteKey
+  subPath: string
+  /** Issuer/callback context so the handler can derive stable URLs. */
+  dispatch: MethodDispatchData
+}
+
+export type HandlePublicMethodRouteDeps = {
+  sessionStore: SessionStore
+  /**
+   * Required for the upstream-logout path: when a public route returns a
+   * `challenge` carrying `logout`, the framework runs
+   * `revokeAllForSubject` for the host-named subject. Anonymous read-only
+   * public routes (`/metadata`-style) never touch this.
+   */
+  tokenStore: TokenStore
+  clock: () => number
+  auditLog?: AuditLog
+  /**
+   * See `IdPOptions.onLogout`. Absent ⇒ the framework still verifies +
+   * acknowledges the logout and audits it, but revokes nothing (it
+   * cannot resolve the upstream id to a subject without the host).
+   */
+  onLogout?: (
+    input: LogoutEventInput,
+  ) => Promise<LogoutHookResult> | LogoutHookResult
+}
+
+export type PublicMethodRouteOutput =
+  | { kind: "challenge"; response: Response; cache?: CachePolicy }
+  | { kind: "denied"; reason: string }
+
+export async function handlePublicMethodRoute(
+  input: HandlePublicMethodRouteInput,
+  deps: HandlePublicMethodRouteDeps,
+): Promise<Result<PublicMethodRouteOutput, AuthError>> {
+  if (!input.method.publicRoutes?.includes(input.route)) {
+    return err(
+      authError.invalidRequest(
+        `route "${input.route}" is not public on method "${input.method.id}"`,
+        "path",
+      ),
+    )
+  }
+
+  const dispatched = await dispatchMethod({
+    method: input.method,
+    route: input.route,
+    tenant: input.tenant,
+    request: input.rawRequest,
+    subPath: input.subPath,
+    flow: null,
+    cookies: new Map(),
+    sessionStore: deps.sessionStore,
+    dispatch: input.dispatch,
+  })
+  if (isErr(dispatched)) return err(dispatched.error)
+
+  const r = dispatched.value
+  switch (r.kind) {
+    case "challenge": {
+      // A verified upstream logout (SAML front-channel SLS): the method
+      // proved authenticity and built the `LogoutResponse`; the
+      // privileged side effect (host teardown + token revocation) runs
+      // here, where the ports live. Fail closed — if the side effect
+      // errors we do NOT hand back a `LogoutResponse` that would tell
+      // the IdP the user is logged out when they may not be.
+      if (r.logout) {
+        const sideEffect = await runUpstreamLogout(input, deps, r.logout)
+        if (isErr(sideEffect)) return err(sideEffect.error)
+      }
+      return ok({
+        kind: "challenge",
+        response: r.response,
+        ...(r.cache !== undefined ? { cache: r.cache } : {}),
+      })
+    }
+    case "denied":
+      return ok({ kind: "denied", reason: r.reason })
+    case "success":
+      return err(
+        authError.internalError(
+          `public route "${input.route}" on method "${input.method.id}" ` +
+            `returned success — a flowless route cannot authenticate`,
+        ),
+      )
+    case "error":
+      return err(r.error)
+  }
+}
+
+/**
+ * Run the privileged side effect for a verified upstream logout: fire
+ * the host's `onLogout` hook, then — if the host named a subject —
+ * revoke that subject's library-issued tokens via the same
+ * `revokeAllForSubject` primitive `/end_session` uses. Always emits a
+ * `session_logout` audit event (`via: "upstream_slo"`).
+ *
+ * The library cannot map the upstream `nameId` to an OIDC subject
+ * itself (that mapping lives in the host's `success` callback), so
+ * revocation is host-directed by design. A throwing hook or a failed
+ * revoke fails closed (`internal_error`) — the caller then withholds
+ * the `LogoutResponse`.
+ */
+async function runUpstreamLogout(
+  input: HandlePublicMethodRouteInput,
+  deps: HandlePublicMethodRouteDeps,
+  logout: { nameId?: string; sessionIndex?: string },
+): Promise<Result<void, AuthError>> {
+  let hookResult: LogoutHookResult = undefined
+  if (deps.onLogout) {
+    const evt: LogoutEventInput = {
+      tenant: input.tenant,
+      methodId: input.method.id,
+      methodKind: input.method.kind,
+      reason: "upstream_slo",
+      ...(logout.nameId !== undefined ? { nameId: logout.nameId } : {}),
+      ...(logout.sessionIndex !== undefined
+        ? { sessionIndex: logout.sessionIndex }
+        : {}),
+    }
+    try {
+      hookResult = await deps.onLogout(evt)
+    } catch (e) {
+      return err(
+        authError.internalError(
+          `onLogout hook threw during upstream Single Logout for method ` +
+            `"${input.method.id}"`,
+          e,
+        ),
+      )
+    }
+  }
+
+  const revokeSubject =
+    hookResult && typeof hookResult === "object"
+      ? hookResult.revokeSubject
+      : undefined
+
+  if (revokeSubject) {
+    const revoked = await revokeAllForSubject(input.tenant.id, revokeSubject, {
+      tokenStore: deps.tokenStore,
+      ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
+      clock: deps.clock,
+    })
+    if (isErr(revoked)) return err(revoked.error)
+  }
+
+  await safeAudit(deps, {
+    kind: "session_logout",
+    tenantId: input.tenant.id,
+    via: "upstream_slo",
+    methodId: input.method.id,
+    methodKind: input.method.kind,
+    ...(revokeSubject ? { subjectId: revokeSubject } : {}),
+    timestamp: deps.clock(),
+  })
+  return ok(undefined)
 }

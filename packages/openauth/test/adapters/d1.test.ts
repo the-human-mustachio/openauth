@@ -48,6 +48,7 @@ const TABLES = [
   "openauth_refresh_tokens",
   "openauth_flows",
   "openauth_sessions",
+  "openauth_scratch",
   "openauth_audit_events",
 ]
 
@@ -81,6 +82,7 @@ describeTokenStore({
 describeSessionStore({
   adapterName: "d1 (bun:sqlite)",
   supportsLongLivedSessions: true,
+  supportsScratch: true,
   async makeStore(clock) {
     return { store: new D1SessionStore({ db, clock: clock.now }) }
   },

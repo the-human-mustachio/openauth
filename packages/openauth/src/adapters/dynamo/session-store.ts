@@ -211,6 +211,69 @@ export class DynamoSessionStore implements SessionStore {
     }
     return ok(undefined)
   }
+
+  async saveScratch(
+    key: string,
+    value: string,
+    ttlMs: number,
+  ): Promise<Result<void>> {
+    if (ttlMs <= 0) {
+      return err(
+        authError.internalError(
+          `saveScratch: ttlMs must be positive, got ${ttlMs}`,
+        ),
+      )
+    }
+    const expiresAtMs = this.#clock() + ttlMs
+    try {
+      // Unconditional put — scratch overwrites any prior value for the key.
+      await this.#exec.put({
+        item: {
+          pk: "scratch",
+          sk: key,
+          value,
+          expires_at: expiresAtMs,
+          ttl: Math.floor(expiresAtMs / 1000),
+        },
+      })
+    } catch (e) {
+      return err(authError.internalError("saveScratch: put failed", e))
+    }
+    return ok(undefined)
+  }
+
+  async readScratch(key: string): Promise<Result<string>> {
+    let row: Record<string, unknown> | undefined
+    try {
+      row = await this.#exec.get({
+        key: { pk: "scratch", sk: key },
+        consistentRead: true,
+      })
+    } catch (e) {
+      return err(authError.internalError("readScratch: get failed", e))
+    }
+    if (!row) {
+      return err(authError.unknownState(`scratch "${key}" unknown`))
+    }
+    // Native DynamoDB TTL eviction is best-effort (can lag up to ~48h), so
+    // filter on the adapter clock for correctness.
+    if (this.#clock() >= Number(row.expires_at)) {
+      try {
+        await this.#exec.delete({ key: { pk: "scratch", sk: key } })
+      } catch {}
+      return err(authError.unknownState(`scratch "${key}" expired`))
+    }
+    return ok(String(row.value))
+  }
+
+  async deleteScratch(key: string): Promise<Result<void>> {
+    try {
+      await this.#exec.delete({ key: { pk: "scratch", sk: key } })
+    } catch (e) {
+      return err(authError.internalError("deleteScratch: delete failed", e))
+    }
+    return ok(undefined)
+  }
 }
 
 function parseFlowPayload(raw: unknown): FlowRecord {

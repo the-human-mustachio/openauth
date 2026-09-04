@@ -16,10 +16,11 @@ import type {
   MethodContext,
   MethodDispatchData,
   MethodResult,
+  MethodScratch,
 } from "../types/method"
 import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
-import type { TenantContext } from "../types/tenant"
+import type { TenantContext, TenantId } from "../types/tenant"
 
 export type RouteKey = `${"GET" | "POST"} ${string}`
 
@@ -62,6 +63,11 @@ export async function dispatchMethod(
     methodState: input.flow?.methodState ?? null,
     cookies: input.cookies,
     dispatch: input.dispatch,
+    methodScratch: buildMethodScratch(
+      input.sessionStore,
+      input.tenant.id,
+      input.method.id,
+    ),
   }
 
   let result: MethodResult<unknown, unknown>
@@ -92,4 +98,50 @@ export async function dispatchMethod(
   }
 
   return ok(result)
+}
+
+/**
+ * Construct the scoped `MethodScratch` handed to a method handler. Keys
+ * are namespaced `scratch:<tenantId>:<methodId>:<userKey>` so a method
+ * instance can never read or clobber another instance's data — even
+ * across tenants on a shared store.
+ *
+ * When the underlying `SessionStore` doesn't implement
+ * `saveScratch` / `readScratch` / `deleteScratch`, every operation
+ * returns `unsupportedAdapter` so methods can surface a clean error
+ * rather than silently no-op.
+ */
+function buildMethodScratch(
+  store: SessionStore,
+  tenantId: TenantId,
+  methodId: string,
+): MethodScratch {
+  const prefix = `scratch:${tenantId}:${methodId}:`
+  const scope = (key: string): string => `${prefix}${key}`
+  const unsupported = (op: string): AuthError =>
+    authError.internalError(
+      `SessionStore does not implement ${op}; methodScratch is unavailable on this adapter`,
+    )
+
+  return {
+    put: async (key, value, ttlMs) => {
+      if (!store.saveScratch) return err(unsupported("saveScratch"))
+      if (ttlMs <= 0) {
+        return err(
+          authError.internalError(
+            `methodScratch.put: ttlMs must be positive, got ${ttlMs}`,
+          ),
+        )
+      }
+      return store.saveScratch(scope(key), value, ttlMs)
+    },
+    get: async (key) => {
+      if (!store.readScratch) return err(unsupported("readScratch"))
+      return store.readScratch(scope(key))
+    },
+    delete: async (key) => {
+      if (!store.deleteScratch) return err(unsupported("deleteScratch"))
+      return store.deleteScratch(scope(key))
+    },
+  }
 }

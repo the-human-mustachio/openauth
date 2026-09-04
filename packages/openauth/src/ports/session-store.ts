@@ -101,6 +101,34 @@ export type SessionStore = {
     ttl: number,
   ): Promise<Result<void>>
   consumePar?(requestUri: string): Promise<Result<ParRecord>>
+
+  /**
+   * Optional: per-method-instance scratch storage. Survives across flows
+   * (unlike `methodState`, which is per-flow). Use cases include cross-flow
+   * deduplication state — e.g., a SAML SP method remembering recently-seen
+   * assertion IDs for replay protection.
+   *
+   * The framework scopes keys per `(tenantId, methodId)` before calling
+   * these — adapters see opaque, already-namespaced keys and store the
+   * UTF-8 string value verbatim. Methods JSON-encode if they want object
+   * state.
+   *
+   * Strong consistency + TTL respect (same semantics as flow records).
+   * `readScratch` returns `unknown_state` if the key is missing or
+   * expired. `deleteScratch` is idempotent.
+   *
+   * Adapters without these methods cannot host methods that depend on
+   * scratch; the framework surfaces a clear `unsupported` error through
+   * `MethodContext.methodScratch` at call time. Implement all three
+   * methods together — partial implementations are not supported.
+   */
+  saveScratch?(
+    key: string,
+    value: string,
+    ttlMs: number,
+  ): Promise<Result<void>>
+  readScratch?(key: string): Promise<Result<string>>
+  deleteScratch?(key: string): Promise<Result<void>>
 }
 
 /**

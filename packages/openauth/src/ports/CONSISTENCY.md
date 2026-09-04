@@ -30,6 +30,7 @@ overspecifies adapters that don't need that on the read-eventual paths
 | `SessionStore` | `savePar(uri, payload, ttl)` (optional)                             | **Strong, atomic.** `ttl` default 60 s.                                                                                | RFC 9126 §3 — the PAR record must be visible to the next `consumePar` on any node. One-shot read.                                                                                                                                                                      |
 | `SessionStore` | `consumePar(uri)` (optional)                                        | **Strong, atomic delete-on-read.**                                                                                     | RFC 9126 §4 — `request_uri` is single-use; concurrent presentations of the same uri resolve to one winner. Same semantics as `consumeFlow`.                                                                                                                            |
 | `SessionStore` | `createSession / readSession / revokeSession` (optional long-lived) | **Strong.**                                                                                                            | Session creation must be immediately readable on the next request.                                                                                                                                                                                                     |
+| `SessionStore` | `saveScratch / readScratch / deleteScratch` (optional)              | **Strong, TTL-respecting.** Implement the trio together; partial implementations are not supported.                    | Backs `MethodContext.methodScratch` for methods that need cross-flow per-instance state (e.g. SAML SP assertion-ID replay protection). Keys arrive already namespaced by `(tenantId, methodId)` — the adapter stores opaque key/value pairs.                            |
 | `TokenStore`   | `recordDpopJti(jti, ttlMs)` (optional)                              | **Strong, atomic record-or-fail.**                                                                                     | RFC 9449 §11.1 — replay protection requires single-use enforcement on the jti within the TTL window. A re-presentation must return `invalid_grant` deterministically. Adapters without this method cannot satisfy DPoP and the verifier surfaces `invalid_dpop_proof`. |
 | `KeyStore`     | `currentSigningKey()` / `currentEncryptionKey()`                    | Strong.                                                                                                                | Active key must be unambiguous.                                                                                                                                                                                                                                        |
 | `KeyStore`     | `signingKeys()` (JWKS)                                              | Eventual OK (with TTL).                                                                                                | Verifiers tolerate brief JWKS lag during rotation.                                                                                                                                                                                                                     |
@@ -64,6 +65,12 @@ demonstrate, under simulated replication lag:
 2. `consumeRefresh` CAS resolves to exactly one winner under concurrent
    attempts on the same token.
 3. `revokeBySubject` propagates within the documented SLA.
+4. `readScratch` immediately after the matching `saveScratch` returns the
+   value. Scratch backs SAML SP InResponseTo replay protection: the
+   AuthnRequest is correlated at the ACS by a scratch read that must see
+   the write made when the request was issued. The D1 adapter pins all
+   three scratch operations to the primary via the Sessions API
+   (`primarySession`), the same path `consumeFlow` uses.
 
 Read-eventual paths (`ConfigStore.getTenantConfig`, JWKS) may use replicas
 freely.
@@ -93,6 +100,11 @@ The fixture set covers, at minimum:
   one-shot consume atomicity, expiry enforcement, ttl-0 rejection.
 - **DPoP jti (`recordDpopJti`)** — first record succeeds, replay within
   TTL fails with `invalid_grant`, post-TTL the slot is freed for reuse.
+- **Method scratch (`supportsScratch: true`)** — `saveScratch` /
+  `readScratch` / `deleteScratch` round-trip, overwrite semantics on
+  same key, expiry enforcement, idempotent `deleteScratch`, ttl-0
+  rejection. Keys are opaque to the adapter (the framework scopes them
+  upstream); a single test confirms that distinct keys are isolated.
 
 ## Optional methods and graceful degradation
 
@@ -110,6 +122,19 @@ caught up yet:
 does not support DPoP replay protection"`. Memory adapter
   implements; production adapters add it the same way `consumeRefresh`
   uses an atomic write-once primitive.
+- `SessionStore.saveScratch / readScratch / deleteScratch` — required
+  for methods that hold cross-flow per-instance state (SAML SP replay
+  protection is the first user). Without them,
+  `MethodContext.methodScratch.put/get/delete` returns an
+  `internal_error` whose description names the missing operation.
+  Memory **and all four production adapters** (Postgres, D1, DynamoDB,
+  Durable Object) implement the trio as a TTL-respecting key/value
+  store keyed by an opaque string; each is opted into the
+  `supportsScratch` conformance cases. Semantics are upsert /
+  TTL-filtered read / idempotent delete — there is no atomic
+  delete-on-read (unlike `consumeFlow`). On DynamoDB the row also
+  carries a native `ttl` attribute for backstop eviction, but reads
+  still filter on the adapter clock because native TTL is best-effort.
 
 The framework never advertises a feature in discovery that the wired
 adapters cannot actually serve: `pushed_authorization_request_endpoint`

@@ -24,7 +24,7 @@ import type {
 import type { PickerContext, PickerMethod } from "../../types/picker"
 import { renderPicker as renderDefaultPicker } from "../../ui/picker"
 
-import { applyResponsePolicy } from "../cookies"
+import { applyResponsePolicy, cacheControlHeader } from "../cookies"
 import type { HttpContext, HttpDeps } from "../context"
 import {
   authorizeDirectErrorResponse,
@@ -209,7 +209,7 @@ export function makeAuthorizeHandler(deps: HttpDeps) {
         return applyResponsePolicy(out.response, {
           setCookies: [flowCookie, ...out.setCookies],
           cookieDefaults: deps.cookieDefaults,
-          cacheControl: cacheControlFor(out.cache),
+          cacheControl: cacheControlHeader(out.cache),
         })
       }
       case "issue-code": {
@@ -341,22 +341,3 @@ function clearFlowCookie() {
   }
 }
 
-function cacheControlFor(
-  cache:
-    | {
-        maxAge?: number
-        sMaxAge?: number
-        isPrivate?: boolean
-        immutable?: boolean
-      }
-    | undefined,
-): string {
-  if (!cache) return "no-store"
-  if ((cache.maxAge ?? -1) === 0) return "no-store"
-  const parts: string[] = []
-  if (cache.isPrivate) parts.push("private")
-  if (cache.maxAge !== undefined) parts.push(`max-age=${cache.maxAge}`)
-  if (cache.sMaxAge !== undefined) parts.push(`s-maxage=${cache.sMaxAge}`)
-  if (cache.immutable) parts.push("immutable")
-  return parts.length ? parts.join(", ") : "no-store"
-}

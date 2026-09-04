@@ -57,6 +57,37 @@ export type AuthMethod<P = unknown, S = unknown> = {
    */
   routes: Record<string, MethodHandler<P, S>>
   /**
+   * Opt-in allowlist of route keys (same `"GET /metadata"` string form
+   * as `routes` keys) that the framework dispatches **without** a flow
+   * cookie or flow record — anonymous, unauthenticated GETs. The sole
+   * intended use is publishing static, per-instance descriptive
+   * documents (SAML SP metadata XML). The handler receives
+   * `ctx.flow === null` and `ctx.methodState === null` and MUST be a
+   * pure function of `ctx.tenant` + `ctx.dispatch` + its captured
+   * config — it must not assume an authenticated principal.
+   *
+   * Absent (the default for every method) ⇒ behaviour is unchanged:
+   * every `/m/<id>/*` request requires the `idp.flow` cookie. The
+   * cookie gate is skipped *only* for a route key a method explicitly
+   * lists here — fail-closed by construction.
+   */
+  publicRoutes?: ReadonlyArray<string>
+  /**
+   * Opt-in: this method instance handles **unsolicited** upstream
+   * callbacks — a `POST /cb/<methodId>` carrying a provider assertion
+   * with no framework state envelope and no prior flow (SAML
+   * IdP-initiated SSO). When `true`, the framework, instead of
+   * rejecting a stateless callback, dispatches `GET /callback` with
+   * `flow === null` and a derived `dispatch` (issuer/ACS); the handler
+   * verifies the assertion and returns `success` **with
+   * `unsolicitedBinding`**. Absent (every method's default) ⇒ a
+   * stateless callback stays an `invalid_request` (the conservative
+   * default — many deployments do not want IdP-initiated). General
+   * capability, not SAML-specific; set per instance (a SAML instance
+   * sets it only when its config enables IdP-initiated).
+   */
+  unsolicitedCallback?: boolean
+  /**
    * Token-exchange function for the `/token` endpoint when the method
    * participates in client-credentials-style flows (e.g. `m2m`). Most
    * redirect-based methods do not set this.
@@ -102,6 +133,47 @@ export type MethodContext<S = unknown> = {
    * and the relevant data is on `flow`).
    */
   dispatch: MethodDispatchData | null
+  /**
+   * Per-method-instance scratch storage scoped to
+   * `(tenant.id, method.id)`. Survives across flows — distinct from
+   * `methodState`, which is per-flow.
+   *
+   * Most methods do NOT need this. It exists for cross-flow
+   * deduplication patterns such as SAML SP assertion-ID replay
+   * protection.
+   *
+   * Backed by `SessionStore.{saveScratch,readScratch,deleteScratch}`
+   * when those optional methods are implemented. Against adapters that
+   * don't implement them, every call returns
+   * `{ ok: false, error: unsupported }` — the method should surface a
+   * `MethodResult.error` with a clear message, not silently degrade.
+   */
+  methodScratch: MethodScratch
+}
+
+/**
+ * Caller-facing API for per-method-instance scratch. The framework
+ * scopes user-supplied keys with a `(tenantId, methodId)` prefix before
+ * delegating to `SessionStore` — adapters never see raw method keys.
+ *
+ * Values are UTF-8 strings; methods JSON-encode if they want to stash
+ * objects. Keeping the port-level type narrow simplifies adapter
+ * implementations (one TEXT column, one Dynamo `S` attribute, etc.).
+ */
+export type MethodScratch = {
+  /**
+   * Persist `value` under `key` with the given TTL. Overwrites prior
+   * value for the same key. `ttlMs` must be positive.
+   */
+  put(key: string, value: string, ttlMs: number): Promise<Result<void>>
+  /**
+   * Read the value previously stored at `key`. Returns `unknown_state`
+   * if the key is missing or expired (the underlying adapter MAY
+   * lazily evict expired entries on read).
+   */
+  get(key: string): Promise<Result<string>>
+  /** Idempotent. Resolves `ok` whether the key existed or not. */
+  delete(key: string): Promise<Result<void>>
 }
 
 /** Framework-supplied data available to the method at `/authorize` time. */
@@ -143,6 +215,27 @@ export type MethodResult<P = unknown, S = unknown> =
       saveMethodState?: S
       /** Serialized into a `Cache-Control` header by the framework. */
       cache?: CachePolicy
+      /**
+       * Verified upstream-logout notification. Set **only** by a
+       * flowless **public** logout route (e.g. SAML front-channel SLS)
+       * once it has cryptographically verified the inbound logout
+       * message. The method stays port-free — it proves authenticity
+       * and builds the protocol response (`response` = the signed
+       * `LogoutResponse` redirect / ack); the privileged side effect
+       * runs in the framework.
+       *
+       * When present on a public route the framework fires
+       * `IdPOptions.onLogout` and, if that returns `{ revokeSubject }`,
+       * runs `revokeAllForSubject` — then returns `response`. Ignored
+       * on non-public (flow-bearing) routes: an authenticated method
+       * route never logs anyone out. Mirrors the Phase 2 V′ pattern
+       * (`success.unsolicitedBinding`): an optional field on an
+       * existing variant, not a new `MethodResult` kind.
+       */
+      logout?: {
+        nameId?: string
+        sessionIndex?: string
+      }
     }
   /**
    * Authentication succeeded. The HTTP layer hands `providerSubject` +
@@ -155,6 +248,23 @@ export type MethodResult<P = unknown, S = unknown> =
       providerSubject: string
       properties: P
       setCookies?: SetCookie[]
+      /**
+       * RP binding for a **flowless** (unsolicited / IdP-initiated)
+       * authentication. Consulted **only** when the method ran with no
+       * `flow` (e.g. an unsolicited SAML Response — see
+       * `AuthMethod.unsolicitedCallback`). On the normal SP-initiated
+       * path a `flow` exists and this is ignored; on the flowless path
+       * it is **required** (the framework has no pending RP request to
+       * read `client_id` / `redirect_uri` / `scope` from, so the method
+       * supplies the operator-configured defaults). The framework still
+       * validates `clientId` / `redirectUri` against the tenant's
+       * registered client before issuing a code.
+       */
+      unsolicitedBinding?: {
+        clientId: string
+        redirectUri: string
+        scopes: string[]
+      }
     }
   /** User refused / failed auth in a non-error way (e.g. consent declined). */
   | { kind: "denied"; reason: string; setCookies?: SetCookie[] }

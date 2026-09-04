@@ -1,6 +1,43 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 
-import { applyResponsePolicy, serializeSetCookie } from "../../src/http/cookies"
+import {
+  applyResponsePolicy,
+  cacheControlHeader,
+  serializeSetCookie,
+} from "../../src/http/cookies"
+
+describe("cacheControlHeader — CachePolicy serializer", () => {
+  test("undefined → no-store (safe default for auth UI)", () => {
+    expect(cacheControlHeader(undefined)).toBe("no-store")
+  })
+
+  test("maxAge:0 → no-store (explicit no-cache)", () => {
+    expect(cacheControlHeader({ maxAge: 0 })).toBe("no-store")
+  })
+
+  test("sMaxAge → s-maxage (the SAML metadata case)", () => {
+    expect(cacheControlHeader({ sMaxAge: 300 })).toBe("s-maxage=300")
+  })
+
+  test("maxAge → max-age", () => {
+    expect(cacheControlHeader({ maxAge: 60 })).toBe("max-age=60")
+  })
+
+  test("private + immutable + both ages combine in order", () => {
+    expect(
+      cacheControlHeader({
+        isPrivate: true,
+        maxAge: 60,
+        sMaxAge: 300,
+        immutable: true,
+      }),
+    ).toBe("private, max-age=60, s-maxage=300, immutable")
+  })
+
+  test("empty policy object → no-store (nothing to assert)", () => {
+    expect(cacheControlHeader({})).toBe("no-store")
+  })
+})
 
 describe("serializeSetCookie — name validation", () => {
   test("accepts plain reserved-namespace names", () => {

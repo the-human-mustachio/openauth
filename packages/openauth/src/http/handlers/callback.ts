@@ -16,8 +16,16 @@ import { authorizeDirectErrorResponse } from "../errors"
 
 export function makeCallbackHandler(deps: HttpDeps) {
   return async (c: HttpContext): Promise<Response> => {
+    const tenant = c.get("tenant")
     const result = await handleCallback(
-      { rawRequest: c.req.raw, cookies: c.get("cookies") },
+      {
+        rawRequest: c.req.raw,
+        cookies: c.get("cookies"),
+        // Only the IdP-initiated (no-state) path reads these; the
+        // SP-initiated path derives tenant from the consumed flow.
+        ...(tenant ? { tenant } : {}),
+        issuerUrl: c.get("issuerUrl"),
+      },
       {
         configStore: deps.configStore,
         sessionStore: deps.sessionStore,

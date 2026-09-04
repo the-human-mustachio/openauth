@@ -63,6 +63,7 @@ describeTokenStore({
 describeSessionStore({
   adapterName: "dynamo (in-memory)",
   supportsLongLivedSessions: true,
+  supportsScratch: true,
   async makeStore(clock) {
     return { store: new DynamoSessionStore({ exec, clock: clock.now }) }
   },
