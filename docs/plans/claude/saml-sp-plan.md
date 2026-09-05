@@ -425,6 +425,10 @@ later. Building it now buys permanent surface area — signing keys to
 custody forever, registry migrations, and every downstream app that
 trusts our signature becomes something we can break.
 
+SCIM sits on the same side of this line: it is inbound directory sync,
+not outbound provisioning, so it reinforces this posture rather than
+straining it. See `scim-plan.md` SCIM-AD1.
+
 **Reopen only if** a named customer needs a specific downstream app that
 cannot speak OIDC (check first — much SAML-era SaaS has since added it),
 or the host repositions as a workforce-identity product. If reopened, it
@@ -1035,11 +1039,10 @@ host-driven method route, not an `/end_session` side effect;
   mounts already existed. Phase 8 sessions touch `src/domain/`
   token/grant code; the one overlap point is `src/domain/callback.ts`,
   already landed.
-- SCIM is **deferred** until SAML Phase 1 ships (per current
-  prioritization discussion). SCIM and SAML are commercially adjacent
-  but technically independent; once SAML Phase 1 unblocks the
-  "supports SAML" RFP claim, SCIM becomes the next-largest enterprise
-  unlock.
+- SCIM was **deferred** until SAML shipped. It has: see
+  `scim-plan.md` (2026-09-05) — Option B, library owns the protocol and
+  a new `ScimDirectory` port, host owns persistence. Planning only,
+  awaiting sign-off on two decisions.
 
 ## Cross-cutting Decisions Captured
 
