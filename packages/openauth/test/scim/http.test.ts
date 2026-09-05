@@ -17,7 +17,8 @@ import {
 } from "../../src/adapters/memory"
 import { createIdP } from "../../src/index"
 import { hashClientSecret } from "../../src/domain/token"
-import { ok } from "../../src/types/result"
+import { err, ok } from "../../src/types/result"
+import { authError } from "../../src/types/error"
 import { asTenantId, type TenantConfig } from "../../src/types/tenant"
 
 import { MemoryScimDirectory } from "../helpers/scim-directory"
@@ -28,18 +29,34 @@ const TOKEN = "scim-token-abc123"
 const ISSUER = "https://idp.example"
 const TENANT = asTenantId("acme")
 
-async function harness(opts: { withDirectory?: boolean } = {}) {
+async function harness(
+  opts: {
+    withDirectory?: boolean
+    /** Resolve to a tenant the config store does not have. */
+    unknownTenant?: boolean
+    /** `resolveTenant` itself fails. */
+    unresolvableTenant?: boolean
+    /** Tenant exists but SCIM is switched off. */
+    scimDisabled?: boolean
+  } = {},
+) {
   const base = await buildTenant()
   const tenant: TenantConfig = {
     ...base,
-    scim: { enabled: true, tokenHash: await hashClientSecret(TOKEN) },
+    scim: {
+      enabled: opts.scimDisabled !== true,
+      tokenHash: await hashClientSecret(TOKEN),
+    },
   }
   const clock = () => 1_700_000_000_000
   const keyStore = new MemoryKeyStore({ clock })
   const directory = new MemoryScimDirectory(clock)
 
   const idp = createIdP({
-    resolveTenant: async () => ok(TENANT),
+    resolveTenant: async () =>
+      opts.unresolvableTenant === true
+        ? err(authError.invalidRequest("no tenant on this host"))
+        : ok(opts.unknownTenant === true ? asTenantId("ghost") : TENANT),
     stateKeys: buildStateKeys(),
     configStore: new MemoryConfigStore({ seed: [tenant] }),
     tokenStore: new MemoryTokenStore({ keyStore, clock }),
@@ -165,5 +182,47 @@ describe("SCIM over HTTP", () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as Record<string, unknown>
     expect(body["id"]).toBe("usr/1")
+  })
+})
+
+describe("finding 5 — SCIM never leaks which tenants exist", () => {
+  /** Body + status, normalized for comparison. */
+  async function probe(opts: Parameters<typeof harness>[0]) {
+    const { call } = await harness(opts)
+    const res = await call("/Users", { token: "whatever" })
+    return {
+      status: res.status,
+      contentType: res.headers.get("content-type"),
+      body: (await res.json()) as Record<string, unknown>,
+    }
+  }
+
+  test("an unknown tenant is indistinguishable from a disabled one", async () => {
+    // Previously the tenant middleware answered an unknown tenant with a
+    // 400 OAuth envelope carrying "tenant not found", while a known
+    // tenant answered 401/403 — an enumeration oracle for an
+    // unauthenticated caller.
+    const unknown = await probe({ unknownTenant: true })
+    const disabled = await probe({ scimDisabled: true })
+
+    expect(unknown.status).toBe(403)
+    expect(disabled.status).toBe(403)
+    expect(unknown.body).toEqual(disabled.body)
+  })
+
+  test("an unresolvable tenant answers the same way", async () => {
+    const unresolvable = await probe({ unresolvableTenant: true })
+    expect(unresolvable.status).toBe(403)
+  })
+
+  test("tenant failures still speak SCIM, not OAuth", async () => {
+    const unknown = await probe({ unknownTenant: true })
+    expect(unknown.contentType).toContain("application/scim+json")
+    expect(unknown.body["schemas"]).toEqual([
+      "urn:ietf:params:scim:api:messages:2.0:Error",
+    ])
+    // Not the OAuth shape.
+    expect(unknown.body).not.toHaveProperty("error")
+    expect(unknown.body).not.toHaveProperty("error_description")
   })
 })

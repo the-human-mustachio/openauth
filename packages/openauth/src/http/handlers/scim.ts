@@ -19,9 +19,10 @@ const MOUNT = "/scim/v2"
 function scimResponse(
   status: number,
   body: Record<string, unknown> | null,
+  extra: Record<string, string> = {},
 ): Response {
   if (body === null || status === 204) {
-    return new Response(null, { status })
+    return new Response(null, { status, headers: extra })
   }
   return new Response(JSON.stringify(body), {
     status,
@@ -29,6 +30,7 @@ function scimResponse(
       "content-type": SCIM_CONTENT_TYPE,
       // Provisioning responses are per-tenant and mutable; never cached.
       "cache-control": "no-store",
+      ...extra,
     },
   })
 }
@@ -96,6 +98,6 @@ export function makeScimHandler(deps: HttpDeps) {
       directory: deps.scimDirectory,
     })
 
-    return scimResponse(result.status, result.body)
+    return scimResponse(result.status, result.body, result.headers ?? {})
   }
 }

@@ -62,6 +62,20 @@ intent (`addMembers` / `removeMembers`) rather than being resolved to a
 final list, because resolving would make a one-member change an O(n)
 read-and-rewrite on a large group.
 
+**Branch review (2026-09-05):** an independent review of
+`master..feat/saml-sp-interop` found the SAML half clean and returned 8
+SCIM findings, all reproduced and fixed on the branch. The two that
+mattered most: PATCH rejected the whole request over an unmodelled
+attribute (breaking Okta deactivation — see the amendment under
+SCIM-AD6), and `/scim/v2/*` leaked tenant existence because the shared
+tenant middleware answered unknown tenants with an OAuth-shaped 400
+before the SCIM handler ran. Also fixed: bare-URN enterprise patches,
+`add` on a complex attribute clearing sibling sub-attributes, filter
+structural checks tripping on quoted literals containing `(` or `or`,
+`count=-1` returning a full page, a missing `Location` header on create,
+and targeted email upserts duplicating an untyped entry. Every finding
+has a named regression test.
+
 **Recommended next action: Phase 3 — validate against a live Okta/Entra
 tenant and run the Okta SCIM validator (case 16).** Everything so far is
 fixture-driven; the same "no fixture substitutes for a real IdP"
@@ -203,8 +217,23 @@ The port never sees `path: 'emails[type eq "work"].value'`. Absorbing
 this once is the single strongest argument for the library owning SCIM
 at all — it is the piece every host would otherwise get subtly wrong.
 
-Unsupported ops return `400` / `scimType: "invalidPath"` rather than
-being silently dropped, which is how provisioning drifts undetected.
+**Amended 2026-09-05 after branch review.** The original rule — "an
+operation we cannot resolve is an error" — was too blunt and broke the
+operation this feature exists for. Okta's default profile mappings push
+`title`, `nickName`, `locale` and friends in the *same* `PatchOp` as
+`active`, so a fatal unknown-attribute error took the deactivation down
+with it, and Okta retried the identical payload forever. It was also
+asymmetric with `parseUserWrite`, which ignores unknown attributes on
+POST/PUT: the same attribute set succeeded via PUT and 400'd via PATCH.
+
+The line is now **unmodelled vs malformed**:
+
+- An attribute the library does not model is **skipped**. There is
+  nowhere to put it — `ScimUserPatch` has no field for it — so nothing
+  can drift, and POST/PUT already discard it.
+- A malformed operation on an attribute we **do** model (a non-boolean
+  `active`, an unresolvable path shape on `emails`) stays a `400`. That
+  one really would drift undetected.
 
 ### SCIM-AD7 — Users first, Groups second
 

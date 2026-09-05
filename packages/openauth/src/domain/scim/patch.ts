@@ -22,8 +22,20 @@
  * present ⇒ set to this, `null` ⇒ clear, absent ⇒ leave alone. No merge
  * logic and no path parsing ever reaches the host.
  *
- * An operation we cannot resolve is an error, never a silent no-op —
- * dropped operations are how provisioning drifts undetected for months.
+ * Two kinds of "we can't do that" are treated very differently:
+ *
+ *   - An attribute this Service Provider does not model at all (`title`,
+ *     `nickName`, `locale`, …) is **skipped**. There is nowhere for it to
+ *     go — `ScimUserPatch` has no field for it — so nothing drifts, and
+ *     `parseUserWrite` already ignores the same attributes on POST/PUT.
+ *     Rejecting them here would fail the whole request over an attribute
+ *     we would have discarded anyway: Okta's default profile mappings
+ *     push `title` in the *same* `PatchOp` as `active`, so a fatal
+ *     unknown-attribute error takes the deactivation down with it, and
+ *     Okta retries the identical payload forever.
+ *   - A malformed operation on an attribute we **do** model (a
+ *     non-boolean `active`, an unparseable path shape) stays an error.
+ *     That one really would drift undetected.
  *
  * Pure: no I/O, no port access.
  */
@@ -66,11 +78,24 @@ function coerceBoolean(v: unknown): boolean | undefined {
 const asString = (v: unknown): string | undefined =>
   typeof v === "string" ? v : undefined
 
-/** Strip the enterprise-extension URN prefix from a path, if present. */
+/**
+ * Strip the enterprise-extension URN prefix from a path, if present.
+ *
+ * Two shapes arrive. A qualified path
+ * (`urn:…:enterprise:2.0:User:department`) carries the sub-attribute
+ * after a colon. A **pathless** op instead uses the bare URN as an
+ * object key, with the whole extension object as its value — and the
+ * recursion in `applyOperation` then hands that URN here as a path of
+ * its own. Matching only the colon-suffixed form missed the second case,
+ * and the URN's `2.0` made the result look like a dotted path.
+ */
 function stripEnterprisePrefix(path: string): {
   path: string
   enterprise: boolean
 } {
+  if (path.toLowerCase() === SCIM_ENTERPRISE_SCHEMA.toLowerCase()) {
+    return { path: "", enterprise: true }
+  }
   const prefix = `${SCIM_ENTERPRISE_SCHEMA}:`
   if (path.toLowerCase().startsWith(prefix.toLowerCase())) {
     return { path: path.slice(prefix.length), enterprise: true }
@@ -100,21 +125,37 @@ function parseMultiValuedPath(
   }
 }
 
-/** Upsert one entry into a multi-valued list, matching on `type`. */
+/**
+ * Upsert one entry into a multi-valued list, matching on `type`.
+ *
+ * Falls back to a single untyped entry when nothing matches by type. A
+ * user created from a payload whose email carried no `type` would
+ * otherwise gain a *second* email the first time Entra synced
+ * `emails[type eq "work"].value` — the untyped entry can never match, so
+ * every sync appends. Adopting the lone untyped entry (and labelling it)
+ * is the interpretation that keeps one address for one person; with two
+ * or more untyped entries there is no non-arbitrary choice, so we append.
+ */
 function upsertByType(
   current: ScimMultiValue[] | undefined,
   type: string,
   value: string,
 ): ScimMultiValue[] {
   const list = [...(current ?? [])]
-  const idx = list.findIndex(
+  const byType = list.findIndex(
     (e) => (e.type ?? "").toLowerCase() === type.toLowerCase(),
   )
-  if (idx >= 0) {
-    list[idx] = { ...(list[idx] as ScimMultiValue), value }
-  } else {
-    list.push({ value, type })
+  if (byType >= 0) {
+    list[byType] = { ...(list[byType] as ScimMultiValue), value }
+    return list
   }
+  const untyped = list.filter((e) => e.type === undefined)
+  if (untyped.length === 1) {
+    const idx = list.indexOf(untyped[0] as ScimMultiValue)
+    list[idx] = { ...(list[idx] as ScimMultiValue), value, type }
+    return list
+  }
+  list.push({ value, type })
   return list
 }
 
@@ -157,6 +198,13 @@ function invalidPath(detail: string): ScimValidationError {
   return { status: 400, scimType: "invalidPath", detail }
 }
 
+/**
+ * The attribute is outside this Service Provider's model — skip the
+ * operation rather than failing the request. See the note at the top of
+ * this file on why unmodelled ≠ malformed.
+ */
+const SKIP = null
+
 /** Apply one `{op, path, value}` to the working draft. */
 function applyOperation(
   draft: Draft,
@@ -197,7 +245,7 @@ function applyOperation(
   const mv = parseMultiValuedPath(stripped)
   if (mv) {
     if (mv.attribute !== "emails" && mv.attribute !== "phonenumbers") {
-      return invalidPath(`attribute "${mv.attribute}" is not patchable`)
+      return SKIP // an unmodelled multi-valued attribute (ims, photos, …)
     }
     if (mv.sub !== "value") {
       return invalidPath(
@@ -247,6 +295,32 @@ function applyOperation(
 
   // --- Enterprise extension sub-attributes.
   if (enterprise) {
+    // Bare URN key: the value is the whole extension object, so fan out
+    // over its keys as if each had been sent as a qualified path.
+    if (stripped === "") {
+      if (removing) {
+        draft.enterprise = undefined
+        draft.patch.enterprise = null
+        return null
+      }
+      if (!isRecord(value)) {
+        return {
+          status: 400,
+          scimType: "invalidValue",
+          detail: "the enterprise extension requires an object value",
+        }
+      }
+      for (const [k, v] of Object.entries(value)) {
+        const nested = applyOperation(
+          draft,
+          operation,
+          `${SCIM_ENTERPRISE_SCHEMA}:${k}`,
+          v,
+        )
+        if (nested) return nested
+      }
+      return null
+    }
     const canonical = ENTERPRISE_SUBS[head]
     if (head === "manager") {
       const current = { ...(draft.enterprise ?? {}) }
@@ -262,7 +336,7 @@ function applyOperation(
       return null
     }
     if (!canonical) {
-      return invalidPath(`enterprise attribute "${head}" is not patchable`)
+      return SKIP // unmodelled enterprise sub-attribute
     }
     const current = { ...(draft.enterprise ?? {}) }
     if (removing) delete current[canonical]
@@ -293,14 +367,19 @@ function applyOperation(
       if (!isRecord(value)) {
         return invalidPath('"name" requires an object value')
       }
-      const merged: ScimName = {}
+      // RFC 7644 §3.5.2.1: `add` on a complex attribute adds the given
+      // sub-attributes, leaving the others in place. Only `replace`
+      // substitutes the whole thing. Treating both as a replace silently
+      // cleared familyName whenever an IdP sent givenName alone.
+      const merged: ScimName =
+        operation === "add" ? { ...(draft.name ?? {}) } : {}
       for (const [k, v] of Object.entries(value)) {
         const canonical = NAME_CANONICAL[k.toLowerCase()]
         const s = asString(v)
         if (canonical && s !== undefined) merged[canonical] = s
       }
       draft.name = merged
-      draft.patch.name = merged
+      draft.patch.name = Object.keys(merged).length > 0 ? merged : null
       return null
     }
     if (!NAME_SUBS.has(sub)) {
@@ -326,7 +405,7 @@ function applyOperation(
   }
 
   if (sub !== undefined) {
-    return invalidPath(`path "${rawPath}" is not supported`)
+    return SKIP // a sub-attribute of something we do not model
   }
 
   // --- Simple top-level attributes.
@@ -404,9 +483,7 @@ function applyOperation(
       return null
     }
     default:
-      return invalidPath(
-        `attribute "${rawPath}" is not patchable by this Service Provider`,
-      )
+      return SKIP // unmodelled attribute: title, nickName, locale, …
   }
 }
 

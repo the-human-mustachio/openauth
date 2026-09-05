@@ -484,3 +484,77 @@ describe("SCIM — not-yet-implemented surfaces", () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe("review regressions", () => {
+  test("finding 4 — parentheses inside a quoted value are not a grouped expression", async () => {
+    // "Sales (EMEA)" is an ordinary group name. Rejecting it made Okta's
+    // existence lookup fail, and Okta answers a failed lookup by
+    // creating a duplicate.
+    const directory = new MemoryScimDirectory(() => 1_700_000_000_000)
+    directory.seed(TENANT, {
+      id: "u1",
+      userName: "Sales (EMEA)",
+      active: true,
+    })
+    const { res } = await call({
+      directory,
+      query: 'filter=userName eq "Sales (EMEA)"',
+    })
+    expect(res.status).toBe(200)
+    expect(res.body?.["totalResults"]).toBe(1)
+  })
+
+  test('finding 4 — the words "or" / "not" inside a value are just text', async () => {
+    const directory = new MemoryScimDirectory(() => 1_700_000_000_000)
+    directory.seed(TENANT, { id: "u1", userName: "jack or jill", active: true })
+    directory.seed(TENANT, { id: "u2", userName: "not really", active: true })
+
+    const or = await call({ directory, query: 'filter=userName eq "jack or jill"' })
+    expect(or.res.status).toBe(200)
+    expect(or.res.body?.["totalResults"]).toBe(1)
+
+    const not = await call({ directory, query: 'filter=userName eq "not really"' })
+    expect(not.res.status).toBe(200)
+    expect(not.res.body?.["totalResults"]).toBe(1)
+  })
+
+  test("finding 4 — real grouping and real or/not are still refused", async () => {
+    for (const query of [
+      'filter=(userName eq "a") and (active eq true)',
+      'filter=userName eq "a" or userName eq "b"',
+      'filter=not (userName eq "a")',
+    ]) {
+      const { res } = await call({ query })
+      expect(res.status).toBe(400)
+      expect(res.body?.["scimType"]).toBe("invalidFilter")
+    }
+  })
+
+  test("finding 6 — a negative count means zero, not a full page", async () => {
+    // RFC 7644 §3.4.2.4: "A negative value SHALL be interpreted as 0."
+    const directory = new MemoryScimDirectory(() => 1_700_000_000_000)
+    directory.seed(TENANT, { id: "u1", userName: "a@b.c", active: true })
+    const { res } = await call({ directory, query: "count=-1" })
+    expect(res.body?.["itemsPerPage"]).toBe(0)
+    expect((res.body?.["Resources"] as unknown[]).length).toBe(0)
+    // The match count is still reported honestly.
+    expect(res.body?.["totalResults"]).toBe(1)
+  })
+
+  test("finding 7 — a create carries a Location header", async () => {
+    const { res } = await call({
+      method: "POST",
+      path: "/Users",
+      body: VALID_USER,
+    })
+    expect(res.status).toBe(201)
+    // RFC 7644 §3.1, and Okta's validator checks for it.
+    expect(res.headers?.["location"]).toBe(
+      `${BASE}/Users/${res.body?.["id"]}`,
+    )
+    // It must agree with meta.location rather than being rebuilt.
+    expect(res.headers?.["location"]).toBe(
+      (res.body?.["meta"] as Record<string, string>)["location"],
+    )
+  })
+})

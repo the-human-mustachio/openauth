@@ -57,6 +57,12 @@ export type ScimResponse = {
   status: number
   /** `null` for 204. Serialized as `application/scim+json` by the caller. */
   body: Record<string, unknown> | null
+  /**
+   * Extra response headers the HTTP layer should set. Used for
+   * `Location` on a create, which RFC 7644 §3.1 requires and Okta's
+   * validator checks for.
+   */
+  headers?: Record<string, string>
 }
 
 export type ScimRequestInput = {
@@ -73,6 +79,23 @@ export type ScimRequestInput = {
   /** Absolute base URL of the SCIM mount, e.g. `https://idp.example/scim/v2`. */
   baseUrl: string
   directory: ScimDirectory
+}
+
+
+/**
+ * A 201 for a newly created resource. RFC 7644 §3.1 requires a
+ * `Location` header; the value is already computed as `meta.location`,
+ * so take it from there rather than rebuilding it and risking drift.
+ */
+function created(body: Record<string, unknown>): ScimResponse {
+  const location = (body["meta"] as Record<string, unknown> | undefined)?.[
+    "location"
+  ]
+  return {
+    status: 201,
+    body,
+    ...(typeof location === "string" ? { headers: { location } } : {}),
+  }
 }
 
 const fail = (
@@ -158,9 +181,12 @@ function clampPaging(
   const rawCount = query.get("count")
   if (rawCount === null) return { startIndex, count: maxPageSize }
   const parsed = Number(rawCount)
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return { startIndex, count: maxPageSize }
-  }
+  // Unparseable is "unspecified" — fall back to the page size. A
+  // *negative* value is different: RFC 7644 §3.4.2.4 says it "SHALL be
+  // interpreted as 0", so `count=-1` must return nothing, not a full
+  // page.
+  if (!Number.isFinite(parsed)) return { startIndex, count: maxPageSize }
+  if (parsed < 0) return { startIndex, count: 0 }
   return { startIndex, count: Math.min(Math.floor(parsed), maxPageSize) }
 }
 
@@ -201,13 +227,13 @@ async function createUser(input: ScimRequestInput): Promise<ScimResponse> {
   if (!parsed.ok) {
     return fail(parsed.error.status, parsed.error.detail, parsed.error.scimType)
   }
-  const created = await input.directory.createUser(
+  const created_ = await input.directory.createUser(
     input.tenant.id,
     parsed.value,
   )
-  const r = unwrap(created)
+  const r = unwrap(created_)
   if ("response" in r) return r.response
-  return { status: 201, body: serializeUser(r.value, input.baseUrl) }
+  return created(serializeUser(r.value, input.baseUrl))
 }
 
 async function loadUser(
@@ -287,11 +313,32 @@ async function deleteUser(
 
 
 /**
+ * A directory that implements the whole optional Group half of the port.
+ *
+ * Narrowing to this type is what lets the group handlers call the
+ * methods directly instead of asserting each one non-null. The guard
+ * then holds structurally rather than by convention: a future call path
+ * that skips the check is a compile error, not a latent crash.
+ */
+type GroupCapableDirectory = ScimDirectory &
+  Required<
+    Pick<
+      ScimDirectory,
+      | "getGroup"
+      | "findGroups"
+      | "createGroup"
+      | "replaceGroup"
+      | "patchGroup"
+      | "deleteGroup"
+    >
+  >
+
+/**
  * Groups are optional as a set on the port — a host that only needs user
  * provisioning implements none of them and gets a clean 501 rather than
  * a runtime failure mid-push.
  */
-function groupsSupported(d: ScimRequestInput["directory"]): boolean {
+function groupsSupported(d: ScimDirectory): d is GroupCapableDirectory {
   return (
     typeof d.getGroup === "function" &&
     typeof d.findGroups === "function" &&
@@ -314,9 +361,10 @@ function excludesMembers(query: URLSearchParams): boolean {
 
 async function loadGroup(
   input: ScimRequestInput,
+  groups: GroupCapableDirectory,
   id: string,
 ): Promise<{ group: ScimGroupRecord } | { response: ScimResponse }> {
-  const found = await input.directory.getGroup!(input.tenant.id, id)
+  const found = await groups.getGroup(input.tenant.id, id)
   const r = unwrap(found)
   if ("response" in r) return r
   if (r.value === null) {
@@ -327,16 +375,11 @@ async function loadGroup(
 
 async function handleGroups(
   input: ScimRequestInput,
+  groups: GroupCapableDirectory,
   path: string,
   method: string,
   maxPageSize: number,
 ): Promise<ScimResponse> {
-  if (!groupsSupported(input.directory)) {
-    return fail(
-      501,
-      "Group provisioning is not implemented by this Service Provider",
-    )
-  }
 
   if (path === "/Groups" || path === "/Groups/") {
     if (method === "GET") {
@@ -346,7 +389,7 @@ async function handleGroups(
       )
       if (!filter.ok) return fail(400, filter.error.detail, "invalidFilter")
       const { startIndex, count } = clampPaging(input.query, maxPageSize)
-      const page = await input.directory.findGroups!(input.tenant.id, {
+      const page = await groups.findGroups(input.tenant.id, {
         ...(filter.value !== undefined ? { filter: filter.value } : {}),
         startIndex,
         count,
@@ -373,13 +416,13 @@ async function handleGroups(
           parsed.error.scimType,
         )
       }
-      const created = await input.directory.createGroup!(
+      const createdGroup = await groups.createGroup(
         input.tenant.id,
         parsed.value,
       )
-      const r = unwrap(created)
+      const r = unwrap(createdGroup)
       if ("response" in r) return r.response
-      return { status: 201, body: serializeGroup(r.value, input.baseUrl) }
+      return created(serializeGroup(r.value, input.baseUrl))
     }
     return fail(405, `${method} is not allowed on /Groups`)
   }
@@ -395,12 +438,12 @@ async function handleGroups(
 
   switch (method) {
     case "GET": {
-      const existing = await loadGroup(input, id)
+      const existing = await loadGroup(input, groups, id)
       if ("response" in existing) return existing.response
       return { status: 200, body: serializeGroup(existing.group, input.baseUrl) }
     }
     case "PUT": {
-      const existing = await loadGroup(input, id)
+      const existing = await loadGroup(input, groups, id)
       if ("response" in existing) return existing.response
       const parsed = parseGroupWrite(input.body)
       if (!parsed.ok) {
@@ -410,7 +453,7 @@ async function handleGroups(
           parsed.error.scimType,
         )
       }
-      const replaced = await input.directory.replaceGroup!(
+      const replaced = await groups.replaceGroup(
         input.tenant.id,
         id,
         parsed.value,
@@ -420,7 +463,7 @@ async function handleGroups(
       return { status: 200, body: serializeGroup(r.value, input.baseUrl) }
     }
     case "PATCH": {
-      const existing = await loadGroup(input, id)
+      const existing = await loadGroup(input, groups, id)
       if ("response" in existing) return existing.response
       // Unlike a user patch, this needs no current record to resolve
       // against — membership deltas stay deltas (SCIM-AD9). The read
@@ -433,7 +476,7 @@ async function handleGroups(
           normalized.error.scimType,
         )
       }
-      const patched = await input.directory.patchGroup!(
+      const patched = await groups.patchGroup(
         input.tenant.id,
         id,
         normalized.value,
@@ -443,9 +486,9 @@ async function handleGroups(
       return { status: 200, body: serializeGroup(r.value, input.baseUrl) }
     }
     case "DELETE": {
-      const existing = await loadGroup(input, id)
+      const existing = await loadGroup(input, groups, id)
       if ("response" in existing) return existing.response
-      const deleted = await input.directory.deleteGroup!(input.tenant.id, id)
+      const deleted = await groups.deleteGroup(input.tenant.id, id)
       const r = unwrap(deleted)
       if ("response" in r) return r.response
       return { status: 204, body: null }
@@ -525,7 +568,13 @@ export async function handleScimRequest(
   }
 
   if (path.startsWith("/Groups")) {
-    return handleGroups(input, path, method, maxPageSize)
+    if (!groupsSupported(input.directory)) {
+      return fail(
+        501,
+        "Group provisioning is not implemented by this Service Provider",
+      )
+    }
+    return handleGroups(input, input.directory, path, method, maxPageSize)
   }
 
   return fail(404, `unknown SCIM endpoint "${path}"`)

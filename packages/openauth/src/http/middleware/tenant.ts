@@ -32,7 +32,48 @@ import {
   authorizeDirectErrorResponse,
   tokenEndpointErrorResponse,
 } from "../errors"
-import { authError } from "../../types/error"
+import { authError, type AuthError } from "../../types/error"
+
+
+/**
+ * SCIM has its own media type and error envelope, and its own
+ * disclosure rule: an unauthenticated caller must not be able to tell an
+ * unknown tenant from a known one. The shared OAuth error response
+ * defeats both — it answers `400 application/json` with the
+ * tenant-not-found text, which is visibly different from the `403` a
+ * configured-but-SCIM-disabled tenant gets.
+ *
+ * So SCIM paths collapse every tenant-resolution failure onto the same
+ * `403` the domain layer emits for "SCIM is not enabled here". A store
+ * failure is still distinguishable as a 500, because that is an
+ * operational fault rather than a fact about which tenants exist.
+ */
+function isScimPath(pathname: string): boolean {
+  return pathname === "/scim/v2" || pathname.startsWith("/scim/v2/")
+}
+
+function scimTenantErrorResponse(error: AuthError): Response {
+  const operational =
+    error.code === "server_error" || error.code === "internal_error"
+  const status = operational ? 500 : 403
+  const detail = operational
+    ? "the configuration store backing this endpoint failed the request"
+    : "SCIM provisioning is not enabled for this tenant"
+  return new Response(
+    JSON.stringify({
+      schemas: ["urn:ietf:params:scim:api:messages:2.0:Error"],
+      status: String(status),
+      detail,
+    }),
+    {
+      status,
+      headers: {
+        "content-type": "application/scim+json;charset=utf-8",
+        "cache-control": "no-store",
+      },
+    },
+  )
+}
 
 function isCallbackPath(pathname: string): boolean {
   return pathname.startsWith("/cb/")
@@ -89,6 +130,9 @@ export function tenantMiddleware(deps: HttpDeps): MiddlewareHandler<HttpEnv> {
       if (url.pathname === "/authorize") {
         return authorizeDirectErrorResponse(resolved.error)
       }
+      if (isScimPath(url.pathname)) {
+        return scimTenantErrorResponse(resolved.error)
+      }
       return tokenEndpointErrorResponse(resolved.error)
     }
     const tenantId = resolved.value
@@ -100,6 +144,9 @@ export function tenantMiddleware(deps: HttpDeps): MiddlewareHandler<HttpEnv> {
           : cfg.error
       if (url.pathname === "/authorize") {
         return authorizeDirectErrorResponse(err)
+      }
+      if (isScimPath(url.pathname)) {
+        return scimTenantErrorResponse(cfg.error)
       }
       return tokenEndpointErrorResponse(err)
     }

@@ -20,10 +20,12 @@ SCIM 2.0 user provisioning. Corporate IdPs (Okta, Entra) can now create, update,
 
 - `DELETE` and deactivation stay distinct. A delete is never quietly remapped to `active: false` — that would erase the distinction in an audit trail.
 - `password` in a payload is refused, not silently dropped. Credentials belong to the auth methods, not the directory feed.
-- An unresolvable PATCH operation is an error, never a no-op, because dropped operations are how provisioning drifts undetected.
+- A malformed PATCH operation on an attribute the library models is an error, never a silent no-op — that is how provisioning drifts undetected. An attribute it does not model is skipped instead, since there is nowhere for it to go and POST/PUT already discard it.
 - A disabled or unconfigured tenant gets `403`, never `404`, so the endpoint cannot be used to probe which tenants exist.
 - A port error other than `conflict` becomes a `500`, which SCIM clients retry — better than reporting success for a write that did not happen.
 
 **`ScimDirectory` requires read-your-writes consistency**: SCIM clients confirm a create by immediately filtering for it, and a stale read there produces duplicate users. Uniqueness of `userName` is the host's to enforce (return the new `conflict` `AuthError` → `409 uniqueness`); the library cannot enforce a constraint on rows it does not store.
 
 Also adds a `conflict` variant to `AuthError`, used by hosts to signal that a SCIM write collided with an existing record.
+
+**Post-review corrections** (found by a branch review before release, all with regression tests): unknown attributes in a PATCH are skipped rather than rejecting the whole request — Okta pushes `title` alongside `active`, so the old behaviour took deactivation down with it, and it was asymmetric with POST/PUT which already ignore them; `/scim/v2/*` no longer distinguishes an unknown tenant from a SCIM-disabled one (the shared tenant middleware previously answered unknown tenants with an OAuth-shaped 400 before the SCIM layer ran, an enumeration oracle); a bare enterprise-extension URN used as a pathless PATCH key now resolves; `add` on a complex attribute merges sub-attributes per RFC 7644 §3.5.2.1 instead of clearing the siblings; filter structural checks ignore quoted literals, so a value containing `(` or the word `or` is no longer rejected; `count=-1` returns zero results per RFC 7644 §3.4.2.4 rather than a full page; creates carry a `Location` header per RFC 7644 §3.1; and a targeted email upsert adopts a lone untyped entry instead of appending a duplicate.

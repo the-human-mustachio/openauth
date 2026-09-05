@@ -1452,6 +1452,12 @@ Groups are covered below and are opt-in.
 
 ### Four things worth knowing
 
+**0. Unknown attributes are skipped, not rejected.** An attribute this
+library does not model — `title`, `nickName`, `locale` — is dropped from
+both writes and patches rather than failing the request. Okta pushes
+several of them in the same `PatchOp` as `active`, and failing the whole
+request over one would take the deactivation with it.
+
 **1. `patchUser` is where deprovisioning happens.** Okta and Entra
 normally deactivate with `PATCH {active: false}` rather than `DELETE`.
 Getting that one operation right matters more than everything else here.

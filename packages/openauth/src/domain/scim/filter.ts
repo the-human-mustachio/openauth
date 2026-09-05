@@ -187,7 +187,16 @@ export function parseScimFilter(
   }
   const input = raw.trim()
 
-  if (input.includes("(") || input.includes(")")) {
+  // Every structural check below runs against a *masked* copy in which
+  // the contents of quoted literals are blanked out. Testing the raw
+  // string rejected perfectly ordinary values — a group called
+  // "Sales (EMEA)" looked like a grouped expression, and a user called
+  // "jack or jill" looked like a disjunction. Both are common, and the
+  // damage is worse than a bad error message: Okta reacts to a failed
+  // existence lookup by creating a duplicate.
+  const masked = maskQuoted(input)
+
+  if (masked.includes("(") || masked.includes(")")) {
     return err({
       detail: `grouped expressions are not supported. ${SUPPORTED_FILTER_HELP}`,
     })
@@ -204,12 +213,12 @@ export function parseScimFilter(
         SUPPORTED_FILTER_HELP,
     })
   }
-  if (/\sor\s/i.test(input)) {
+  if (/\sor\s/i.test(masked)) {
     return err({
       detail: `"or" is not supported. ${SUPPORTED_FILTER_HELP}`,
     })
   }
-  if (/(^|\s)not\s/i.test(input)) {
+  if (/(^|\s)not\s/i.test(masked)) {
     return err({
       detail: `"not" is not supported. ${SUPPORTED_FILTER_HELP}`,
     })
@@ -222,6 +231,27 @@ export function parseScimFilter(
   const second = parseTerm(parts[1] as string, allowed)
   if (!second.ok) return second
   return ok({ op: "and", left: first.value, right: second.value })
+}
+
+
+/**
+ * Replace the contents of every quoted literal with spaces, preserving
+ * length and the quote characters themselves. Lets the structural checks
+ * reason about filter *syntax* without tripping over filter *values*.
+ */
+function maskQuoted(input: string): string {
+  let out = ""
+  let inQuotes = false
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i] as string
+    if (ch === '"' && input[i - 1] !== "\\") {
+      inQuotes = !inQuotes
+      out += ch
+      continue
+    }
+    out += inQuotes ? " " : ch
+  }
+  return out
 }
 
 /**
