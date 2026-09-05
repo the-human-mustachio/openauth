@@ -230,12 +230,21 @@ assertion to one. 658 tests green, both tsconfigs clean.
    fixture in the suite is self-signed locally, so nothing here has met
    a real IdP. Watch the strict missing-`Recipient` deny and Entra's
    URN-style attribute names first.
-2. **SP cert story.** `signingKey.certPem` / `decryptionKey.certPem`
-   need a self-signed X.509 the host cannot generate with Node stdlib.
-   `INTEGRATION.md` §9.5 needs the `openssl` recipe (or a helper).
-3. **IdP metadata refresh recipe.** `signingCerts` supports hot
-   rotation; nothing populates it on an ongoing basis. Failure mode is
-   "the customer rotated their cert and every login broke."
+2. ~~**SP cert story.**~~ **Done 2026-09-05** — `INTEGRATION.md` §9.5
+   "Generating the SP keypair": the `openssl` recipe (verified by
+   running it and driving the output through `signAuthnRequest` +
+   metadata), why `-nodes` is required, and the honest note that SP cert
+   rotation is a *coordinated swap* — metadata advertises one signing
+   cert, so there is no overlap window on our side. A future
+   enhancement would be multi-cert SP metadata to make SP-side rotation
+   hot too, matching the IdP side.
+3. ~~**IdP metadata refresh recipe.**~~ **Done 2026-09-05** —
+   `INTEGRATION.md` §9.5 "Keeping IdP signing certs fresh": a worked
+   merge that appends rather than replaces, retires dropped certs on a
+   `notAfter` timer instead of deleting them, and keeps the existing
+   config on every failure path. Only `signingCerts` is safe to merge
+   automatically; a changed `entityId` / `ssoUrl` is a reconfiguration
+   and goes to an operator.
 
 Optional future work is per-deal only (Holder-of-Key, ECP, Artifact,
 back-channel SOAP SLO). SAML IdP role is out of scope — see SAML-AD8.

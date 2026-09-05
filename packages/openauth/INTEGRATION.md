@@ -1266,6 +1266,123 @@ assertion inside an unsigned Response is unauthenticated XML. When
 `requireSignedAssertion` is `false`, SP metadata advertises
 `WantAssertionsSigned="false"` so it keeps stating actual behaviour.
 
+#### Generating the SP keypair
+
+`signingKey` and `decryptionKey` each need a PEM private key and a
+matching self-signed X.509 certificate. Node's standard library cannot
+produce an X.509 certificate — it generates keypairs, not certs — so
+this is an `openssl` step you run once per connection and store with the
+rest of the connection's config:
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes \
+  -keyout sp-signing-key.pem \
+  -out    sp-signing-cert.pem \
+  -days   1095 \
+  -subj   "/CN=idp.example SAML SP"
+```
+
+- **`-nodes` is required.** A passphrase-protected key cannot be loaded
+  from config; the PEM must be unencrypted at rest in the process. Keep
+  it secret the same way you keep any per-tenant credential — encrypt
+  the `MethodStore` at rest, or supply it through your own resolver.
+- **RSA 2048 or better.** Some IdPs still reject EC keys for SAML.
+- **Long validity.** Expiry forces a coordinated swap (below), so a
+  3-year cert is normal here rather than lax.
+- **The `CN` is cosmetic.** SAML pins the certificate by value; nothing
+  validates it as a chain or checks the subject. Use something you will
+  recognise in an IdP admin console.
+- **Use separate keypairs for signing and decryption.** They are pinned
+  independently at the IdP and rotated on different occasions.
+
+**SP cert rotation is a coordinated swap, not a hot rotation.** SP
+metadata advertises exactly one signing certificate, and the IdP pins
+it, so there is no overlap window on this side: generate the new pair,
+update `signingKey`, and have the IdP admin re-import your metadata (or
+paste the new cert) in the same change. Plan it as a maintenance
+window with the customer. This is deliberately asymmetric with IdP
+certs, which *do* rotate hot — see below.
+
+#### Keeping IdP signing certs fresh
+
+`idp.signingCerts` accepts several PEMs, each with an optional
+`notBefore` / `notAfter` window, and the verifier accepts any cert whose
+window covers now. That is what makes IdP-side rotation survivable
+without a redeploy — but nothing refreshes the list for you. The library
+deliberately performs no I/O: `parseSamlIdpMetadata` is pure, and
+fetching is the host's job.
+
+Without a refresh loop the failure mode is a bad morning: the customer
+rotates their IdP certificate and every login breaks at once. Poll the
+connection's metadata URL on a schedule (daily is plenty) and merge:
+
+```ts
+import { parseSamlIdpMetadata } from "@_mustachio/openauth/methods/saml-sp"
+import type { SamlIdpSigningCert } from "@_mustachio/openauth/methods/saml-sp"
+
+/** How long a retired cert keeps verifying after the IdP drops it. */
+const OVERLAP_MS = 7 * 24 * 60 * 60 * 1000
+
+function mergeSigningCerts(
+  current: ReadonlyArray<SamlIdpSigningCert>,
+  incoming: ReadonlyArray<SamlIdpSigningCert>,
+  now: number,
+): SamlIdpSigningCert[] | null {
+  const has = (list: ReadonlyArray<SamlIdpSigningCert>, pem: string) =>
+    list.some((c) => c.pem.trim() === pem.trim())
+  const added = incoming.filter((c) => !has(current, c.pem))
+  if (added.length === 0) return null // nothing changed
+
+  return [
+    // Certs the IdP dropped get an expiry rather than deletion, so an
+    // assertion signed moments before the change still verifies.
+    ...current.map((c) =>
+      has(incoming, c.pem) || c.notAfter !== undefined
+        ? c
+        : { ...c, notAfter: now + OVERLAP_MS },
+    ),
+    // New certs are active immediately — the IdP may cut over at any
+    // moment, and it does not tell you when.
+    ...added,
+  ]
+}
+
+async function refreshIdpCerts(tenantId: string, methodId: string) {
+  const stored = await myConfigStore.readSamlConnection(tenantId, methodId)
+
+  const res = await fetch(stored.metadataUrl)
+  if (!res.ok) return // transient — keep what works, try again tomorrow
+  const parsed = parseSamlIdpMetadata(await res.text())
+  if (!parsed.ok) return // malformed feed must never clobber a good config
+
+  const merged = mergeSigningCerts(
+    stored.config.idp.signingCerts,
+    parsed.value.signingCerts,
+    Date.now(),
+  )
+  if (!merged || merged.length === 0) return // never write an empty set
+
+  await myConfigStore.writeSamlConnection(tenantId, methodId, {
+    ...stored.config,
+    idp: { ...stored.config.idp, signingCerts: merged },
+  })
+}
+```
+
+Three rules matter more than the exact code:
+
+1. **Append, never replace.** Overwriting the list at the moment you
+   notice a change breaks in-flight logins signed by the outgoing key.
+2. **Every failure path keeps the existing config.** A network blip or a
+   malformed feed must not be able to empty `signingCerts` — an empty
+   active set fails every login with a configuration error.
+3. **Retire on a timer, not on sight.** Give dropped certs a `notAfter`
+   in the future rather than deleting them, and let them age out.
+
+Note that only `signingCerts` is safe to merge automatically. A changed
+`entityId` or `ssoUrl` means the IdP has been reconfigured, not rotated
+— surface that to an operator instead of applying it.
+
 ---
 
 ## 10. Subject identity & JWT validation in your services
