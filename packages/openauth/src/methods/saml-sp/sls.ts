@@ -53,6 +53,34 @@ type NodeSamlProfile = {
  */
 const SLO_REPLAY_HORIZON_MS = 10 * 60_000
 
+/**
+ * The query string exactly as transmitted.
+ *
+ * The HTTP-Redirect binding signs the raw query octets (OASIS SAML 2.0
+ * Bindings §3.4.4.1), so verification has to see the bytes the IdP
+ * signed rather than a re-encoding of them.
+ *
+ * This used to read `new URL(request.url).search`, which round-trips the
+ * query through whatever encoder the runtime ships. Whether that is
+ * byte-preserving turns out to be a property of the *runtime*, not of
+ * the request: it holds on Bun 1.1 and does not on Bun 1.4, where every
+ * inbound redirect-binding logout became a 403 signature failure while
+ * the POST binding — which never touches the query — kept working. The
+ * local suite passed throughout, because it ran the older Bun.
+ *
+ * Slicing at the first `?` puts no encoder in the path, so it cannot
+ * drift. A fragment is never transmitted to a server, but trimming one
+ * is cheap insurance against a caller that synthesises a URL by hand.
+ */
+export function rawQueryString(requestUrl: string): string {
+  const start = requestUrl.indexOf("?")
+  if (start < 0) return ""
+  const fragment = requestUrl.indexOf("#", start)
+  return fragment < 0
+    ? requestUrl.slice(start + 1)
+    : requestUrl.slice(start + 1, fragment)
+}
+
 export async function consumeSls(
   ctx: MethodContext<SamlSpState>,
   methodId: string,
@@ -87,10 +115,11 @@ export async function consumeSls(
   )
 
   // Read both bindings: HTTP-Redirect (GET, signed query string) and
-  // HTTP-POST (form body). The raw query string is required to verify a
-  // redirect-binding signature (it is computed over the exact bytes).
+  // HTTP-POST (form body). `url` is for reading individual parameters,
+  // where decoding is what we want; the signature input must be the raw
+  // transmitted bytes instead — see `rawQueryString`.
   const url = new URL(ctx.request.url)
-  const originalQuery = url.search.replace(/^\?/, "")
+  const originalQuery = rawQueryString(ctx.request.url)
   let samlRequest: string | null
   let samlResponse: string | null
   let relayState: string | null
