@@ -994,6 +994,16 @@ credential. When signing is enabled, the SP metadata automatically
 advertises `AuthnRequestsSigned="true"` and a signing `KeyDescriptor`,
 so it stays truthful to runtime behaviour.
 
+> **Runtime note — redirect-binding SLO needs Node.js.** SAML is
+> Node-only by design, and this is one place where it bites concretely.
+> `@node-saml/node-saml` resolves an inbound `SigAlg` URI by trimming it
+> to `rsa-sha256` and exact-matching that against `crypto.getHashes()`,
+> which requires the legacy OpenSSL alias `RSA-SHA256`. Node.js ships it.
+> **Bun removed the `RSA-*` aliases in 1.2**, so on Bun every inbound
+> redirect-binding `LogoutRequest` is rejected with
+> `…#rsa-sha256 is not supported`. The HTTP-POST binding is unaffected —
+> it never consults `SigAlg` — as are SSO and the ACS. Run SAML on Node.
+
 **Single Logout (front-channel SLO).** Set `idp.sloUrl` to enable it.
 Two anonymous routes become active (gated on `idp.sloUrl` — absent ⇒
 they are not served, and SP metadata advertises no
