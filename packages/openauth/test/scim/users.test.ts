@@ -396,7 +396,10 @@ describe("SCIM — discovery (case 14)", () => {
   test("ResourceTypes and Schemas are well-formed lists", async () => {
     const rt = await call({ path: "/ResourceTypes" })
     expect(rt.res.status).toBe(200)
-    expect(rt.res.body?.["totalResults"]).toBe(1)
+    const types = (rt.res.body?.["Resources"] as Record<string, unknown>[]).map(
+      (r) => r["id"],
+    )
+    expect(types).toContain("User")
 
     const sc = await call({ path: "/Schemas" })
     expect(sc.res.status).toBe(200)
@@ -404,6 +407,46 @@ describe("SCIM — discovery (case 14)", () => {
       (s) => s["id"],
     )
     expect(ids).toContain("urn:ietf:params:scim:schemas:core:2.0:User")
+  })
+
+  test("discovery advertises Group only when the host implements it", async () => {
+    // Advertising a resource type we answer 501 for would send a client
+    // straight into a failure it was told to expect to work.
+    const withGroups = await call({ path: "/ResourceTypes" })
+    expect(
+      (withGroups.res.body?.["Resources"] as Record<string, unknown>[]).map(
+        (r) => r["id"],
+      ),
+    ).toEqual(["User", "Group"])
+
+    const directory = new MemoryScimDirectory(() => 1_700_000_000_000)
+    const usersOnly = {
+      getUser: directory.getUser.bind(directory),
+      findUsers: directory.findUsers.bind(directory),
+      createUser: directory.createUser.bind(directory),
+      replaceUser: directory.replaceUser.bind(directory),
+      patchUser: directory.patchUser.bind(directory),
+      deleteUser: directory.deleteUser.bind(directory),
+    }
+    const without = await call({
+      path: "/ResourceTypes",
+      directory: usersOnly as unknown as MemoryScimDirectory,
+    })
+    expect(
+      (without.res.body?.["Resources"] as Record<string, unknown>[]).map(
+        (r) => r["id"],
+      ),
+    ).toEqual(["User"])
+
+    const schemasWithout = await call({
+      path: "/Schemas",
+      directory: usersOnly as unknown as MemoryScimDirectory,
+    })
+    expect(
+      (schemasWithout.res.body?.["Resources"] as Record<string, unknown>[]).map(
+        (s) => s["id"],
+      ),
+    ).not.toContain("urn:ietf:params:scim:schemas:core:2.0:Group")
   })
 
   test("discovery endpoints reject non-GET", async () => {
@@ -416,10 +459,23 @@ describe("SCIM — discovery (case 14)", () => {
 })
 
 describe("SCIM — not-yet-implemented surfaces", () => {
-  test("/Groups answers 501, not 404", async () => {
-    const { res } = await call({ path: "/Groups" })
-    // 501 is honest: the endpoint is specified and we have not built it.
-    // A 404 would suggest Groups will never exist here.
+  test("/Groups answers 501 when the host implements no group methods", async () => {
+    // Groups are optional on the port. A host that only needs user
+    // provisioning gets an honest 501 rather than a runtime failure
+    // partway through an IdP's group push.
+    const directory = new MemoryScimDirectory(() => 1_700_000_000_000)
+    const usersOnly = {
+      getUser: directory.getUser.bind(directory),
+      findUsers: directory.findUsers.bind(directory),
+      createUser: directory.createUser.bind(directory),
+      replaceUser: directory.replaceUser.bind(directory),
+      patchUser: directory.patchUser.bind(directory),
+      deleteUser: directory.deleteUser.bind(directory),
+    }
+    const { res } = await call({
+      path: "/Groups",
+      directory: usersOnly as unknown as MemoryScimDirectory,
+    })
     expect(res.status).toBe(501)
   })
 

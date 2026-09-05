@@ -16,6 +16,9 @@
  */
 import type {
   ScimEnterpriseUser,
+  ScimGroupMember,
+  ScimGroupRecord,
+  ScimGroupWrite,
   ScimMultiValue,
   ScimName,
   ScimUserRecord,
@@ -24,6 +27,7 @@ import type {
 import { err, ok, type Result } from "../../types/result"
 
 export const SCIM_USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User"
+export const SCIM_GROUP_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:Group"
 export const SCIM_ENTERPRISE_SCHEMA =
   "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
 export const SCIM_LIST_SCHEMA =
@@ -257,5 +261,100 @@ export function serializeList(
     itemsPerPage: users.length,
     // Capital R — the spec's own casing, and a frequent interop bug.
     Resources: users.map((u) => serializeUser(u, baseUrl)),
+  }
+}
+
+function parseMembers(v: unknown): ScimGroupMember[] | undefined {
+  // Some IdPs send a bare object where the spec wants an array.
+  const list = Array.isArray(v) ? v : isRecord(v) ? [v] : undefined
+  if (list === undefined) return undefined
+  const out: ScimGroupMember[] = []
+  for (const entry of list) {
+    if (!isRecord(entry)) continue
+    const value = asString(entry["value"])
+    if (value === undefined) continue
+    const display = asString(entry["display"])
+    out.push({ value, ...(display !== undefined ? { display } : {}) })
+  }
+  return out
+}
+
+export { parseMembers }
+
+/** Validate a `POST` / `PUT` group payload. */
+export function parseGroupWrite(
+  body: unknown,
+): Result<ScimGroupWrite, ScimValidationError> {
+  if (!isRecord(body)) {
+    return err({
+      status: 400,
+      scimType: "invalidSyntax",
+      detail: "request body must be a JSON object",
+    })
+  }
+  const displayName = asString(body["displayName"])
+  if (displayName === undefined) {
+    return err({
+      status: 400,
+      scimType: "invalidValue",
+      detail: "displayName is required and must be a non-empty string",
+    })
+  }
+  const externalId = asString(body["externalId"])
+  const members = parseMembers(body["members"])
+  return ok({
+    displayName,
+    ...(externalId !== undefined ? { externalId } : {}),
+    ...(members !== undefined ? { members } : {}),
+  })
+}
+
+/** Serialize a host group record into a SCIM Group resource. */
+export function serializeGroup(
+  group: ScimGroupRecord,
+  baseUrl: string,
+): Record<string, unknown> {
+  const created = iso(group.createdAt)
+  const lastModified = iso(group.updatedAt)
+  return {
+    schemas: [SCIM_GROUP_SCHEMA],
+    id: group.id,
+    ...(group.externalId !== undefined
+      ? { externalId: group.externalId }
+      : {}),
+    displayName: group.displayName,
+    // Omitted entirely when the host did not load membership — `[]`
+    // would tell the client the group has been emptied.
+    ...(group.members !== undefined
+      ? {
+          members: group.members.map((m) => ({
+            value: m.value,
+            ...(m.display !== undefined ? { display: m.display } : {}),
+            $ref: `${baseUrl}/Users/${encodeURIComponent(m.value)}`,
+            type: "User",
+          })),
+        }
+      : {}),
+    meta: {
+      resourceType: "Group",
+      ...(created !== undefined ? { created } : {}),
+      ...(lastModified !== undefined ? { lastModified } : {}),
+      location: `${baseUrl}/Groups/${encodeURIComponent(group.id)}`,
+    },
+  }
+}
+
+export function serializeGroupList(
+  groups: ScimGroupRecord[],
+  totalResults: number,
+  startIndex: number,
+  baseUrl: string,
+): Record<string, unknown> {
+  return {
+    schemas: [SCIM_LIST_SCHEMA],
+    totalResults,
+    startIndex,
+    itemsPerPage: groups.length,
+    Resources: groups.map((g) => serializeGroup(g, baseUrl)),
   }
 }

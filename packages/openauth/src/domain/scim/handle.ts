@@ -19,17 +19,26 @@ import type { ScimDirectory } from "../../ports/scim-directory"
 import type { Result } from "../../types/result"
 import type {
   ScimConfig,
+  ScimGroupRecord,
   ScimUserRecord,
   ScimUserWrite,
 } from "../../types/scim"
 import type { TenantContext } from "../../types/tenant"
 
 import { resourceTypes, schemas, serviceProviderConfig } from "./discovery"
-import { parseScimFilter, SUPPORTED_FILTER_HELP } from "./filter"
-import { normalizePatch } from "./patch"
 import {
+  GROUP_FILTER_ATTRIBUTES,
+  parseScimFilter,
+  SUPPORTED_FILTER_HELP,
+  USER_FILTER_ATTRIBUTES,
+} from "./filter"
+import { normalizeGroupPatch, normalizePatch } from "./patch"
+import {
+  parseGroupWrite,
   parseUserWrite,
   scimErrorBody,
+  serializeGroup,
+  serializeGroupList,
   serializeList,
   serializeUser,
   type ScimErrorType,
@@ -159,7 +168,10 @@ async function listUsers(
   input: ScimRequestInput,
   maxPageSize: number,
 ): Promise<ScimResponse> {
-  const filter = parseScimFilter(input.query.get("filter"))
+  const filter = parseScimFilter(
+    input.query.get("filter"),
+    USER_FILTER_ATTRIBUTES,
+  )
   if (!filter.ok) {
     return fail(400, filter.error.detail, "invalidFilter")
   }
@@ -273,6 +285,176 @@ async function deleteUser(
   return { status: 204, body: null }
 }
 
+
+/**
+ * Groups are optional as a set on the port — a host that only needs user
+ * provisioning implements none of them and gets a clean 501 rather than
+ * a runtime failure mid-push.
+ */
+function groupsSupported(d: ScimRequestInput["directory"]): boolean {
+  return (
+    typeof d.getGroup === "function" &&
+    typeof d.findGroups === "function" &&
+    typeof d.createGroup === "function" &&
+    typeof d.replaceGroup === "function" &&
+    typeof d.patchGroup === "function" &&
+    typeof d.deleteGroup === "function"
+  )
+}
+
+/** `excludedAttributes=members` — Okta sets it while enumerating. */
+function excludesMembers(query: URLSearchParams): boolean {
+  const raw = query.get("excludedAttributes")
+  if (raw === null) return false
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .includes("members")
+}
+
+async function loadGroup(
+  input: ScimRequestInput,
+  id: string,
+): Promise<{ group: ScimGroupRecord } | { response: ScimResponse }> {
+  const found = await input.directory.getGroup!(input.tenant.id, id)
+  const r = unwrap(found)
+  if ("response" in r) return r
+  if (r.value === null) {
+    return { response: fail(404, `no Group with id "${id}"`) }
+  }
+  return { group: r.value }
+}
+
+async function handleGroups(
+  input: ScimRequestInput,
+  path: string,
+  method: string,
+  maxPageSize: number,
+): Promise<ScimResponse> {
+  if (!groupsSupported(input.directory)) {
+    return fail(
+      501,
+      "Group provisioning is not implemented by this Service Provider",
+    )
+  }
+
+  if (path === "/Groups" || path === "/Groups/") {
+    if (method === "GET") {
+      const filter = parseScimFilter(
+        input.query.get("filter"),
+        GROUP_FILTER_ATTRIBUTES,
+      )
+      if (!filter.ok) return fail(400, filter.error.detail, "invalidFilter")
+      const { startIndex, count } = clampPaging(input.query, maxPageSize)
+      const page = await input.directory.findGroups!(input.tenant.id, {
+        ...(filter.value !== undefined ? { filter: filter.value } : {}),
+        startIndex,
+        count,
+        excludeMembers: excludesMembers(input.query),
+      })
+      const r = unwrap(page)
+      if ("response" in r) return r.response
+      return {
+        status: 200,
+        body: serializeGroupList(
+          r.value.resources,
+          r.value.totalResults,
+          startIndex,
+          input.baseUrl,
+        ),
+      }
+    }
+    if (method === "POST") {
+      const parsed = parseGroupWrite(input.body)
+      if (!parsed.ok) {
+        return fail(
+          parsed.error.status,
+          parsed.error.detail,
+          parsed.error.scimType,
+        )
+      }
+      const created = await input.directory.createGroup!(
+        input.tenant.id,
+        parsed.value,
+      )
+      const r = unwrap(created)
+      if ("response" in r) return r.response
+      return { status: 201, body: serializeGroup(r.value, input.baseUrl) }
+    }
+    return fail(405, `${method} is not allowed on /Groups`)
+  }
+
+  const m = /^\/Groups\/(.+)$/.exec(path)
+  if (!m) return fail(404, `unknown SCIM endpoint "${path}"`)
+  let id: string
+  try {
+    id = decodeURIComponent(m[1] as string)
+  } catch {
+    id = m[1] as string
+  }
+
+  switch (method) {
+    case "GET": {
+      const existing = await loadGroup(input, id)
+      if ("response" in existing) return existing.response
+      return { status: 200, body: serializeGroup(existing.group, input.baseUrl) }
+    }
+    case "PUT": {
+      const existing = await loadGroup(input, id)
+      if ("response" in existing) return existing.response
+      const parsed = parseGroupWrite(input.body)
+      if (!parsed.ok) {
+        return fail(
+          parsed.error.status,
+          parsed.error.detail,
+          parsed.error.scimType,
+        )
+      }
+      const replaced = await input.directory.replaceGroup!(
+        input.tenant.id,
+        id,
+        parsed.value,
+      )
+      const r = unwrap(replaced)
+      if ("response" in r) return r.response
+      return { status: 200, body: serializeGroup(r.value, input.baseUrl) }
+    }
+    case "PATCH": {
+      const existing = await loadGroup(input, id)
+      if ("response" in existing) return existing.response
+      // Unlike a user patch, this needs no current record to resolve
+      // against — membership deltas stay deltas (SCIM-AD9). The read
+      // above is purely for 404 semantics.
+      const normalized = normalizeGroupPatch(input.body)
+      if (!normalized.ok) {
+        return fail(
+          normalized.error.status,
+          normalized.error.detail,
+          normalized.error.scimType,
+        )
+      }
+      const patched = await input.directory.patchGroup!(
+        input.tenant.id,
+        id,
+        normalized.value,
+      )
+      const r = unwrap(patched)
+      if ("response" in r) return r.response
+      return { status: 200, body: serializeGroup(r.value, input.baseUrl) }
+    }
+    case "DELETE": {
+      const existing = await loadGroup(input, id)
+      if ("response" in existing) return existing.response
+      const deleted = await input.directory.deleteGroup!(input.tenant.id, id)
+      const r = unwrap(deleted)
+      if ("response" in r) return r.response
+      return { status: 204, body: null }
+    }
+    default:
+      return fail(405, `${method} is not allowed on /Groups/{id}`)
+  }
+}
+
 /**
  * Handle one SCIM request end to end.
  */
@@ -301,12 +483,13 @@ export async function handleScimRequest(
     if (method !== "GET") {
       return fail(405, `${method} is not allowed on ${path}`)
     }
+    const groups = groupsSupported(input.directory)
     const body =
       path === "/ServiceProviderConfig"
         ? serviceProviderConfig(input.baseUrl, maxPageSize)
         : path === "/ResourceTypes"
-          ? resourceTypes(input.baseUrl)
-          : schemas(input.baseUrl)
+          ? resourceTypes(input.baseUrl, groups)
+          : schemas(input.baseUrl, groups)
     return { status: 200, body }
   }
 
@@ -342,10 +525,7 @@ export async function handleScimRequest(
   }
 
   if (path.startsWith("/Groups")) {
-    return fail(
-      501,
-      "Group provisioning is not implemented by this Service Provider yet",
-    )
+    return handleGroups(input, path, method, maxPageSize)
   }
 
   return fail(404, `unknown SCIM endpoint "${path}"`)

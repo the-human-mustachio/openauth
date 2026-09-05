@@ -102,6 +102,11 @@ export type { ScimDirectory } from "./ports/scim-directory"
 export type {
   ScimConfig,
   ScimEnterpriseUser,
+  ScimGroupMember,
+  ScimGroupPatch,
+  ScimGroupQuery,
+  ScimGroupRecord,
+  ScimGroupWrite,
   ScimFilter,
   ScimFilterAttribute,
   ScimMultiValue,

@@ -25,6 +25,10 @@
  */
 import type { Result } from "../types/result"
 import type {
+  ScimGroupPatch,
+  ScimGroupQuery,
+  ScimGroupRecord,
+  ScimGroupWrite,
   ScimPage,
   ScimUserPatch,
   ScimUserQuery,
@@ -94,4 +98,57 @@ export type ScimDirectory = {
    * make silently.
    */
   deleteUser(tenantId: TenantId, id: string): Promise<Result<void>>
+
+  // ─── Groups ───
+  //
+  // Optional as a set: a host that only needs user provisioning can omit
+  // all six, and `/scim/v2/Groups` then answers 501 instead of failing
+  // at runtime. Implement all of them or none — a half-implemented
+  // Groups surface fails an IdP's group push in confusing ways.
+
+  getGroup?(
+    tenantId: TenantId,
+    id: string,
+  ): Promise<Result<ScimGroupRecord | null>>
+
+  /**
+   * `query.excludeMembers` is set when the client asked for
+   * `excludedAttributes=members`. Honour it by not loading membership —
+   * Okta sets it while enumerating groups, and ignoring it turns a cheap
+   * listing into a fan-out read per group.
+   */
+  findGroups?(
+    tenantId: TenantId,
+    query: ScimGroupQuery,
+  ): Promise<Result<ScimPage<ScimGroupRecord>>>
+
+  createGroup?(
+    tenantId: TenantId,
+    group: ScimGroupWrite,
+  ): Promise<Result<ScimGroupRecord>>
+
+  /** Full replace, including membership. */
+  replaceGroup?(
+    tenantId: TenantId,
+    id: string,
+    group: ScimGroupWrite,
+  ): Promise<Result<ScimGroupRecord>>
+
+  /**
+   * Apply a normalized group delta.
+   *
+   * Exactly one membership shape arrives at a time: `members` (replace
+   * everything) or `addMembers` / `removeMembers` (incremental). The
+   * incremental form exists so a 20,000-member group does not have to be
+   * read and rewritten to add one person — see `SCIM-AD9`. Adding an
+   * existing member or removing an absent one must succeed quietly;
+   * IdPs retry and expect idempotence.
+   */
+  patchGroup?(
+    tenantId: TenantId,
+    id: string,
+    patch: ScimGroupPatch,
+  ): Promise<Result<ScimGroupRecord>>
+
+  deleteGroup?(tenantId: TenantId, id: string): Promise<Result<void>>
 }

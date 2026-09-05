@@ -139,6 +139,8 @@ export type ScimFilterAttribute =
   | "externalId"
   | "active"
   | "emails.value"
+  /** Groups only. */
+  | "displayName"
 
 /**
  * The parsed filter, as a small typed tree. The host never receives the
@@ -172,6 +174,85 @@ export type ScimUserQuery = {
 export type ScimPage<T> = {
   resources: T[]
   totalResults: number
+}
+
+/**
+ * One group membership entry. `value` is the member's SCIM `id` — for
+ * us always a User id, since we do not support nested groups.
+ */
+export type ScimGroupMember = {
+  value: string
+  /** Human label the IdP supplied. Advisory; not authoritative. */
+  display?: string
+}
+
+/** A group as the **host** stores it. */
+export type ScimGroupRecord = {
+  id: string
+  externalId?: string
+  displayName: string
+  /**
+   * Omit when the caller asked for `excludedAttributes=members`, which
+   * Okta does while enumerating groups. Distinguish "not requested"
+   * (omit) from "no members" (`[]`) — returning `[]` for the former
+   * tells the client the group was emptied.
+   */
+  members?: ScimGroupMember[]
+  /** Unix ms → `meta.created`. */
+  createdAt?: number
+  /** Unix ms → `meta.lastModified`. */
+  updatedAt?: number
+}
+
+/** A validated group create / replace payload. */
+export type ScimGroupWrite = {
+  externalId?: string
+  displayName: string
+  /** Full membership for a create or replace. */
+  members?: ScimGroupMember[]
+}
+
+/**
+ * A normalized group PATCH.
+ *
+ * Membership is handled differently from every user attribute, and
+ * deliberately so (`SCIM-AD9`). For a user, the library resolves a
+ * targeted patch into the complete new value because the lists involved
+ * are small and bounded. Group membership is neither: resolving
+ * "add one member" against a 20,000-member group would mean reading all
+ * 20,000 rows and handing them back on every single change.
+ *
+ * So the client's *intent* is preserved instead. `addMembers` /
+ * `removeMembers` are incremental and let the host issue one insert or
+ * delete; `members` is a full replacement. They are mutually exclusive
+ * — the library never emits `members` alongside either incremental
+ * field, so a host can branch on which is present without ordering
+ * concerns.
+ */
+export type ScimGroupPatch = {
+  displayName?: string
+  externalId?: string | null
+  /** Replace the entire membership with exactly these members. */
+  members?: ScimGroupMember[]
+  /** Add these members, leaving existing ones alone. Idempotent. */
+  addMembers?: ScimGroupMember[]
+  /** Remove these member ids. Removing a non-member is not an error. */
+  removeMembers?: string[]
+}
+
+/** Input to `ScimDirectory.findGroups`. */
+export type ScimGroupQuery = {
+  filter?: ScimFilter
+  /** 1-based. */
+  startIndex: number
+  count: number
+  /**
+   * `true` when the client sent `excludedAttributes=members`. The host
+   * may skip loading membership entirely — Okta sets this while
+   * enumerating groups, and honouring it is the difference between a
+   * cheap listing and a fan-out read per group.
+   */
+  excludeMembers: boolean
 }
 
 /**

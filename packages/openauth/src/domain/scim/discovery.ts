@@ -19,6 +19,7 @@
  */
 import {
   SCIM_ENTERPRISE_SCHEMA,
+  SCIM_GROUP_SCHEMA,
   SCIM_LIST_SCHEMA,
   SCIM_USER_SCHEMA,
 } from "./resource"
@@ -55,7 +56,17 @@ export function serviceProviderConfig(
   }
 }
 
-export function resourceTypes(baseUrl: string): Record<string, unknown> {
+/**
+ * `groups` reflects whether the host actually implemented the Group
+ * half of `ScimDirectory`. Advertising a resource type we answer 501 for
+ * would send a client straight into a failure it was told to expect to
+ * work — the same advertise-only-what-we-serve rule the SAML SP metadata
+ * endpoint follows.
+ */
+export function resourceTypes(
+  baseUrl: string,
+  groups: boolean,
+): Record<string, unknown> {
   const user = {
     schemas: ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"],
     id: "User",
@@ -71,12 +82,26 @@ export function resourceTypes(baseUrl: string): Record<string, unknown> {
       location: `${baseUrl}/ResourceTypes/User`,
     },
   }
+  const group = {
+    schemas: ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"],
+    id: "Group",
+    name: "Group",
+    endpoint: "/Groups",
+    description: "Group",
+    schema: SCIM_GROUP_SCHEMA,
+    meta: {
+      resourceType: "ResourceType",
+      location: `${baseUrl}/ResourceTypes/Group`,
+    },
+  }
+
+  const resources = groups ? [user, group] : [user]
   return {
     schemas: [SCIM_LIST_SCHEMA],
-    totalResults: 1,
+    totalResults: resources.length,
     startIndex: 1,
-    itemsPerPage: 1,
-    Resources: [user],
+    itemsPerPage: resources.length,
+    Resources: resources,
   }
 }
 
@@ -120,7 +145,10 @@ const multiValueSub: AttributeSpec[] = [
   },
 ]
 
-export function schemas(baseUrl: string): Record<string, unknown> {
+export function schemas(
+  baseUrl: string,
+  groups: boolean,
+): Record<string, unknown> {
   const userSchema = {
     id: SCIM_USER_SCHEMA,
     name: "User",
@@ -203,11 +231,36 @@ export function schemas(baseUrl: string): Record<string, unknown> {
     },
   }
 
+  const groupSchema = {
+    id: SCIM_GROUP_SCHEMA,
+    name: "Group",
+    description: "Group",
+    attributes: [
+      str("displayName", { required: true }),
+      {
+        name: "members",
+        type: "complex",
+        multiValued: true,
+        required: false,
+        mutability: "readWrite",
+        returned: "default",
+        subAttributes: [str("value"), str("display"), str("type")],
+      },
+    ],
+    meta: {
+      resourceType: "Schema",
+      location: `${baseUrl}/Schemas/${SCIM_GROUP_SCHEMA}`,
+    },
+  }
+
+  const resources = groups
+    ? [userSchema, enterpriseSchema, groupSchema]
+    : [userSchema, enterpriseSchema]
   return {
     schemas: [SCIM_LIST_SCHEMA],
-    totalResults: 2,
+    totalResults: resources.length,
     startIndex: 1,
-    itemsPerPage: 2,
-    Resources: [userSchema, enterpriseSchema],
+    itemsPerPage: resources.length,
+    Resources: resources,
   }
 }

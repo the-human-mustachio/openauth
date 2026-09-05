@@ -1443,9 +1443,12 @@ GET    /scim/v2/ServiceProviderConfig | /ResourceTypes | /Schemas
 GET    /scim/v2/Users                 — filter + pagination
 POST   /scim/v2/Users
 GET|PUT|PATCH|DELETE /scim/v2/Users/{id}
+GET    /scim/v2/Groups                — filter + pagination
+POST   /scim/v2/Groups
+GET|PUT|PATCH|DELETE /scim/v2/Groups/{id}
 ```
 
-Groups are not implemented yet and answer `501`.
+Groups are covered below and are opt-in.
 
 ### Four things worth knowing
 
@@ -1503,6 +1506,46 @@ wrong result. The parsed filter reaches your port as a small typed tree
 
 If a real connection needs something outside this set, the `400` will
 say so immediately; widen it then, on evidence.
+
+### Groups (optional)
+
+Group provisioning is opt-in as a **set**: implement all six group
+methods on `ScimDirectory` or none. Omit them and `/scim/v2/Groups`
+answers `501`, and the discovery documents leave the Group resource type
+out entirely — a client is never told a resource works when it does not.
+
+Membership is the one place the library does *not* resolve a patch into
+a final value, and the reason is size. A user's email list is small; a
+group's membership is not. Resolving "add one member" against a
+20,000-member group would mean reading all 20,000 rows and writing them
+back on every change. So your port receives the client's intent:
+
+```ts
+async patchGroup(tenantId, id, patch) {
+  if (patch.members) {
+    // Full replace — exactly this membership, nothing else.
+  } else {
+    // Incremental — one insert / one delete, not a rewrite.
+    patch.addMembers    // [{ value, display? }]
+    patch.removeMembers // ["userId", …]
+  }
+}
+```
+
+The two forms are mutually exclusive: a full replace in the same request
+absorbs any add or remove alongside it, so you never receive `members`
+together with the incremental fields and need no ordering rule.
+
+**Make membership operations idempotent.** Adding an existing member or
+removing an absent one must succeed quietly. IdPs retry, and a `4xx`
+there stalls a group push indefinitely.
+
+**Honour `excludeMembers`.** When a client sends
+`excludedAttributes=members` — Okta does while enumerating groups —
+`ScimGroupQuery.excludeMembers` is `true` and you should skip loading
+membership entirely. Ignoring it turns a cheap listing into a fan-out
+read per group. Return the record with `members` **omitted**, not `[]`:
+an empty array tells the client the group has been emptied.
 
 ### Consistency requirement
 

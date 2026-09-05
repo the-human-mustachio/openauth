@@ -28,6 +28,8 @@
  * Pure: no I/O, no port access.
  */
 import type {
+  ScimGroupMember,
+  ScimGroupPatch,
   ScimMultiValue,
   ScimName,
   ScimUserPatch,
@@ -36,6 +38,7 @@ import type {
 import { err, ok, type Result } from "../../types/result"
 
 import {
+  parseMembers,
   SCIM_ENTERPRISE_SCHEMA,
   SCIM_PATCH_SCHEMA,
   type ScimValidationError,
@@ -494,4 +497,233 @@ export function normalizePatch(
   }
 
   return ok(draft.patch)
+}
+
+
+/**
+ * Extract the member id from a `members[value eq "…"]` path.
+ *
+ * Note there is no `.sub` suffix here, unlike the user-side
+ * `emails[type eq "work"].value` — Okta targets the whole member entry
+ * for removal, not one of its sub-attributes.
+ */
+function parseMemberFilterPath(path: string): string | null {
+  const m = /^members\[\s*value\s+eq\s+"([^"]+)"\s*\]$/i.exec(path.trim())
+  return m ? (m[1] as string) : null
+}
+
+/**
+ * Normalize a group `PatchOp`.
+ *
+ * Membership deliberately keeps the client's intent rather than being
+ * resolved to a final list (`SCIM-AD9`): "add one member" stays an add,
+ * so a host with a 20,000-member group issues one insert instead of
+ * rewriting the whole membership.
+ *
+ * A full replace still wins when one is present — subsequent
+ * adds/removes in the same request are folded into the replacement list,
+ * so the host never receives `members` alongside `addMembers` /
+ * `removeMembers` and needs no ordering rules of its own.
+ *
+ * Shapes handled:
+ *
+ *     Okta:  {op:"add",     path:"members", value:[{value:"u1"}]}
+ *     Okta:  {op:"remove",  path:"members[value eq \"u1\"]"}
+ *     Entra: {op:"remove",  path:"members", value:[{value:"u1"}]}
+ *     both:  {op:"replace", path:"members", value:[…]}
+ *     both:  {op:"replace", path:"displayName", value:"New"}
+ *     both:  {op:"replace", value:{displayName:"New"}}
+ */
+export function normalizeGroupPatch(
+  body: unknown,
+): Result<ScimGroupPatch, ScimValidationError> {
+  if (!isRecord(body)) {
+    return err({
+      status: 400,
+      scimType: "invalidSyntax",
+      detail: "request body must be a JSON object",
+    })
+  }
+  const schemas = body["schemas"]
+  if (
+    Array.isArray(schemas) &&
+    !schemas.some(
+      (s) =>
+        typeof s === "string" &&
+        s.toLowerCase() === SCIM_PATCH_SCHEMA.toLowerCase(),
+    )
+  ) {
+    return err({
+      status: 400,
+      scimType: "invalidSyntax",
+      detail: `PATCH body must declare the ${SCIM_PATCH_SCHEMA} schema`,
+    })
+  }
+
+  const rawOps = body["Operations"] ?? body["operations"]
+  if (!Array.isArray(rawOps) || rawOps.length === 0) {
+    return err({
+      status: 400,
+      scimType: "invalidSyntax",
+      detail: "PATCH body must carry a non-empty Operations array",
+    })
+  }
+
+  const patch: ScimGroupPatch = {}
+  const added: ScimGroupMember[] = []
+  const removed: string[] = []
+  /** Non-null once a full replace has been seen. */
+  let replacement: ScimGroupMember[] | null = null
+
+  const applyAdd = (members: ScimGroupMember[]) => {
+    if (replacement !== null) {
+      for (const m of members) {
+        if (!replacement.some((e) => e.value === m.value)) replacement.push(m)
+      }
+      return
+    }
+    for (const m of members) {
+      if (!added.some((e) => e.value === m.value)) added.push(m)
+    }
+  }
+  const applyRemove = (ids: string[]) => {
+    if (replacement !== null) {
+      replacement = replacement.filter((e) => !ids.includes(e.value))
+      return
+    }
+    for (const id of ids) if (!removed.includes(id)) removed.push(id)
+  }
+
+  const handle = (
+    op: string,
+    rawPath: string | undefined,
+    value: unknown,
+  ): ScimValidationError | null => {
+    const operation = op.toLowerCase()
+    if (
+      operation !== "add" &&
+      operation !== "replace" &&
+      operation !== "remove"
+    ) {
+      return invalidPath(`unsupported PATCH op "${op}"`)
+    }
+
+    // Pathless: an object of attribute → value.
+    if (rawPath === undefined || rawPath.trim().length === 0) {
+      if (!isRecord(value)) {
+        return invalidPath(
+          "a PATCH operation without a path must carry an object value",
+        )
+      }
+      for (const [k, v] of Object.entries(value)) {
+        const nested = handle(operation, k, v)
+        if (nested) return nested
+      }
+      return null
+    }
+
+    const path = rawPath.trim()
+
+    const targeted = parseMemberFilterPath(path)
+    if (targeted !== null) {
+      if (operation !== "remove") {
+        return invalidPath(
+          `only "remove" is supported with a members[value eq …] path`,
+        )
+      }
+      applyRemove([targeted])
+      return null
+    }
+
+    if (path.toLowerCase() === "members") {
+      if (operation === "remove" && value === undefined) {
+        // "remove all members" — a replace with an empty list.
+        replacement = []
+        return null
+      }
+      const members = parseMembers(value)
+      if (members === undefined) {
+        return {
+          status: 400,
+          scimType: "invalidValue",
+          detail: '"members" must be an array of {value} entries',
+        }
+      }
+      if (operation === "add") applyAdd(members)
+      else if (operation === "remove") applyRemove(members.map((m) => m.value))
+      else replacement = [...members]
+      return null
+    }
+
+    if (path.includes("[")) {
+      return invalidPath(
+        `unsupported path "${rawPath}"; only members[value eq "…"] is ` +
+          `supported for targeted membership changes`,
+      )
+    }
+
+    switch (path.toLowerCase()) {
+      case "displayname": {
+        if (operation === "remove") {
+          return invalidPath('"displayName" cannot be removed')
+        }
+        const s = asString(value)
+        if (s === undefined || s.length === 0) {
+          return {
+            status: 400,
+            scimType: "invalidValue",
+            detail: '"displayName" must be a non-empty string',
+          }
+        }
+        patch.displayName = s
+        return null
+      }
+      case "externalid": {
+        patch.externalId =
+          operation === "remove" ? null : (asString(value) ?? null)
+        return null
+      }
+      default:
+        return invalidPath(
+          `attribute "${rawPath}" is not patchable on a Group`,
+        )
+    }
+  }
+
+  for (const raw of rawOps) {
+    if (!isRecord(raw)) {
+      return err({
+        status: 400,
+        scimType: "invalidSyntax",
+        detail: "each PATCH operation must be an object",
+      })
+    }
+    const op = asString(raw["op"])
+    if (op === undefined) {
+      return err({
+        status: 400,
+        scimType: "invalidSyntax",
+        detail: "each PATCH operation must carry an op",
+      })
+    }
+    const failure = handle(op, asString(raw["path"]), raw["value"])
+    if (failure) return err(failure)
+  }
+
+  // A replace subsumes the incremental fields, so the host only ever
+  // sees one membership shape.
+  if (replacement !== null) patch.members = replacement
+  else {
+    if (added.length > 0) patch.addMembers = added
+    if (removed.length > 0) patch.removeMembers = removed
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return err({
+      status: 400,
+      scimType: "invalidValue",
+      detail: "PATCH resolved to no changes",
+    })
+  }
+  return ok(patch)
 }

@@ -15,6 +15,11 @@ import { err, ok, type Result } from "../../src/types/result"
 import { authError } from "../../src/types/error"
 import type {
   ScimFilter,
+  ScimGroupMember,
+  ScimGroupPatch,
+  ScimGroupQuery,
+  ScimGroupRecord,
+  ScimGroupWrite,
   ScimPage,
   ScimUserPatch,
   ScimUserQuery,
@@ -38,6 +43,26 @@ function matches(user: ScimUserRecord, filter: ScimFilter): boolean {
       return user.active === filter.value
     case "emails.value":
       return (user.emails ?? []).some((e) => e.value === filter.value)
+    default:
+      return false
+  }
+}
+
+function groupMatches(group: ScimGroupRecord, filter: ScimFilter): boolean {
+  if (filter.op === "and") {
+    return (
+      groupMatches(group, filter.left) && groupMatches(group, filter.right)
+    )
+  }
+  switch (filter.attribute) {
+    case "id":
+      return group.id === filter.value
+    case "displayName":
+      return group.displayName === filter.value
+    case "externalId":
+      return group.externalId === filter.value
+    default:
+      return false
   }
 }
 
@@ -163,6 +188,134 @@ export class MemoryScimDirectory implements ScimDirectory {
 
   async deleteUser(t: TenantId, id: string): Promise<Result<void>> {
     this.#users.delete(this.#key(t, id))
+    return ok(undefined)
+  }
+
+  // ─── Groups ───
+
+  #groups = new Map<string, ScimGroupRecord>()
+  #gseq = 0
+
+  #allGroups(t: TenantId): ScimGroupRecord[] {
+    const prefix = `${t}:`
+    return [...this.#groups.entries()]
+      .filter(([k]) => k.startsWith(prefix))
+      .map(([, v]) => v)
+  }
+
+  seedGroup(t: TenantId, group: ScimGroupRecord): ScimGroupRecord {
+    this.#groups.set(this.#key(t, group.id), group)
+    return group
+  }
+
+  async getGroup(
+    t: TenantId,
+    id: string,
+  ): Promise<Result<ScimGroupRecord | null>> {
+    return ok(this.#groups.get(this.#key(t, id)) ?? null)
+  }
+
+  async findGroups(
+    t: TenantId,
+    query: ScimGroupQuery,
+  ): Promise<Result<ScimPage<ScimGroupRecord>>> {
+    const all = this.#allGroups(t)
+    const matched = query.filter
+      ? all.filter((g) => groupMatches(g, query.filter as ScimFilter))
+      : all
+    const start = Math.max(0, query.startIndex - 1)
+    const page = matched.slice(start, start + query.count)
+    return ok({
+      // Honour excludeMembers, as a real host should: drop the member
+      // list rather than loading it.
+      resources: query.excludeMembers
+        ? page.map(({ members: _drop, ...rest }) => rest)
+        : page,
+      totalResults: matched.length,
+    })
+  }
+
+  async createGroup(
+    t: TenantId,
+    group: ScimGroupWrite,
+  ): Promise<Result<ScimGroupRecord>> {
+    if (this.#allGroups(t).some((g) => g.displayName === group.displayName)) {
+      return err(
+        authError.conflict(
+          `displayName "${group.displayName}" already exists`,
+          "displayName",
+        ),
+      )
+    }
+    const now = this.#now()
+    const record: ScimGroupRecord = {
+      id: `grp_${++this.#gseq}`,
+      members: [],
+      ...group,
+      createdAt: now,
+      updatedAt: now,
+    }
+    this.#groups.set(this.#key(t, record.id), record)
+    return ok(record)
+  }
+
+  async replaceGroup(
+    t: TenantId,
+    id: string,
+    group: ScimGroupWrite,
+  ): Promise<Result<ScimGroupRecord>> {
+    const existing = this.#groups.get(this.#key(t, id))
+    if (!existing) return err(authError.invalidRequest("no such group"))
+    const record: ScimGroupRecord = {
+      id,
+      members: [],
+      ...group,
+      createdAt: existing.createdAt,
+      updatedAt: this.#now(),
+    }
+    this.#groups.set(this.#key(t, id), record)
+    return ok(record)
+  }
+
+  async patchGroup(
+    t: TenantId,
+    id: string,
+    patch: ScimGroupPatch,
+  ): Promise<Result<ScimGroupRecord>> {
+    const existing = this.#groups.get(this.#key(t, id))
+    if (!existing) return err(authError.invalidRequest("no such group"))
+
+    let members: ScimGroupMember[] = [...(existing.members ?? [])]
+    if (patch.members !== undefined) {
+      members = [...patch.members]
+    } else {
+      // Incremental, and idempotent both ways — IdPs retry.
+      for (const m of patch.addMembers ?? []) {
+        if (!members.some((e) => e.value === m.value)) members.push(m)
+      }
+      if (patch.removeMembers) {
+        const drop = new Set(patch.removeMembers)
+        members = members.filter((e) => !drop.has(e.value))
+      }
+    }
+
+    const next: ScimGroupRecord = {
+      ...existing,
+      ...(patch.displayName !== undefined
+        ? { displayName: patch.displayName }
+        : {}),
+      members,
+      updatedAt: this.#now(),
+    }
+    if (patch.externalId === null) delete next.externalId
+    else if (patch.externalId !== undefined) next.externalId = patch.externalId
+
+    this.#groups.set(this.#key(t, id), next)
+    return ok(next)
+  }
+
+  async deleteGroup(t: TenantId, id: string): Promise<Result<void>> {
+    this.#groups.delete(this.#key(t, id))
     return ok(undefined)
   }
 }

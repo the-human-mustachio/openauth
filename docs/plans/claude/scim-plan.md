@@ -50,10 +50,23 @@ Two bugs the conformance tests caught before any IdP could:
 Also removed an unused `clock` from `ScimRequestInput`: the host stamps
 its own record timestamps, so the library needs no clock here.
 
-**Recommended next action:** Phase 2 (Groups), or hold and validate
-Phase 1 against a live Okta/Entra tenant first — the same "no fixture
-substitutes for a real IdP" argument that applies to SAML applies here,
-and the Okta validator (case 16) is the real bar.
+**Phase 2 COMPLETE (2026-09-05).** Groups CRUD, membership deltas, the
+group filter subset (`displayName` / `externalId` / `id`), and
+`excludedAttributes=members`. Groups are **optional as a set** on the
+port — a host implementing only users gets an honest 501, and discovery
+advertises the Group resource type only when the host actually
+implements it. Conformance case 15 green. 741 tests total.
+
+`SCIM-AD9` was added during this phase: membership keeps the client's
+intent (`addMembers` / `removeMembers`) rather than being resolved to a
+final list, because resolving would make a one-member change an O(n)
+read-and-rewrite on a large group.
+
+**Recommended next action: Phase 3 — validate against a live Okta/Entra
+tenant and run the Okta SCIM validator (case 16).** Everything so far is
+fixture-driven; the same "no fixture substitutes for a real IdP"
+argument that applies to SAML applies here, and the validator is the
+stated acceptance bar. This needs real tenant credentials.
 
 ## Goals
 
@@ -213,6 +226,34 @@ The library will not quietly map `DELETE` onto deactivation: silently
 turning a destructive request into a soft one is exactly the kind of
 helpfulness that loses data trails during an audit.
 
+### SCIM-AD9 — Group membership keeps the client's intent; it is not resolved
+
+For a user, a targeted PATCH is resolved against the current record and
+the host receives the complete new value (`SCIM-AD6`). Membership is the
+one place that rule is deliberately **not** applied.
+
+The reason is size. A user's `emails` list is small and bounded;
+a group's membership is neither. Resolving "add one member" against a
+20,000-member group would mean reading all 20,000 rows and handing them
+back on every single change — turning an O(1) insert into an O(n) read
+plus rewrite, on the hottest path of a group push.
+
+So `ScimGroupPatch` carries `addMembers` / `removeMembers`
+(incremental) or `members` (full replace), and the host issues one
+insert or delete. The library still normalizes the *shapes* — Okta's
+`{op:"add", path:"members", value:[…]}`, Okta's
+`members[value eq "u1"]` removal path, Entra's
+`{op:"remove", path:"members", value:[…]}` — so no SCIM path expression
+reaches the host. Only the resolution-to-a-final-list step is skipped.
+
+The two forms are mutually exclusive: a full replace in the same request
+absorbs any subsequent add/remove, so the host never receives `members`
+alongside the incremental fields and needs no ordering rule of its own.
+
+Membership operations must be idempotent on the host side — adding an
+existing member or removing an absent one succeeds quietly. IdPs retry,
+and a 4xx there stalls a group push indefinitely.
+
 ## Public API Surface
 
 ```ts
@@ -282,7 +323,7 @@ reference implementation of `ScimDirectory` for tests only — explicitly
 not shipped as a production adapter, since real persistence is the
 host's model.
 
-### Phase 2 — Groups
+### Phase 2 — Groups ✅ (2026-09-05)
 
 Group CRUD plus membership deltas (`add`/`remove` members via PATCH),
 which is where Okta's group push lands.
@@ -310,7 +351,7 @@ guidance, audit events, `INTEGRATION.md` § SCIM.
 | 12 | `DELETE` reaches `deleteUser`, never deactivation       | 1     |
 | 13 | `password` in payload is refused, not stored            | 1     |
 | 14 | Discovery docs parse + advertise only what we serve     | 1     |
-| 15 | Group create + membership add/remove                    | 2     |
+| 15 | Group create + membership add/remove                    | 2 ✅  |
 | 16 | Okta SCIM validator, full run                           | 3     |
 | 17 | Entra provisioning against a live tenant                | 3     |
 

@@ -43,7 +43,20 @@ const ATTRIBUTES: Record<string, ScimFilterAttribute> = {
   externalid: "externalId",
   active: "active",
   "emails.value": "emails.value",
+  displayname: "displayName",
 }
+
+/**
+ * Which attributes each resource type may be filtered on. Filtering a
+ * Group by `userName` is nonsense, and answering it with an empty list
+ * rather than a 400 would look like "no such group" — a wrong answer
+ * dressed as a valid one.
+ */
+export const USER_FILTER_ATTRIBUTES: ReadonlySet<ScimFilterAttribute> =
+  new Set(["id", "userName", "externalId", "active", "emails.value"])
+
+export const GROUP_FILTER_ATTRIBUTES: ReadonlySet<ScimFilterAttribute> =
+  new Set(["id", "displayName", "externalId"])
 
 /**
  * Normalize the complex multi-valued path Entra emits.
@@ -97,7 +110,10 @@ function findOperator(
 }
 
 /** Parse one `<attr> eq <value>` term. */
-function parseTerm(raw: string): Result<ScimFilter, ScimFilterError> {
+function parseTerm(
+  raw: string,
+  allowed: ReadonlySet<ScimFilterAttribute>,
+): Result<ScimFilter, ScimFilterError> {
   const term = raw.trim()
 
   const found = findOperator(term)
@@ -118,7 +134,7 @@ function parseTerm(raw: string): Result<ScimFilter, ScimFilterError> {
 
   const attrKey = normalizeComplexPath(rawAttr).toLowerCase()
   const attribute = ATTRIBUTES[attrKey]
-  if (!attribute) {
+  if (!attribute || !allowed.has(attribute)) {
     return err({
       detail:
         `attribute "${rawAttr.trim()}" is not filterable. ` +
@@ -164,6 +180,7 @@ function parseTerm(raw: string): Result<ScimFilter, ScimFilterError> {
  */
 export function parseScimFilter(
   raw: string | null | undefined,
+  allowed: ReadonlySet<ScimFilterAttribute> = USER_FILTER_ATTRIBUTES,
 ): Result<ScimFilter | undefined, ScimFilterError> {
   if (raw === null || raw === undefined || raw.trim().length === 0) {
     return ok(undefined)
@@ -198,11 +215,11 @@ export function parseScimFilter(
     })
   }
 
-  const first = parseTerm(parts[0] as string)
+  const first = parseTerm(parts[0] as string, allowed)
   if (!first.ok) return first
   if (parts.length === 1) return ok(first.value)
 
-  const second = parseTerm(parts[1] as string)
+  const second = parseTerm(parts[1] as string, allowed)
   if (!second.ok) return second
   return ok({ op: "and", left: first.value, right: second.value })
 }
