@@ -50,9 +50,7 @@ export const asTenantId = (value: string): TenantId => value as TenantId
 
 /** OAuth 2.1 grant types in scope for this IdP. Implicit is intentionally absent. */
 export type GrantType =
-  | "authorization_code"
-  | "refresh_token"
-  | "client_credentials"
+  "authorization_code" | "refresh_token" | "client_credentials"
 
 /**
  * `MethodType` is the canonical discriminator for an `AuthMethod`. It mirrors
@@ -60,13 +58,7 @@ export type GrantType =
  * form to render; the framework uses it as a routing / dispatch hint.
  */
 export type MethodType =
-  | "oauth2"
-  | "oidc"
-  | "password"
-  | "code"
-  | "m2m"
-  | "passkey"
-  | "custom"
+  "oauth2" | "oidc" | "password" | "code" | "m2m" | "passkey" | "custom"
 
 /**
  * Per-tenant configuration for a single auth method **instance**.

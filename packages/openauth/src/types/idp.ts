@@ -187,9 +187,7 @@ export type RegisterClientRequest = {
   response_types?: string[]
   /** RFC 7591 §2 — `"none"` = public client, otherwise confidential. */
   token_endpoint_auth_method?:
-    | "none"
-    | "client_secret_basic"
-    | "client_secret_post"
+    "none" | "client_secret_basic" | "client_secret_post"
   scope?: string
   /** OIDC RP-Initiated Logout 1.0 §2. */
   post_logout_redirect_uris?: string[]

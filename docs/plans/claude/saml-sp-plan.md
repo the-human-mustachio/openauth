@@ -493,10 +493,7 @@ Added to `src/types/method.ts` family (no breaking changes):
 
 ```ts
 type SamlNameIdFormat =
-  | "persistent"
-  | "transient"
-  | "emailAddress"
-  | "unspecified"
+  "persistent" | "transient" | "emailAddress" | "unspecified"
 
 type SamlAttributeMapping = {
   subject?: SamlAttributeRef // which attr → providerSubject
@@ -509,8 +506,7 @@ type SamlAttributeMapping = {
 }
 
 type SamlAttributeRef =
-  | { source: "nameId" }
-  | { source: "attribute"; name: string; format?: string }
+  { source: "nameId" } | { source: "attribute"; name: string; format?: string }
 ```
 
 Method-private state stashed in `FlowRecord.methodState`:

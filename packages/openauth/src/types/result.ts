@@ -11,8 +11,7 @@
 import type { AuthError } from "./error"
 
 export type Result<T, E = AuthError> =
-  | { ok: true; value: T }
-  | { ok: false; error: E }
+  { ok: true; value: T } | { ok: false; error: E }
 
 export const ok = <T>(value: T): Result<T, never> => ({ ok: true, value })
 export const err = <E>(error: E): Result<never, E> => ({ ok: false, error })
