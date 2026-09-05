@@ -121,4 +121,48 @@ describe("samlSpFactory.configSchema", () => {
     const r = await validate(bad)
     expect("issues" in r && (r.issues?.length ?? 0) > 0).toBe(true)
   })
+
+  test("rejects turning off BOTH signature requirements", async () => {
+    // An unsigned assertion inside an unsigned Response is
+    // unauthenticated XML — the one combination that must be
+    // unreachable through config.
+    const bad = { ...VALID, requireSignedAssertion: false }
+    const r = await validate(bad)
+    expect("issues" in r && (r.issues?.length ?? 0) > 0).toBe(true)
+  })
+
+  test("accepts response-only signing (assertion off, response on)", async () => {
+    const ok = {
+      ...VALID,
+      requireSignedAssertion: false,
+      requireSignedResponse: true,
+    }
+    const r = await validate(ok)
+    expect("issues" in r && r.issues).toBeFalsy()
+  })
+
+  test("accepts requireSignedResponse as defence in depth", async () => {
+    const r = await validate({ ...VALID, requireSignedResponse: true })
+    expect("issues" in r && r.issues).toBeFalsy()
+  })
+
+  test("rejects an empty requestedAuthnContext.classRefs", async () => {
+    const bad = { ...VALID, requestedAuthnContext: { classRefs: [] } }
+    const r = await validate(bad)
+    expect("issues" in r && (r.issues?.length ?? 0) > 0).toBe(true)
+  })
+
+  test("rejects an unknown RequestedAuthnContext comparison", async () => {
+    const bad = {
+      ...VALID,
+      requestedAuthnContext: { classRefs: ["urn:x"], comparison: "roughly" },
+    }
+    const r = await validate(bad)
+    expect("issues" in r && (r.issues?.length ?? 0) > 0).toBe(true)
+  })
+
+  test("rejects an empty spEntityId override", async () => {
+    const r = await validate({ ...VALID, spEntityId: "" })
+    expect("issues" in r && (r.issues?.length ?? 0) > 0).toBe(true)
+  })
 })

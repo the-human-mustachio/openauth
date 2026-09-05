@@ -8,7 +8,7 @@
  *
  * **Conformance invariant:** the `entityID` and ACS `Location` are
  * derived from the *same* inputs the live AuthnRequest / ACS path uses
- * (`deriveSpEntityId(issuerUrl, tenantId, methodId)` and
+ * (`resolveSpEntityId(config, issuerUrl, tenantId, methodId)` and
  * `ctx.dispatch.callbackUrl`). The metadata therefore describes exactly
  * what the runtime accepts — never an independently re-specified value
  * that could drift. `metadata.test.ts` asserts this equality against
@@ -18,13 +18,14 @@
  * (advertising a cert we cannot use would be the bug);
  * `SingleLogoutService` only when an IdP SLO endpoint is configured
  * and the `/sls` route is therefore served (advertising an endpoint we
- * do not serve would break interop). `AuthnRequestsSigned` /
- * `WantAssertionsSigned="true"` truthfully state actual behaviour.
+ * do not serve would break interop). `AuthnRequestsSigned` and
+ * `WantAssertionsSigned` are both read from config, so they state
+ * actual runtime behaviour rather than a hardcoded assumption.
  */
 import { authError } from "../../types/error"
 import type { MethodContext, MethodResult } from "../../types/method"
 
-import { deriveSpEntityId } from "./saml-instance"
+import { resolveSpEntityId } from "./saml-instance"
 import type {
   SamlNameIdFormat,
   SamlSpConfig,
@@ -79,6 +80,14 @@ export type SpMetadataInput = {
    * what-we-serve invariant as the signing cert.
    */
   encryptionCertPem?: string
+  /**
+   * Whether we actually require a signed `<saml:Assertion>`
+   * (`config.requireSignedAssertion`, default `true`). Published as
+   * `WantAssertionsSigned` — same advertise-only-what-we-serve
+   * invariant as the certs: a connection relying on a signed
+   * `<Response>` instead must not claim otherwise in its metadata.
+   */
+  wantAssertionsSigned?: boolean
 }
 
 /** PEM cert body → bare base64 (SAML metadata X509Certificate form). */
@@ -97,6 +106,7 @@ export function buildSpMetadataXml(input: SpMetadataInput): string {
   const entityId = xmlEscape(input.spEntityId)
   const acs = xmlEscape(input.acsUrl)
   const signed = input.signingCertPem !== undefined
+  const wantAssertionsSigned = input.wantAssertionsSigned ?? true
   const nameIdLine =
     input.nameIdFormat !== undefined
       ? `\n    <md:NameIDFormat>${NAME_ID_FORMAT_URN[input.nameIdFormat]}</md:NameIDFormat>`
@@ -132,7 +142,7 @@ export function buildSpMetadataXml(input: SpMetadataInput): string {
     `xmlns:ds="http://www.w3.org/2000/09/xmldsig#" ` +
     `entityID="${entityId}">\n` +
     `  <md:SPSSODescriptor AuthnRequestsSigned="${signed}" ` +
-    `WantAssertionsSigned="true" ` +
+    `WantAssertionsSigned="${wantAssertionsSigned}" ` +
     `protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">` +
     keyDescriptor +
     sls +
@@ -164,7 +174,8 @@ export async function buildSpMetadata(
     }
   }
 
-  const spEntityId = deriveSpEntityId(
+  const spEntityId = resolveSpEntityId(
+    config,
     ctx.dispatch.issuerUrl,
     ctx.tenant.id,
     methodId,
@@ -182,6 +193,7 @@ export async function buildSpMetadata(
     ...(config.idp.nameIdFormat !== undefined
       ? { nameIdFormat: config.idp.nameIdFormat }
       : {}),
+    wantAssertionsSigned: config.requireSignedAssertion ?? true,
     // Truthful: advertise signing iff we actually sign AuthnRequests.
     ...(config.signAuthnRequest && config.signingKey
       ? { signingCertPem: config.signingKey.certPem }

@@ -1189,6 +1189,83 @@ attribute) arrives as a string array in
 strings. The host owns the final `SubjectClaim` mapping in `success`,
 exactly as with OAuth/OIDC.
 
+**Requesting MFA (`requestedAuthnContext`).** By default **no
+`<RequestedAuthnContext>` is sent**, which lets the IdP apply its own
+sign-on policy — the right behaviour for nearly every connection. Set
+this only when the IdP has told you which class refs it honours:
+
+```ts
+requestedAuthnContext: {
+  classRefs: ["urn:oasis:names:tc:SAML:2.0:ac:classes:MultiFactorAuthn"],
+  comparison: "minimum",   // default "exact"
+}
+```
+
+Be deliberate here. A `RequestedAuthnContext` the IdP cannot satisfy is
+answered with `NoAuthnContext` rather than a login, and `"exact"` is an
+easy way to produce that — an IdP that ran MFA does not match a request
+for plain `PasswordProtectedTransport`. `"minimum"` is usually the safer
+choice when the goal is "at least MFA."
+
+Requesting a context does not verify one was used. Read
+`SamlSpProperties.authnContextClassRef` for what the IdP actually
+asserted, and make step-up decisions on that:
+
+```ts
+success: async (input) => {
+  const ctx = input.properties.authnContextClassRef
+  const mfa = ctx?.endsWith(":MultiFactorAuthn") ?? false
+  // …record `mfa` on your session, gate sensitive routes on it
+}
+```
+
+**Forcing re-authentication (`forceAuthn`).** `forceAuthn: true` sets
+`ForceAuthn="true"` on the AuthnRequest, asking the IdP to
+re-authenticate even if it has a live session. It is a *request*: SAML
+obliges the IdP to nothing and the Response carries no proof either way,
+so never treat a successful assertion as evidence of fresh
+authentication.
+
+**Aligning session lifetime (`sessionNotOnOrAfter`).** When the IdP
+supplies `AuthnStatement/@SessionNotOnOrAfter`, it is surfaced as a Unix
+ms timestamp on `SamlSpProperties`. The library does not act on it —
+token and session lifetimes are host policy, and this library owns no
+session. If you want "when their IdP session ends, ours ends," clamp
+your own session/token TTL to it in `success`.
+
+**Adopting an existing entityID (`spEntityId`).** The SP entityID is
+derived as `<issuerUrl>/<tenantId>/<methodId>` — stable and zero-config.
+Override it only to adopt an entityID that already exists at the IdP, so
+a customer can migrate an existing SAML app without editing their
+production SSO config:
+
+```ts
+spEntityId: "https://legacy-sp.example/saml/sp",
+```
+
+The override flows to everything at once — AuthnRequest issuer, audience
+validation, SP metadata, logout messages — so the published metadata
+stays truthful. Changing it on a live connection invalidates the
+IdP-side trust config; treat it as an IdP-coordination event.
+
+**Signature posture (`requireSignedAssertion` / `requireSignedResponse`).**
+The defaults (`true` / `false`) are correct for Okta, Entra, and the
+large majority of IdPs: the assertion carries the identity, conditions,
+and audience, so signing *it* is what binds them. Two reasons to change
+them:
+
+```ts
+requireSignedResponse: true,               // defence in depth, both signed
+// or, for an IdP that signs ONLY the Response:
+requireSignedAssertion: false,
+requireSignedResponse: true,
+```
+
+Turning both off is rejected by the config schema — an unsigned
+assertion inside an unsigned Response is unauthenticated XML. When
+`requireSignedAssertion` is `false`, SP metadata advertises
+`WantAssertionsSigned="false"` so it keeps stating actual behaviour.
+
 ---
 
 ## 10. Subject identity & JWT validation in your services

@@ -283,4 +283,62 @@ describe("GET /metadata route", () => {
     expect(xml).toContain(`entityID="${st.spEntityId}"`)
     expect(xml).toContain(`Location="${st.acsUrl}"`)
   })
+
+  test("ANTI-DRIFT: an spEntityId override reaches metadata too", async () => {
+    // The override exists so a customer can keep an entityID already
+    // registered at their IdP. If it reached the AuthnRequest but not
+    // the metadata, an IdP import would silently configure the wrong
+    // audience — exactly the drift this suite exists to prevent.
+    const OVERRIDE = "https://legacy-sp.example/saml/sp"
+    const method = await buildMethod({ ...config(), spEntityId: OVERRIDE })
+    const tenant = await tenantCtx()
+    const store = new MemorySessionStore()
+
+    const meta = await dispatchMethod({
+      method,
+      route: "GET /metadata",
+      tenant,
+      request: new Request(`${ISSUER_URL}/m/${METHOD_ID}/metadata`),
+      subPath: "/metadata",
+      flow: null,
+      cookies: new Map(),
+      sessionStore: store,
+      dispatch: DISPATCH,
+    })
+    expect(meta.ok).toBe(true)
+    if (!meta.ok || meta.value.kind !== "challenge") return
+    const xml = await meta.value.response.text()
+    expect(xml).toContain(`entityID="${OVERRIDE}"`)
+    expect(xml).not.toContain(`entityID="${ISSUER_URL}/${TENANT}/${METHOD_ID}"`)
+  })
+
+  test("WantAssertionsSigned states actual behaviour, not a constant", async () => {
+    const tenant = await tenantCtx()
+    const store = new MemorySessionStore()
+
+    const render = async (cfg: SamlSpConfig) => {
+      const res = await dispatchMethod({
+        method: await buildMethod(cfg),
+        route: "GET /metadata",
+        tenant,
+        request: new Request(`${ISSUER_URL}/m/${METHOD_ID}/metadata`),
+        subPath: "/metadata",
+        flow: null,
+        cookies: new Map(),
+        sessionStore: store,
+        dispatch: DISPATCH,
+      })
+      if (!res.ok || res.value.kind !== "challenge") throw new Error("no xml")
+      return res.value.response.text()
+    }
+
+    expect(await render(config())).toContain('WantAssertionsSigned="true"')
+    expect(
+      await render({
+        ...config(),
+        requireSignedAssertion: false,
+        requireSignedResponse: true,
+      }),
+    ).toContain('WantAssertionsSigned="false"')
+  })
 })

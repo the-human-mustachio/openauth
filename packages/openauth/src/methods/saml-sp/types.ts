@@ -152,6 +152,80 @@ export type SamlSpConfig = {
   idpInitiated?: SamlIdpInitiatedConfig
   /** Clock skew allowance for `NotBefore` / `NotOnOrAfter`. Seconds. */
   clockSkewSeconds?: number
+  /**
+   * Override the derived SP entityID.
+   *
+   * By default the entityID is derived as
+   * `<issuerUrl>/<tenantId>/<methodId>` (SAML-AD5) — stable, no config
+   * required, and guaranteed to match what SP metadata publishes. Set
+   * this **only** to adopt an entityID that already exists at the IdP,
+   * so an existing SAML app can be migrated without the customer
+   * editing their production SSO config.
+   *
+   * The override flows through every consumer at once — `AuthnRequest`
+   * issuer, `AudienceRestriction` validation, SP metadata, and logout
+   * messages — so the anti-drift invariant holds either way. Changing
+   * it on a live connection invalidates the IdP-side trust config;
+   * treat it as an IdP-coordination event.
+   */
+  spEntityId?: string
+  /**
+   * Set `ForceAuthn="true"` on the outbound `AuthnRequest`, asking the
+   * IdP to re-authenticate the user even if it has a live session.
+   * Default `false`.
+   *
+   * Note that this is a *request*: SAML gives the IdP no obligation to
+   * honour it, and there is no way to verify from the Response that it
+   * did. Do not treat a successful assertion as proof of fresh
+   * authentication.
+   */
+  forceAuthn?: boolean
+  /**
+   * Request specific authentication context classes (e.g. MFA) from
+   * the IdP via `<RequestedAuthnContext>`.
+   *
+   * **Omitted ⇒ no `RequestedAuthnContext` element is sent at all**,
+   * which lets the IdP apply its own sign-on policy. That is the right
+   * default for nearly every deployment: a `RequestedAuthnContext` the
+   * IdP cannot satisfy exactly is answered with `NoAuthnContext`
+   * instead of a login, and an MFA policy at the IdP is a common way
+   * to *not* satisfy `PasswordProtectedTransport` under
+   * `Comparison="exact"`.
+   *
+   * Set it only when the IdP has told you which class refs it honours.
+   * `comparison` maps to the `Comparison` attribute and defaults to
+   * `"exact"`; `"minimum"` is usually the safer choice when requesting
+   * MFA.
+   *
+   * Requesting a context does **not** verify one was used — read
+   * `SamlSpProperties.authnContextClassRef` for what the IdP actually
+   * asserted.
+   */
+  requestedAuthnContext?: {
+    /** Full URNs, e.g. `urn:oasis:names:tc:SAML:2.0:ac:classes:MultiFactorAuthn`. */
+    classRefs: ReadonlyArray<string>
+    comparison?: "exact" | "minimum" | "maximum" | "better"
+  }
+  /**
+   * Require the `<saml:Assertion>` itself to carry a valid XML-DSig.
+   * **Defaults to `true` and should stay that way** — the identity,
+   * conditions, and audience all live inside the assertion, so signing
+   * it is what actually binds them.
+   *
+   * Set `false` only for an IdP that signs the outer `<Response>` and
+   * nothing else, and only together with `requireSignedResponse: true`.
+   * The schema refuses to let both be off.
+   */
+  requireSignedAssertion?: boolean
+  /**
+   * Require the outer `<samlp:Response>` to carry a valid XML-DSig.
+   * Default `false` — requiring it is stricter than the Okta / Entra
+   * default and would reject the majority of real IdPs. Enable it for
+   * an IdP that signs the Response, either as defence in depth
+   * alongside a signed assertion or (with
+   * `requireSignedAssertion: false`) as the only signature on offer.
+   */
+  requireSignedResponse?: boolean
 }
 
 /**
@@ -197,6 +271,27 @@ export type SamlSpProperties = {
   sessionIndex?: string
   /** Unix ms — the assertion's `AuthnInstant`. */
   authnInstant: number
+  /**
+   * Unix ms — the `AuthnStatement/@SessionNotOnOrAfter` the IdP
+   * asserted, when it supplied one. This is the IdP's own view of when
+   * its session for this user expires.
+   *
+   * The library does **not** act on it: token and session lifetimes are
+   * host policy, and this library owns no session. Hosts that want
+   * "when their IdP session ends, ours ends" should clamp their own
+   * session/token TTL to this value in the `success` callback.
+   */
+  sessionNotOnOrAfter?: number
+  /**
+   * The `AuthnContext/AuthnContextClassRef` the IdP actually asserted —
+   * i.e. how it says it authenticated the user. Absent when the
+   * assertion carries none.
+   *
+   * This is the value to check for step-up decisions ("was this really
+   * MFA?"). `SamlSpConfig.requestedAuthnContext` only *asks*; this is
+   * the answer, and the two can differ.
+   */
+  authnContextClassRef?: string
   raw: {
     responseXml: string
   }

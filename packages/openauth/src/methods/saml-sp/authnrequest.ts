@@ -13,7 +13,7 @@ import { authError } from "../../types/error"
 import type { MethodContext, MethodResult } from "../../types/method"
 import { isErr } from "../../types/result"
 
-import { buildSamlInstance, deriveSpEntityId } from "./saml-instance"
+import { buildSamlInstance, resolveSpEntityId } from "./saml-instance"
 import type { SamlSpConfig, SamlSpProperties, SamlSpState } from "./types"
 
 export async function buildAuthnRequestRedirect(
@@ -43,7 +43,8 @@ export async function buildAuthnRequestRedirect(
     }
   }
 
-  const spEntityId = deriveSpEntityId(
+  const spEntityId = resolveSpEntityId(
+    config,
     ctx.dispatch.issuerUrl,
     ctx.tenant.id,
     methodId,

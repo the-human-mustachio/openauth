@@ -32,7 +32,7 @@ import type { MethodContext, MethodResult } from "../../types/method"
 
 import {
   buildSamlInstance,
-  deriveSpEntityId,
+  resolveSpEntityId,
   NAME_ID_FORMAT_URN,
 } from "./saml-instance"
 import type {
@@ -112,7 +112,8 @@ export async function initiateSpLogout(
         ? NAME_ID_FORMAT_URN[config.idp.nameIdFormat]
         : NAME_ID_FORMAT_URN.persistent
 
-  const spEntityId = deriveSpEntityId(
+  const spEntityId = resolveSpEntityId(
+    config,
     ctx.dispatch.issuerUrl,
     ctx.tenant.id,
     methodId,

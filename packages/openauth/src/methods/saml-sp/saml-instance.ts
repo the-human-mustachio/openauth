@@ -105,6 +105,28 @@ export function deriveSpEntityId(
   return `${base}/${tenantId}/${methodId}`
 }
 
+/**
+ * The SP entityID this connection actually presents — the configured
+ * override if the operator set one (to adopt an entityID that already
+ * exists at the IdP), else the derived default.
+ *
+ * **Every** consumer must go through this one function: the
+ * `AuthnRequest` issuer, `AudienceRestriction` validation, SP metadata,
+ * and logout messages all have to agree, or the IdP rejects us. That
+ * shared-resolution property is what the metadata anti-drift test
+ * guards.
+ */
+export function resolveSpEntityId(
+  config: SamlSpConfig,
+  issuerUrl: string,
+  tenantId: string,
+  methodId: string,
+): string {
+  return (
+    config.spEntityId ?? deriveSpEntityId(issuerUrl, tenantId, methodId)
+  )
+}
+
 export function buildSamlInstance(
   config: SamlSpConfig,
   binding: SamlBindingContext,
@@ -146,9 +168,28 @@ export function buildSamlInstance(
       : binding.idpInitiated
         ? ValidateInResponseTo.ifPresent
         : ValidateInResponseTo.always,
-    wantAssertionsSigned: true,
-    wantAuthnResponseSigned: false,
+    wantAssertionsSigned: config.requireSignedAssertion ?? true,
+    wantAuthnResponseSigned: config.requireSignedResponse ?? false,
     acceptedClockSkewMs: (config.clockSkewSeconds ?? 60) * 1000,
+    // ForceAuthn — a request, never a guarantee. SAML gives the IdP no
+    // obligation to honour it and the Response carries no proof either
+    // way, so nothing downstream may treat it as freshness evidence.
+    forceAuthn: config.forceAuthn ?? false,
+    // RequestedAuthnContext. node-saml's own defaults are
+    // `disableRequestedAuthnContext: false` +
+    // `authnContext: [PasswordProtectedTransport]` +
+    // `racComparison: "exact"`, i.e. every AuthnRequest would demand
+    // exactly password-over-TLS. An IdP with an MFA sign-on policy can
+    // answer that with `NoAuthnContext` instead of a login, so we
+    // invert the default: send no RequestedAuthnContext unless the
+    // operator explicitly configured the class refs their IdP honours.
+    ...(config.requestedAuthnContext
+      ? {
+          disableRequestedAuthnContext: false,
+          authnContext: [...config.requestedAuthnContext.classRefs],
+          racComparison: config.requestedAuthnContext.comparison ?? "exact",
+        }
+      : { disableRequestedAuthnContext: true }),
     cacheProvider: methodScratchCacheProvider(
       binding.scratch,
       IN_RESPONSE_TO_TTL_MS,

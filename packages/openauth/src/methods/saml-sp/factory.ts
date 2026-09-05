@@ -80,6 +80,18 @@ const samlSpConfigSchema = z
       .optional(),
     idpInitiated: idpInitiatedSchema.optional(),
     clockSkewSeconds: z.number().int().nonnegative().optional(),
+    spEntityId: z.string().min(1).optional(),
+    forceAuthn: z.boolean().optional(),
+    requestedAuthnContext: z
+      .object({
+        classRefs: z.array(z.string().min(1)).min(1),
+        comparison: z
+          .enum(["exact", "minimum", "maximum", "better"])
+          .optional(),
+      })
+      .optional(),
+    requireSignedAssertion: z.boolean().optional(),
+    requireSignedResponse: z.boolean().optional(),
   })
   .refine((c) => !c.signAuthnRequest || c.signingKey !== undefined, {
     message: "signingKey is required when signAuthnRequest is true",
@@ -91,6 +103,19 @@ const samlSpConfigSchema = z
       message:
         "decryptionKey is required when allowEncryptedAssertions is true",
       path: ["decryptionKey"],
+    },
+  )
+  // An assertion nobody signed, inside a Response nobody signed, is
+  // unauthenticated XML. Refuse the combination outright rather than
+  // let a connection be configured into accepting anything.
+  .refine(
+    (c) =>
+      (c.requireSignedAssertion ?? true) || c.requireSignedResponse === true,
+    {
+      message:
+        "requireSignedAssertion may only be false when requireSignedResponse " +
+        "is true — at least one signature is mandatory",
+      path: ["requireSignedAssertion"],
     },
   )
 

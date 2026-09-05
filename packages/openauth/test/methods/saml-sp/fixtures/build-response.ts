@@ -40,6 +40,15 @@ export type BuildOpts = {
   noRecipient?: boolean
   /** Unsolicited / IdP-initiated: omit InResponseTo (no prior AuthnRequest). */
   unsolicited?: boolean
+  /** Emit `AuthnStatement/@SessionNotOnOrAfter` (Unix ms). Omitted by default. */
+  sessionNotOnOrAfter?: number
+  /** Override the asserted `AuthnContextClassRef`. */
+  authnContextClassRef?: string
+  /**
+   * Sign the outer `<samlp:Response>` instead of the `<saml:Assertion>`
+   * — the shape emitted by IdPs that sign only at the Response level.
+   */
+  signResponseInstead?: boolean
   expired?: boolean
   xsw?: boolean
   xxe?: boolean
@@ -103,9 +112,14 @@ export function buildSamlResponse(opts: BuildOpts): string {
     `<saml:Conditions NotBefore="${notBefore}" NotOnOrAfter="${notOnOrAfter}">` +
     `<saml:AudienceRestriction><saml:Audience>${audience}</saml:Audience>` +
     `</saml:AudienceRestriction></saml:Conditions>` +
-    `<saml:AuthnStatement AuthnInstant="${iso(now)}" SessionIndex="sess-1">` +
+    `<saml:AuthnStatement AuthnInstant="${iso(now)}" SessionIndex="sess-1"` +
+    (opts.sessionNotOnOrAfter !== undefined
+      ? ` SessionNotOnOrAfter="${iso(opts.sessionNotOnOrAfter)}"`
+      : "") +
+    `>` +
     `<saml:AuthnContext><saml:AuthnContextClassRef>` +
-    `urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport` +
+    (opts.authnContextClassRef ??
+      "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport") +
     `</saml:AuthnContextClassRef></saml:AuthnContext></saml:AuthnStatement>` +
     attributeXml(opts.attributes ?? {}) +
     `</saml:Assertion>`
@@ -125,8 +139,9 @@ export function buildSamlResponse(opts: BuildOpts): string {
 
   let xml = response
   if (!opts.unsigned) {
-    const assertionXPath =
-      '/*[local-name(.)="Response"]/*[local-name(.)="Assertion"]'
+    const assertionXPath = opts.signResponseInstead
+      ? '/*[local-name(.)="Response"]'
+      : '/*[local-name(.)="Response"]/*[local-name(.)="Assertion"]'
     xml = signSamlPost(response, assertionXPath, {
       privateKey: opts.wrongKey ? ATTACKER_KEY : IDP_KEY,
       publicCert: opts.wrongKey ? ATTACKER_CERT : IDP_CERT,

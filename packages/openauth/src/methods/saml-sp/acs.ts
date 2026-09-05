@@ -47,7 +47,7 @@ import { authError } from "../../types/error"
 import type { MethodContext, MethodResult } from "../../types/method"
 
 import { mapProfile, type VerifiedProfile } from "./attributes"
-import { buildSamlInstance, deriveSpEntityId } from "./saml-instance"
+import { buildSamlInstance, resolveSpEntityId } from "./saml-instance"
 import type { SamlSpConfig, SamlSpProperties, SamlSpState } from "./types"
 
 const { DOMParser } = xmldom
@@ -81,40 +81,49 @@ type NodeSamlProfile = {
  * library/infra fault — matching the rest of this handler's
  * classification).
  */
-function checkRecipient(
+function parseVerifiedAssertion(
   profile: NodeSamlProfile,
-  acsUrl: string,
-): MethodResult<SamlSpProperties, SamlSpState> | null {
+):
+  | { doc: Document }
+  | { failure: MethodResult<SamlSpProperties, SamlSpState> } {
   if (typeof profile.getAssertionXml !== "function") {
     // node-saml v5.1 populates this on a successful verify. Its
     // absence means the library contract changed under us — fail loud
-    // rather than skip a security check we now promise.
+    // rather than skip security checks we now promise.
     return {
-      kind: "error",
-      error: authError.internalError(
-        "saml-sp: node-saml profile exposes no getAssertionXml(); cannot " +
-          "perform the Recipient binding check. Refusing to authenticate.",
-      ),
+      failure: {
+        kind: "error",
+        error: authError.internalError(
+          "saml-sp: node-saml profile exposes no getAssertionXml(); cannot " +
+            "perform the Recipient binding check. Refusing to authenticate.",
+        ),
+      },
     }
   }
-
-  let doc: Document
   try {
-    doc = new DOMParser().parseFromString(
-      profile.getAssertionXml(),
-      "text/xml",
-    ) as unknown as Document
+    return {
+      doc: new DOMParser().parseFromString(
+        profile.getAssertionXml(),
+        "text/xml",
+      ) as unknown as Document,
+    }
   } catch (e) {
     return {
-      kind: "error",
-      error: authError.internalError(
-        "saml-sp: failed to parse the verified assertion for the " +
-          "Recipient check",
-        e,
-      ),
+      failure: {
+        kind: "error",
+        error: authError.internalError(
+          "saml-sp: failed to parse the verified assertion",
+          e,
+        ),
+      },
     }
   }
+}
 
+function checkRecipient(
+  doc: Document,
+  acsUrl: string,
+): MethodResult<SamlSpProperties, SamlSpState> | null {
   // Namespace-agnostic: match by local name regardless of prefix.
   const nodes = doc.getElementsByTagNameNS(
     "*",
@@ -145,24 +154,14 @@ function checkRecipient(
 
 /**
  * For IdP-initiated replay dedup: pull the assertion `@ID` and the
- * tightest `NotOnOrAfter` from the **verified** assertion XML (the same
- * bytes `checkRecipient` reads). Returns `null` if the assertion XML is
- * unavailable (caller treats that as a fail-loud error — we will not
- * skip replay protection we promised).
+ * tightest `NotOnOrAfter` from the **verified** assertion (the same
+ * parsed document every other check reads). Returns `null` when the
+ * assertion carries no `@ID` — the caller treats that as a fail-loud
+ * error rather than skipping replay protection we promised.
  */
 function extractReplayInfo(
-  profile: NodeSamlProfile,
+  doc: Document,
 ): { assertionId: string; notOnOrAfterMs: number | null } | null {
-  if (typeof profile.getAssertionXml !== "function") return null
-  let doc: Document
-  try {
-    doc = new DOMParser().parseFromString(
-      profile.getAssertionXml(),
-      "text/xml",
-    ) as unknown as Document
-  } catch {
-    return null
-  }
   const root = doc.documentElement
   const assertionId = root?.getAttribute("ID") ?? ""
   if (!assertionId) return null
@@ -177,6 +176,50 @@ function extractReplayInfo(
     }
   }
   return { assertionId, notOnOrAfterMs: earliest }
+}
+
+/**
+ * Read the `<AuthnStatement>` facts the host needs but node-saml's
+ * `Profile` does not carry (`types.d.ts` exposes `nameID`,
+ * `nameIDFormat`, `sessionIndex` and the flattened attributes, and
+ * nothing else structural).
+ *
+ * Read from the **verified** assertion document — never the unsigned
+ * outer Response — for the same reason `checkRecipient` is: an
+ * attacker-controlled value outside the signature is not a fact.
+ *
+ * All three are optional in SAML, so every field is best-effort; the
+ * caller falls back rather than failing, since none of them is a
+ * security control on its own.
+ */
+function extractAuthnStatement(doc: Document): {
+  authnInstant?: string
+  sessionNotOnOrAfter?: number
+  authnContextClassRef?: string
+} {
+  const out: {
+    authnInstant?: string
+    sessionNotOnOrAfter?: number
+    authnContextClassRef?: string
+  } = {}
+  const stmt = doc.getElementsByTagNameNS("*", "AuthnStatement")[0]
+  if (!stmt) return out
+
+  const instant = stmt.getAttribute("AuthnInstant")
+  if (instant) out.authnInstant = instant
+
+  const sessionExpiry = stmt.getAttribute("SessionNotOnOrAfter")
+  if (sessionExpiry) {
+    const ms = Date.parse(sessionExpiry)
+    if (!Number.isNaN(ms)) out.sessionNotOnOrAfter = ms
+  }
+
+  const ref = stmt
+    .getElementsByTagNameNS("*", "AuthnContextClassRef")[0]
+    ?.textContent?.trim()
+  if (ref) out.authnContextClassRef = ref
+
+  return out
 }
 
 export async function consumeAssertion(
@@ -212,7 +255,8 @@ export async function consumeAssertion(
       }
     }
     // Same derivation as AuthnRequest / metadata — no drift.
-    spEntityId = deriveSpEntityId(
+    spEntityId = resolveSpEntityId(
+      config,
       ctx.dispatch.issuerUrl,
       ctx.tenant.id,
       methodId,
@@ -318,17 +362,25 @@ export async function consumeAssertion(
     return { kind: "denied", reason: "assertion produced no usable subject" }
   }
 
+  // One parse of the verified assertion, shared by every check below
+  // (Recipient binding, IdP-init replay dedup, AuthnStatement facts) —
+  // they all read the same signed bytes, so parsing once is both
+  // cheaper and impossible to accidentally diverge.
+  const parsed = parseVerifiedAssertion(profile)
+  if ("failure" in parsed) return parsed.failure
+  const assertionDoc = parsed.doc
+
   // Gauntlet item 6 — node-saml does not enforce @Recipient; we do,
   // against the exact ACS URL the IdP saw (committed for SP-init,
   // derived for IdP-init — identical value either way).
-  const recipientFailure = checkRecipient(profile, acsUrl)
+  const recipientFailure = checkRecipient(assertionDoc, acsUrl)
   if (recipientFailure) return recipientFailure
 
   // IdP-init replay: no InResponseTo single-use to lean on, so dedup
   // the signed assertion's @ID. SP-init does not need this (the
   // request id is already single-use).
   if (idpInitiated) {
-    const replay = extractReplayInfo(profile)
+    const replay = extractReplayInfo(assertionDoc)
     if (!replay) {
       return {
         kind: "error",
@@ -367,12 +419,15 @@ export async function consumeAssertion(
     }
   }
 
+  const authnStatement = extractAuthnStatement(assertionDoc)
+
   const verified: VerifiedProfile = {
     nameID: profile.nameID,
     nameIDFormat: profile.nameIDFormat ?? "",
     ...(profile.sessionIndex !== undefined
       ? { sessionIndex: profile.sessionIndex }
       : {}),
+    ...authnStatement,
     attributes: profile.attributes ?? {},
     responseXml: profile.getSamlResponseXml?.() ?? "",
   }
