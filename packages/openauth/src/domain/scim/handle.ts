@@ -110,10 +110,25 @@ const fail = (
 /**
  * Map a host-returned `AuthError` onto a SCIM response.
  *
- * `conflict` is the one the host is expected to raise deliberately;
- * everything else becomes a 500, which SCIM clients retry. That is the
- * right outcome for a transient host failure — reporting success for a
- * write that did not happen is how deprovisioning silently fails.
+ * Three outcomes, and the distinction matters more than it looks,
+ * because SCIM clients **retry 5xx and give up on 4xx**:
+ *
+ *   - `conflict` → `409 uniqueness`. A collision only the host can
+ *     detect, since only the host stores the rows.
+ *   - `invalid_request` → `400 invalidValue`. A **permanent** rejection:
+ *     the host understood the request and will never accept it. The
+ *     motivating case is group membership referencing a user the host
+ *     does not have — Okta's group push can legitimately name a member
+ *     that its user push filtered out, or one deleted between
+ *     operations. Without this, such a request became a 500 and the IdP
+ *     retried it forever instead of surfacing it to an admin.
+ *   - anything else → `500`. Genuinely transient or unknown, so a retry
+ *     is the right response; reporting success for a write that did not
+ *     happen is how deprovisioning silently fails.
+ *
+ * The host's own message is passed through on the two 4xx paths — it is
+ * the only party that knows *why*, and that text is what an IdP admin
+ * sees in the provisioning log.
  */
 function fromPortError(error: {
   code: string
@@ -122,6 +137,9 @@ function fromPortError(error: {
 }): ScimResponse {
   if (error.code === "conflict") {
     return fail(409, error.description, "uniqueness")
+  }
+  if (error.code === "invalid_request") {
+    return fail(400, error.description, "invalidValue")
   }
   return fail(500, "the directory backing this endpoint failed the request")
 }

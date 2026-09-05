@@ -12,6 +12,8 @@ import { describe, expect, test } from "bun:test"
 import { handleScimRequest } from "../../src/domain/scim/handle"
 import { normalizeGroupPatch } from "../../src/domain/scim/patch"
 import { hashClientSecret } from "../../src/domain/token"
+import { authError } from "../../src/types/error"
+import { err } from "../../src/types/result"
 import { asTenantId, type TenantConfig } from "../../src/types/tenant"
 
 import { MemoryScimDirectory } from "../helpers/scim-directory"
@@ -348,5 +350,79 @@ describe("membership PATCH end to end", () => {
         (m) => m["value"],
       ),
     ).toEqual(["u3"])
+  })
+})
+
+describe("the host can report a permanent rejection", () => {
+  /** A directory that refuses membership for a user it does not have. */
+  function strictDirectory() {
+    const d = new MemoryScimDirectory(() => 1_700_000_000_000)
+    const known = new Set(["u1"])
+    const inner = d.patchGroup.bind(d)
+    d.patchGroup = async (t, id, patch) => {
+      const unknown = (patch.addMembers ?? [])
+        .map((m) => m.value)
+        .filter((v) => !known.has(v))
+      if (unknown.length > 0) {
+        return err(
+          authError.invalidRequest(
+            `no such user: ${unknown.join(", ")}`,
+            "members",
+          ),
+        )
+      }
+      return inner(t, id, patch)
+    }
+    return d
+  }
+
+  test("an unknown member is a 400 the IdP gives up on, not a retried 500", async () => {
+    // An IdP's group push can legitimately name a member its user push
+    // filtered out. A 500 there makes the IdP retry the same doomed
+    // request forever instead of showing an admin what is wrong.
+    const directory = strictDirectory()
+    directory.seedGroup(TENANT, { id: "g1", displayName: "Eng", members: [] })
+
+    const { res } = await call({
+      directory,
+      method: "PATCH",
+      path: "/Groups/g1",
+      body: patchOp([
+        { op: "add", path: "members", value: [{ value: "ghost" }] },
+      ]),
+    })
+    expect(res.status).toBe(400)
+    expect(res.body?.["scimType"]).toBe("invalidValue")
+    // The host's own message reaches the provisioning log.
+    expect(String(res.body?.["detail"])).toContain("no such user: ghost")
+  })
+
+  test("a member the host does have still succeeds", async () => {
+    const directory = strictDirectory()
+    directory.seedGroup(TENANT, { id: "g1", displayName: "Eng", members: [] })
+    const { res } = await call({
+      directory,
+      method: "PATCH",
+      path: "/Groups/g1",
+      body: patchOp([{ op: "add", path: "members", value: [{ value: "u1" }] }]),
+    })
+    expect(res.status).toBe(200)
+  })
+
+  test("an unexpected host failure is still a retryable 500", async () => {
+    const directory = new MemoryScimDirectory(() => 1_700_000_000_000)
+    directory.seedGroup(TENANT, { id: "g1", displayName: "Eng", members: [] })
+    directory.patchGroup = async () =>
+      err(authError.serverError("database unreachable"))
+
+    const { res } = await call({
+      directory,
+      method: "PATCH",
+      path: "/Groups/g1",
+      body: patchOp([{ op: "add", path: "members", value: [{ value: "u1" }] }]),
+    })
+    expect(res.status).toBe(500)
+    // A transient fault must not leak internals to the IdP.
+    expect(String(res.body?.["detail"])).not.toContain("database unreachable")
   })
 })

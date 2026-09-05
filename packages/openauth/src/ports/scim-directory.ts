@@ -15,13 +15,25 @@
  * after a `POST /Users` to confirm the create; an eventually-consistent
  * read there produces duplicate users. See `ports/CONSISTENCY.md`.
  *
- * **Errors:** return `err(authError.conflict(...))` for a uniqueness
- * violation — the library renders it as `409` with
- * `scimType: "uniqueness"`. Only the host can know about uniqueness,
- * because only the host stores the rows. Any other error becomes a
- * `500`, which SCIM clients retry; that is the correct outcome for a
- * transient failure and far better than reporting a success the host
- * did not perform.
+ * **Errors.** SCIM clients retry `5xx` and give up on `4xx`, so which
+ * error you return decides whether a failure is surfaced to an admin or
+ * retried forever:
+ *
+ *   - `authError.conflict(...)` → `409 uniqueness`. A collision only you
+ *     can detect, because only you store the rows.
+ *   - `authError.invalidRequest(...)` → `400 invalidValue`. A
+ *     **permanent** rejection — you understood the request and will
+ *     never accept it. Use it when `addMembers` names a user you do not
+ *     have (an IdP's group push can reference a member its user push
+ *     filtered out, or one deleted between operations), or when the data
+ *     violates a constraint you cannot satisfy.
+ *   - anything else → `500`, which the client retries. Correct for a
+ *     transient fault, and far better than reporting a success you did
+ *     not perform — but returning it for a permanent problem means the
+ *     IdP retries the same doomed request indefinitely.
+ *
+ * Your message is passed through on both `4xx` paths; it is what an IdP
+ * admin reads in the provisioning log, so make it specific.
  */
 import type { Result } from "../types/result"
 import type {

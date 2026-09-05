@@ -1492,9 +1492,25 @@ enforce that `userName` is unique. Return
 check-then-write: Okta's initial import is heavily concurrent and will
 find the race.
 
-Any other error from your port becomes a `500`, which SCIM clients
-retry. That is deliberate — retrying a transient failure is much better
-than reporting a success for a write that never happened.
+**Which error you return decides whether a failure gets fixed.** SCIM
+clients retry `5xx` and give up on `4xx`, so:
+
+| Return | Becomes | Use it for |
+| --- | --- | --- |
+| `authError.conflict(…)` | `409 uniqueness` | A collision only you can detect |
+| `authError.invalidRequest(…)` | `400 invalidValue` | A **permanent** rejection you will never accept |
+| anything else | `500` | A transient fault worth retrying |
+
+The middle row matters most for groups. An IdP's group push can name a
+member its user push filtered out, or one deleted between operations. If
+you return a generic error there, the IdP retries the same doomed
+request indefinitely; return `invalidRequest` and it stops and shows an
+admin what is wrong. Your message is passed through on both `4xx` paths
+— it is what appears in the provisioning log, so make it specific.
+
+Reserve `500` for genuinely transient problems. It is the right answer
+there: retrying beats reporting a success for a write that never
+happened.
 
 ### Filter support is deliberately narrow
 
