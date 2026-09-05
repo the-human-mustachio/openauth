@@ -1385,6 +1385,135 @@ Note that only `signingCerts` is safe to merge automatically. A changed
 
 ---
 
+## 9A. SCIM 2.0 — automated user provisioning
+
+SCIM is the companion to SAML in enterprise deals: SAML lets people log
+in, SCIM keeps the directory in sync — created on hire, updated on
+change, **deactivated on termination**. The deprovisioning half is the
+one customers audit.
+
+Direction is inbound, like SAML SP: the customer's Okta or Entra calls
+you. The library never pushes users anywhere.
+
+**The library owns the protocol; you own the data.** Routing, bearer
+auth, schema validation, PATCH normalization, the error envelope,
+pagination and the discovery documents are handled here. Every read and
+write goes through a `ScimDirectory` you implement against your own
+tables. **No user data is stored in the library** — it has no user
+model, by design.
+
+### Wiring it up
+
+```ts
+import { createIdP, type ScimDirectory } from "@_mustachio/openauth"
+
+const scimDirectory: ScimDirectory = {
+  async getUser(tenantId, id) { /* … */ },
+  async findUsers(tenantId, query) { /* … */ },
+  async createUser(tenantId, user) { /* … */ },
+  async replaceUser(tenantId, id, user) { /* … */ },
+  async patchUser(tenantId, id, patch) { /* … */ },
+  async deleteUser(tenantId, id) { /* … */ },
+}
+
+const idp = createIdP({ /* … */, scimDirectory })
+```
+
+Omit `scimDirectory` and `/scim/v2/*` answers `501` regardless of
+per-tenant config — SCIM is opt-in for the whole deployment.
+
+Then enable it per tenant, with a bearer token you mint and hand to the
+IdP admin. Hash it exactly like a client secret; never store the raw
+value:
+
+```ts
+import { hashClientSecret } from "@_mustachio/openauth"
+
+const token = crypto.randomUUID() + crypto.randomUUID() // show once
+tenant.scim = { enabled: true, tokenHash: await hashClientSecret(token) }
+```
+
+In Okta or Entra, the connector wants the base URL `https://your-issuer/scim/v2`
+and that token as the bearer.
+
+### What the endpoints do
+
+```
+GET    /scim/v2/ServiceProviderConfig | /ResourceTypes | /Schemas
+GET    /scim/v2/Users                 — filter + pagination
+POST   /scim/v2/Users
+GET|PUT|PATCH|DELETE /scim/v2/Users/{id}
+```
+
+Groups are not implemented yet and answer `501`.
+
+### Four things worth knowing
+
+**1. `patchUser` is where deprovisioning happens.** Okta and Entra
+normally deactivate with `PATCH {active: false}` rather than `DELETE`.
+Getting that one operation right matters more than everything else here.
+
+The library resolves every spelling — Okta's pathless
+`{op:"replace", value:{active:false}}`, Entra's
+`{op:"Replace", path:"active", value:"False"}` (yes, the boolean arrives
+as a string), and targeted paths like `emails[type eq "work"].value` —
+into a flat delta:
+
+```ts
+async patchUser(tenantId, id, patch) {
+  // present ⇒ set to this, null ⇒ clear, absent ⇒ leave alone.
+  // Values are fully resolved: `patch.emails` is the complete new list,
+  // never a fragment, and no SCIM path expression reaches you.
+}
+```
+
+**2. `DELETE` is not deactivation.** The library will not quietly turn a
+destructive request into a soft one — that would erase the distinction
+in your audit trail. If you don't want cascading deletes, implement
+`deleteUser` as a tombstone deliberately and write it down.
+
+**3. `totalResults` must be the full match count**, not the size of the
+page you return. Okta drives its paging loop off it, so returning the
+page length makes the import loop or stop early. `startIndex` is 1-based.
+
+**4. You own uniqueness.** The library stores no rows, so it cannot
+enforce that `userName` is unique. Return
+`err(authError.conflict("…", "userName"))` and it becomes a `409` with
+`scimType: "uniqueness"`. Use a real database constraint rather than
+check-then-write: Okta's initial import is heavily concurrent and will
+find the race.
+
+Any other error from your port becomes a `500`, which SCIM clients
+retry. That is deliberate — retrying a transient failure is much better
+than reporting a success for a write that never happened.
+
+### Filter support is deliberately narrow
+
+RFC 7644's filter grammar is large; Okta and Entra use a sliver of it.
+Supported:
+
+```
+userName eq "…"    externalId eq "…"    id eq "…"    active eq true|false
+emails[type eq "work"].value eq "…"     <term> and <term>
+```
+
+Anything else gets a `400` naming what works, rather than a silently
+wrong result. The parsed filter reaches your port as a small typed tree
+(`ScimFilter`), never as a string — you never write a filter parser.
+
+If a real connection needs something outside this set, the `400` will
+say so immediately; widen it then, on evidence.
+
+### Consistency requirement
+
+`ScimDirectory` needs **read-your-writes**. A SCIM client will
+`GET /Users?filter=userName eq "…"` immediately after creating a user to
+confirm the create; an eventually-consistent read there causes duplicate
+users, which is the classic SCIM failure and unpleasant to unpick. See
+`src/ports/CONSISTENCY.md`.
+
+---
+
 ## 10. Subject identity & JWT validation in your services
 
 Access tokens are JWTs (ES256). Your downstream services validate them

@@ -24,6 +24,7 @@ import { makeDiscoveryHandler, makeJwksHandler } from "./handlers/metadata"
 import { makeMethodRouteHandler } from "./handlers/method-route"
 import { makeParHandler } from "./handlers/par"
 import { makeRegisterHandler } from "./handlers/register"
+import { makeScimHandler } from "./handlers/scim"
 import { makeIntrospectHandler, makeRevokeHandler } from "./handlers/revocation"
 import { makeTokenHandler } from "./handlers/token"
 import { makeUserinfoHandler } from "./handlers/userinfo"
@@ -70,6 +71,14 @@ export function buildRouter(deps: HttpDeps): Hono<HttpEnv> {
   app.use("/end_session", tenantMiddleware(deps))
   app.get("/end_session", makeEndSessionHandler(deps))
   app.post("/end_session", makeEndSessionHandler(deps))
+
+  // SCIM 2.0 provisioning. Tenant resolved by the standard middleware;
+  // the per-connection bearer token is then verified against that
+  // tenant's config in the domain layer (SCIM-AD4). A single `all`
+  // mount keeps Hono out of SCIM's routing, which lives in
+  // `domain/scim/handle.ts`.
+  app.use("/scim/v2/*", tenantMiddleware(deps))
+  app.all("/scim/v2/*", makeScimHandler(deps))
 
   // RFC 9126 Pushed Authorization Requests.
   app.use("/par", tenantMiddleware(deps))

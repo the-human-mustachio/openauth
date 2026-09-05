@@ -11,6 +11,7 @@
  * providers carries only `{ tenantId, flowId, nonce, kid }`. Everything else
  * lives in the server-side `FlowRecord` (see `./flow.ts`).
  */
+import type { ScimConfig } from "./scim"
 
 /**
  * Branded tenant id — **opaque to the framework**.
@@ -199,6 +200,15 @@ export type TenantConfig = {
   refreshTtl?: number
   /** Override default access-token TTL (seconds). */
   accessTtl?: number
+  /**
+   * SCIM 2.0 provisioning for this tenant. Absent or `enabled: false` ⇒
+   * `/scim/v2/*` answers 403 for this tenant.
+   *
+   * Tenant-level rather than a `MethodConfig` because SCIM is not an
+   * auth method — no `/authorize`, no flow, no user agent. See
+   * `SCIM-AD5` in `docs/plans/claude/scim-plan.md`.
+   */
+  scim?: ScimConfig
 }
 
 /**

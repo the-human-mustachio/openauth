@@ -33,17 +33,27 @@ inbound directory (SCIM SP) ┘
 > **Maintain this block every working session.** First thing to read
 > when resuming with fresh context.
 
-**As of 2026-09-05 — planning only. No code written.** Option B chosen
-by the owner; this document is the design pass that precedes any
-implementation, per the standing rule that framework-invasive work gets
-sign-off first.
+**Phase 1 COMPLETE (2026-09-05).** Users CRUD, bearer auth, filter
+subset, PATCH normalization, discovery docs, error envelope and
+pagination all shipped. 52 tests; conformance cases 1–14 green. Choosing
+Option B settled SCIM-AD2 (the new port) implicitly; SCIM-AD3's filter
+subset was implemented as proposed.
 
-**Blocking sign-off (see Open Questions):** the filter-grammar scope
-(SCIM-AD3) and the new-port decision (SCIM-AD2) both need an explicit
-yes before Phase 1 starts.
+Two bugs the conformance tests caught before any IdP could:
 
-**Recommended next action:** review SCIM-AD1–AD8 and the Open Questions.
-On sign-off, start Phase 1 (Users CRUD).
+- The `PatchOp` schema URN was compared with only one side lowercased,
+  so **every** correctly-formed PATCH was rejected. Every provisioning
+  update would have failed.
+- The filter parser split `emails[type eq "work"].value eq "x"` on the
+  *inner* `eq`, mis-reading the attribute — Entra's shape, broken.
+
+Also removed an unused `clock` from `ScimRequestInput`: the host stamps
+its own record timestamps, so the library needs no clock here.
+
+**Recommended next action:** Phase 2 (Groups), or hold and validate
+Phase 1 against a live Okta/Entra tenant first — the same "no fixture
+substitutes for a real IdP" argument that applies to SAML applies here,
+and the Okta validator (case 16) is the real bar.
 
 ## Goals
 
@@ -263,7 +273,7 @@ tests rather than assumed:
 
 ## Phase Plan
 
-### Phase 1 — Users CRUD + auth + discovery
+### Phase 1 — Users CRUD + auth + discovery ✅ (2026-09-05)
 
 Port + config + router mount + bearer auth (SCIM-AD4), the three
 discovery documents, Users CRUD, the filter subset (SCIM-AD3), PATCH
@@ -317,10 +327,10 @@ guidance, audit events, `INTEGRATION.md` § SCIM.
 
 ## Open Questions
 
-1. **Filter grammar scope (SCIM-AD3)** — sign-off needed. Proposed: the
-   listed subset only. Widen on evidence from a real connection.
-2. **New port (SCIM-AD2)** — sign-off needed, since it supersedes the
-   SAML-era "no new ports" line.
+1. ~~**Filter grammar scope (SCIM-AD3)**~~ **Resolved** — shipped as the
+   listed subset. Widen on evidence from a real connection.
+2. ~~**New port (SCIM-AD2)**~~ **Resolved** — choosing Option B was the
+   port decision; `ScimDirectory` shipped in Phase 1.
 3. **Audit events.** Ride the general event set, or add
    `user_provisioned` / `user_deactivated` kinds? SAML chose to ride
    general events (`SAML-AD3`), but provisioning mutations are
