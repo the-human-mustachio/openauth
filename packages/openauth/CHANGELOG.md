@@ -1,5 +1,68 @@
 # @\_mustachio/openauth
 
+## 0.13.0
+
+### Minor Changes
+
+- 0ec7985: SAML SP interop hardening — authentication-context control, an entityID override, configurable signature posture, and richer `AuthnStatement` facts.
+
+  **Behaviour change: `RequestedAuthnContext` is no longer sent by default.** Previously the outbound `AuthnRequest` inherited the underlying library's defaults and always carried `<RequestedAuthnContext Comparison="exact">` demanding `PasswordProtectedTransport`. An IdP running an MFA sign-on policy can answer that with `NoAuthnContext` instead of a login. The SP now sends no `RequestedAuthnContext` unless you ask for one, letting the IdP apply its own policy. If you relied on the old behaviour, set it explicitly.
+
+  **What's new:**
+
+  - **`requestedAuthnContext`** — request specific authentication context classes (e.g. MFA) with `classRefs` and an optional `comparison` (`exact` | `minimum` | `maximum` | `better`, default `exact`). `minimum` is usually the safer choice when the goal is "at least MFA".
+  - **`SamlSpProperties.authnContextClassRef`** — what the IdP _actually_ asserted, read from the signed assertion. Requesting a context is not proof one was used; step-up decisions belong on this value.
+  - **`forceAuthn`** — sets `ForceAuthn="true"` on the `AuthnRequest`. A request only: SAML obliges the IdP to nothing and the Response carries no proof, so it is not evidence of fresh authentication.
+  - **`spEntityId`** — override the derived SP entityID to adopt one that already exists at the IdP, so an existing SAML app can be migrated without the customer editing their production SSO config. The override flows to the `AuthnRequest`, audience validation, SP metadata, and logout messages through a single resolver, so published metadata stays truthful.
+  - **`requireSignedAssertion` / `requireSignedResponse`** — configurable signature posture. Defaults are unchanged (signed assertion required, Response signature not), and now support both defence-in-depth (`requireSignedResponse: true`) and IdPs that sign only the `<Response>`. Turning both off is rejected by the config schema. `WantAssertionsSigned` in SP metadata follows the setting rather than being hardcoded.
+  - **`SamlSpProperties.sessionNotOnOrAfter`** — the IdP's `AuthnStatement/@SessionNotOnOrAfter` as Unix ms, when supplied. The library does not act on it; hosts wanting "when their IdP session ends, ours ends" clamp their own session/token TTL to it in `success`.
+
+  **Fixed.** `SamlSpProperties.authnInstant` is now read from the assertion's `AuthnInstant`. It was documented as the assertion's value but silently fell back to the current time, because the underlying library's profile never carried it.
+
+  **Internal.** The ACS parsed the verified assertion three times (Recipient check, replay dedup, and now the `AuthnStatement` read); it parses once and shares the document.
+
+- 20da5d0: SCIM 2.0 group provisioning. Corporate IdPs can now push groups and their membership alongside users, covering the "group push" half of an Okta or Entra provisioning integration.
+
+  **Opt-in as a set.** Implement all six group methods on `ScimDirectory` (`getGroup`, `findGroups`, `createGroup`, `replaceGroup`, `patchGroup`, `deleteGroup`) or none. Omit them and `/scim/v2/Groups` answers `501` — and the discovery documents leave the Group resource type out entirely, so a client is never told a resource works when it does not.
+
+  **Membership keeps the client's intent rather than being resolved.** This is a deliberate departure from how user patches work, and the reason is size: a user's email list is small and bounded, a group's membership is not. Resolving "add one member" against a 20,000-member group would mean reading all 20,000 rows and writing them back on every change. So `patchGroup` receives either `addMembers` / `removeMembers` (incremental — one insert or delete) or `members` (full replace), never both. The library still normalizes the wire shapes, so no SCIM path expression reaches the host: Okta's `{op:"add", path:"members", value:[…]}`, Okta's `members[value eq "u1"]` removal path, and Entra's `{op:"remove", path:"members", value:[…]}` all converge.
+
+  **`excludedAttributes=members` is honoured.** Okta sets it while enumerating groups; `ScimGroupQuery.excludeMembers` lets the host skip loading membership rather than doing a fan-out read per group. Records come back with `members` omitted, not `[]` — an empty array would tell the client the group had been emptied.
+
+  Group filtering supports `displayName`, `externalId` and `id`. Filtering a Group by a user attribute is a `400 invalidFilter` rather than an empty list, which would read as "no such group" — a wrong answer dressed as a valid one.
+
+  Membership operations must be idempotent on the host side: adding an existing member or removing an absent one should succeed quietly, because IdPs retry and a `4xx` there stalls a group push indefinitely.
+
+- bcf9c37: SCIM 2.0 user provisioning. Corporate IdPs (Okta, Entra) can now create, update, and — most importantly — deactivate users in your system automatically, so a customer's directory stays in sync without manual steps. Inbound only: the library receives provisioning and never pushes users anywhere.
+
+  **The library owns the protocol; the host owns the data.** Routing, bearer authentication, RFC 7643 schema validation, PATCH normalization, the error envelope, pagination and the discovery documents live in the library. Every read and write goes through a new `ScimDirectory` port implemented against the host's own tables. No user records are stored in the library — it has no user model, deliberately.
+
+  **Opt-in twice.** Supply `scimDirectory` to `createIdP` (absent ⇒ `/scim/v2/*` answers 501 for the whole deployment), then enable it per tenant with `TenantConfig.scim = { enabled, tokenHash }`, where the token is hashed with the existing `hashClientSecret`.
+
+  **Endpoints:** `/scim/v2/Users` (list with filter + pagination, create) and `/scim/v2/Users/{id}` (get, replace, patch, delete), plus `ServiceProviderConfig`, `ResourceTypes` and `Schemas`. Groups are not implemented and answer 501.
+
+  **What the library absorbs so hosts don't:**
+
+  - **PATCH normalization.** Okta's pathless `{op:"replace", value:{active:false}}`, Entra's `{op:"Replace", path:"active", value:"False"}` (the boolean really does arrive as a string), and targeted paths like `emails[type eq "work"].value` all resolve to one flat delta of fully resolved values. No SCIM path expression and no merge logic reaches the host.
+  - **Filtering**, on a deliberately narrow subset — `userName`, `externalId`, `id`, `active`, the complex email path, and two terms joined by `and`. Anything else returns `400 invalidFilter` naming what is supported, rather than a silently wrong result. The parsed filter reaches the port as a typed tree, never a string.
+  - **Envelope details** that are easy to get wrong and that certification checks: string `status` in errors, capital-`R` `Resources`, 1-based `startIndex`, `application/scim+json`.
+
+  **Deliberate behaviours worth knowing:**
+
+  - `DELETE` and deactivation stay distinct. A delete is never quietly remapped to `active: false` — that would erase the distinction in an audit trail.
+  - `password` in a payload is refused, not silently dropped. Credentials belong to the auth methods, not the directory feed.
+  - A malformed PATCH operation on an attribute the library models is an error, never a silent no-op — that is how provisioning drifts undetected. An attribute it does not model is skipped instead, since there is nowhere for it to go and POST/PUT already discard it.
+  - A disabled or unconfigured tenant gets `403`, never `404`, so the endpoint cannot be used to probe which tenants exist.
+  - A port error other than `conflict` becomes a `500`, which SCIM clients retry — better than reporting success for a write that did not happen.
+
+  **`ScimDirectory` requires read-your-writes consistency**: SCIM clients confirm a create by immediately filtering for it, and a stale read there produces duplicate users. Uniqueness of `userName` is the host's to enforce (return the new `conflict` `AuthError` → `409 uniqueness`); the library cannot enforce a constraint on rows it does not store.
+
+  Also adds a `conflict` variant to `AuthError`, used by hosts to signal that a SCIM write collided with an existing record.
+
+  **Post-review corrections** (found by a branch review before release, all with regression tests): unknown attributes in a PATCH are skipped rather than rejecting the whole request — Okta pushes `title` alongside `active`, so the old behaviour took deactivation down with it, and it was asymmetric with POST/PUT which already ignore them; `/scim/v2/*` no longer distinguishes an unknown tenant from a SCIM-disabled one (the shared tenant middleware previously answered unknown tenants with an OAuth-shaped 400 before the SCIM layer ran, an enumeration oracle); a bare enterprise-extension URN used as a pathless PATCH key now resolves; `add` on a complex attribute merges sub-attributes per RFC 7644 §3.5.2.1 instead of clearing the siblings; filter structural checks ignore quoted literals, so a value containing `(` or the word `or` is no longer rejected; `count=-1` returns zero results per RFC 7644 §3.4.2.4 rather than a full page; creates carry a `Location` header per RFC 7644 §3.1; and a targeted email upsert adopts a lone untyped entry instead of appending a duplicate.
+
+  **Host error contract.** `authError.invalidRequest(…)` from a `ScimDirectory` method now becomes `400 invalidValue` rather than a generic `500`, giving the host a way to signal a _permanent_ rejection. SCIM clients retry `5xx` and give up on `4xx`, so this is the difference between an IdP surfacing a problem to an admin and retrying the same doomed request forever. The motivating case is group membership naming a user the host does not have — an IdP's group push can legitimately reference a member its user push filtered out, or one deleted between operations. `conflict` still maps to `409 uniqueness`; everything else remains a retryable `500`.
+
 ## 0.12.0
 
 ### Minor Changes
