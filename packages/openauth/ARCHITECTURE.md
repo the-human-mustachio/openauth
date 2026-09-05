@@ -503,7 +503,10 @@ The boundary matters for every scoping decision: features that look like
 - The console UI for managing partitions, registered applications, audit
   log display, invite flows, billing.
 - The product's data model — Users, Workspaces, Apps, App-Tenants, and
-  whatever other concepts the product introduces.
+  whatever other concepts the product introduces. This is why SCIM ships
+  a port and no adapter: a bundled implementation would invite hosts to
+  store users inside the library, which is the one thing this boundary
+  exists to prevent.
 - Authorization (RBAC) — "is this subject allowed to do X?" — including
   whether a subject is an "admin." The library only authenticates; the host
   decides what an authenticated subject is permitted to do.
@@ -519,13 +522,18 @@ The boundary matters for every scoping decision: features that look like
 
 - OAuth 2.1 / OIDC Core endpoints (`/authorize`, `/token`, `/cb/*`,
   `/m/*`, `/userinfo`, `/revoke`, `/introspect`, `/.well-known/*`).
+- The SCIM 2.0 protocol surface (`/scim/v2/*`) — routing, bearer auth,
+  schema validation, PATCH normalization, the error envelope and the
+  discovery documents. **Not** the user records themselves: those stay
+  in the host's tables behind the `ScimDirectory` port.
 - Per-partition isolation — tokens minted for partition A cannot be
   consumed at partition B's `/token`; refresh-token rotation honours
   family scoping; audit events carry the partition id.
 - The auth-method registry (factories) and per-partition instance cache.
 - Port interfaces (`ConfigStore`, `MethodStore`, `TokenStore`,
-  `SessionStore`, `KeyStore`, `AuditLog`) and concrete adapters (memory,
-  Postgres, D1, Durable Objects, KV, DynamoDB, KMS).
+  `SessionStore`, `KeyStore`, `AuditLog`, `ScimDirectory`) and concrete
+  adapters (memory, Postgres, D1, Durable Objects, KV, DynamoDB, KMS).
+  `ScimDirectory` deliberately ships **no** adapter — see below.
 - Standards posture — PKCE enforcement, refresh-token reuse detection,
   encryption-at-rest of code payloads, MAC-bound state envelope.
 
@@ -636,6 +644,7 @@ are host-application concerns:
 | 7 — Library-only scoping             | **done**    | Phase 7 rescoped from "build a console" to "make the embedding contract explicit." See "Embedding pattern" above. Open Question #1 closed.                                                                                                                                                                                                                                                                                                                                                                  |
 | 8 — Standards + production hardening | in progress | Session 1: PKCE type-system enforcement, RFC 7009 revoke + RFC 7662 introspect client-auth + audience checks, refresh-grant RFC 6749 §6 client-auth, new `TokenStore.peekRefresh` port. Session 2 (OIDC issuance, RFC 9126 PAR, RFC 9449 DPoP, RFC 7591 DCR, OIDC RP-Initiated Logout 1.0, OIDC Core `claims` parameter + pairwise subjects + scope-gated profile claims, discovery metadata fill-in). 480/480 tests, both tsconfigs clean. Remaining: mTLS hook, rate-limiter port, Logger / Tracer ports. |
 | 9 — SAML 2.0 Service Provider | **done** | Shipped in `0.12.0`. `samlSpFactory` on the Node-only `./methods/saml-sp` subpath: SP-initiated + IdP-initiated SSO, full verification gauntlet, SP metadata, front-channel SLO both directions, encrypted assertions. **Inbound only — the library consumes assertions and does not issue them**; downstream apps speak the OIDC issuer. The SAML IdP role is a standing out-of-scope decision (it would require an SSO session this library deliberately does not own) — see `SAML-AD8` in `docs/plans/claude/saml-sp-plan.md`. Drove five general framework capabilities, each documented above. |
+| 10 — SCIM 2.0 provisioning | **done** | Users + Groups at `/scim/v2/*`, on the root (edge-clean) entry. The library owns the protocol; the host owns the data behind the new `ScimDirectory` port — no user records are stored here. Inbound only, mirroring SAML: we receive provisioning and never push users outward. Membership patches stay incremental (`addMembers`/`removeMembers`) rather than resolving to a full list, so a large group is never rewritten to add one person. Groups are opt-in as a set; omit them and `/Groups` answers 501 and discovery omits the type. See `docs/plans/claude/scim-plan.md`. |
 
 ## OIDC issuance (Session 2)
 

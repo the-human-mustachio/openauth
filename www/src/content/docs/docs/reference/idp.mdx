@@ -106,6 +106,33 @@ Optional — falls back to `ConfigStore` for `MethodConfig` lookups when
 absent. Separate it from `ConfigStore` when method configs change at a
 different cadence than tenant configs.
 
+### `scimDirectory` (optional)
+
+Supply it to serve SCIM 2.0 provisioning at `/scim/v2/*`; omit it and
+those routes answer `501` for every tenant. The library owns the SCIM
+protocol and stores no user records — every read and write goes through
+this port to your own tables. Enable it per tenant with
+`TenantConfig.scim = { enabled, tokenHash }`.
+
+The Group half of the port is optional as a set: implement all six group
+methods or none. Omit them and `/scim/v2/Groups` answers `501` and the
+discovery documents leave the Group resource type out entirely.
+
+Requires **read-your-writes** consistency: SCIM clients confirm a create
+by immediately filtering for it, and a stale read there produces
+duplicate users.
+
+### `onLogout` (optional)
+
+Fires when an upstream provider tells this IdP that a federated session
+ended — today, a SAML front-channel `LogoutRequest`. The library has
+already verified the signature by the time it runs.
+
+The library cannot map an upstream `NameID` to your OIDC subject (that
+mapping lives in your `success` callback), so you do your own teardown
+and may return `{ revokeSubject }` to have the library revoke that
+subject's tokens with the same primitive `/end_session` uses.
+
 ### `issuerUrl`
 
 Issuer URL. Function form lets multi-tenant deployments derive it per

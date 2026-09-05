@@ -23,10 +23,20 @@ the standards posture.
   `oidcFactory` for everything else.
 - **Built-in credential methods.** Password (argon2id), email/SMS code,
   WebAuthn passkey, M2M client-credentials.
+- **Enterprise SAML 2.0 (Service Provider).** Consume signed assertions
+  from Okta, Entra, Ping or ADFS so corporate SSO terminates here and
+  your apps keep speaking OIDC. SP- and IdP-initiated SSO, the full
+  verification gauntlet, SP metadata, Single Logout, encrypted
+  assertions. Node-only, on its own subpath, so edge builds stay clean.
+- **SCIM 2.0 provisioning.** Users and groups pushed from the customer's
+  IdP — created on hire, updated on change, deactivated on termination.
+  The library owns the protocol; your `ScimDirectory` owns the data, so
+  no user records are stored in the library.
 - **Production storage adapters.** Postgres, DynamoDB, Cloudflare D1, KV,
   Durable Objects, AWS KMS (key wrapping), in-memory (dev / tests).
 - **Runs anywhere a fetch handler runs.** Node, Bun, AWS Lambda,
-  Cloudflare Workers.
+  Cloudflare Workers. (SAML is the one exception — it needs Node, and
+  lives behind a separate import so the root entry stays edge-clean.)
 
 ## Install
 

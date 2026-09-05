@@ -1743,7 +1743,7 @@ introduce security bugs:
 
 ---
 
-## 15. Phase 8 features that are NOT yet in the library
+## 15. Features that are NOT yet in the library
 
 If you need any of these and want them on the library side rather than
 in front of it, raise scope before integrating:
@@ -1770,7 +1770,7 @@ in front of it, raise scope before integrating:
 - **Logger / Tracer ports** — wrap `idp.handle` with your own
   request-logging middleware until structured ports land.
 
-### What landed in Phase 8 Session 2
+### Recently landed
 
 The OIDC issuance + standards features below are **shipped** and
 documented in §15a–e below:
@@ -2088,6 +2088,9 @@ Each of these has a corresponding case in
 | The embedding contract                        | `ARCHITECTURE.md` § "Embedding pattern"             |
 | Port consistency requirements                 | `src/ports/CONSISTENCY.md`                          |
 | The phased build history + decisions          | `docs/plans/claude/idp-rebuild-plan.md`             |
+| SAML SP decisions + conformance matrix        | `docs/plans/claude/saml-sp-plan.md`                 |
+| SCIM decisions + the protocol/data split      | `docs/plans/claude/scim-plan.md`                    |
+| SCIM protocol behaviour end to end            | `test/scim/*.test.ts`                               |
 | Public type shapes                            | `src/types/*.ts`                                    |
 | What's expected of each port impl             | `test/ports/*.ts` (parameterized conformance suite) |
 | Example end-to-end flow under memory adapters | `test/integration/full-flow.test.ts`                |
