@@ -794,16 +794,12 @@ success: async ({ methodId, methodKind, providerSubject }) => {
   if (methodId === "google-workspace") {
     return {
       type: "admin",
-      properties: {
-        /* ... */
-      },
+      properties: {/* ... */},
     }
   }
   return {
     type: "user",
-    properties: {
-      /* ... */
-    },
+    properties: {/* ... */},
   }
 }
 ```
@@ -2001,9 +1997,7 @@ createIdP({
       redirectUris: request.redirect_uris,
     })
     return ok({
-      client: {
-        /* the ClientConfig you just persisted */
-      },
+      client: {/* the ClientConfig you just persisted */},
       ...(secret ? { secret } : {}),
     })
   },

@@ -84,8 +84,7 @@ type NodeSamlProfile = {
 function parseVerifiedAssertion(
   profile: NodeSamlProfile,
 ):
-  | { doc: Document }
-  | { failure: MethodResult<SamlSpProperties, SamlSpState> } {
+  { doc: Document } | { failure: MethodResult<SamlSpProperties, SamlSpState> } {
   if (typeof profile.getAssertionXml !== "function") {
     // node-saml v5.1 populates this on a successful verify. Its
     // absence means the library contract changed under us — fail loud

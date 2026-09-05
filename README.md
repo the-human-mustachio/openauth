@@ -101,9 +101,7 @@ const idp = createIdP({
   issuerUrl: "https://auth.yourapp.com",
   methods: {
     password: passwordMethod({
-      users: {
-        /* findByEmail, create? */
-      },
+      users: {/* findByEmail, create? */},
     }),
     google: googleFactory,
   },
