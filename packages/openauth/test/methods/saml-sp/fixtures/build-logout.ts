@@ -52,9 +52,7 @@ const iso = (ms: number) => new Date(ms).toISOString()
  * leading `?`) — `SAMLRequest`, `RelayState?`, `SigAlg`, `Signature` —
  * exactly as an IdP front-channel SLO redirect would carry it.
  */
-export async function redirectLogoutRequest(
-  opts: LogoutOpts,
-): Promise<string> {
+export async function redirectLogoutRequest(opts: LogoutOpts): Promise<string> {
   const idp = new SAML({
     // Mandatory ctor fields (unused for request generation).
     idpCert: IDP_CERT,
@@ -71,8 +69,7 @@ export async function redirectLogoutRequest(
   const url = await idp.getLogoutUrlAsync(
     {
       nameID: opts.nameId ?? "user-persistent-id-001",
-      nameIDFormat:
-        "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+      nameIDFormat: "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
       ...(opts.sessionIndex !== undefined
         ? { sessionIndex: opts.sessionIndex }
         : {}),
@@ -108,16 +105,12 @@ export function postLogoutRequest(opts: LogoutOpts): string {
     sessionIndexEl +
     `</samlp:LogoutRequest>`
 
-  const signed = signSamlPost(
-    xml,
-    '/*[local-name(.)="LogoutRequest"]',
-    {
-      privateKey: opts.wrongKey ? ATTACKER_KEY : IDP_KEY,
-      publicCert: opts.wrongKey ? ATTACKER_CERT : IDP_CERT,
-      signatureAlgorithm: "sha256",
-      digestAlgorithm: "http://www.w3.org/2001/04/xmlenc#sha256",
-    },
-  )
+  const signed = signSamlPost(xml, '/*[local-name(.)="LogoutRequest"]', {
+    privateKey: opts.wrongKey ? ATTACKER_KEY : IDP_KEY,
+    publicCert: opts.wrongKey ? ATTACKER_CERT : IDP_CERT,
+    signatureAlgorithm: "sha256",
+    digestAlgorithm: "http://www.w3.org/2001/04/xmlenc#sha256",
+  })
   return Buffer.from(signed, "utf8").toString("base64")
 }
 
@@ -157,15 +150,11 @@ export function postLogoutResponse(opts: LogoutResponseOpts): string {
     `<samlp:Status><samlp:StatusCode Value="${status}"/></samlp:Status>` +
     `</samlp:LogoutResponse>`
 
-  const signed = signSamlPost(
-    xml,
-    '/*[local-name(.)="LogoutResponse"]',
-    {
-      privateKey: opts.wrongKey ? ATTACKER_KEY : IDP_KEY,
-      publicCert: opts.wrongKey ? ATTACKER_CERT : IDP_CERT,
-      signatureAlgorithm: "sha256",
-      digestAlgorithm: "http://www.w3.org/2001/04/xmlenc#sha256",
-    },
-  )
+  const signed = signSamlPost(xml, '/*[local-name(.)="LogoutResponse"]', {
+    privateKey: opts.wrongKey ? ATTACKER_KEY : IDP_KEY,
+    publicCert: opts.wrongKey ? ATTACKER_CERT : IDP_CERT,
+    signatureAlgorithm: "sha256",
+    digestAlgorithm: "http://www.w3.org/2001/04/xmlenc#sha256",
+  })
   return Buffer.from(signed, "utf8").toString("base64")
 }

@@ -21,7 +21,7 @@ Recipient + signed-AuthnRequest (**done** — Recipient check,
 `parseSamlIdpMetadata`, SP-metadata endpoint, IdP-initiated SSO,
 signed-AuthnRequest all shipped) → **3** Single Logout +
 production polish (**done** — front-channel SLO both directions via a
-new *general* `IdPOptions.onLogout` host hook +
+new _general_ `IdPOptions.onLogout` host hook +
 `MethodResult.challenge.logout` field; encrypted assertions behind a
 flag; security review + perf tripwire). **SAML SP is
 feature-complete** (conformance matrix 1–18 ✅). See _Status & Resume
@@ -74,7 +74,7 @@ trio, which is resolved).
 deliverables shipped: (a) the explicit `SubjectConfirmationData/@Recipient`
 check (gauntlet item 6) — `checkRecipient` in `acs.ts`, reads the
 **signed** assertion via a pinned `@xmldom/xmldom` DOM parse (not the
-fragile xml2js walk the plan rejected), denies on mismatch *and* on a
+fragile xml2js walk the plan rejected), denies on mismatch _and_ on a
 missing Recipient; conformance cases 12 + a `noRecipient` deny case
 green. (b) `parseSamlIdpMetadata(xml)` — pure `Result`-returning helper
 on the subpath, namespace-prefix agnostic, exported from the barrel and
@@ -98,7 +98,7 @@ items shipped after their design passes + sign-off:
   `AuthMethod.unsolicitedCallback` opt-in; `handleCallback` forks to a
   flowless path when there is **no verifiable state envelope** (a
   correctness fix surfaced in testing: a SAML `RelayState` is not a
-  framework envelope, so the fork triggers on "no *verifiable*
+  framework envelope, so the fork triggers on "no _verifiable_
   envelope", not just "no state"). No `FlowRecord` is synthesized —
   `saveEncryptedCode` mints from an in-memory `CodePayload`.
   Assertion-ID replay dedup via `methodScratch` (no `InResponseTo` to
@@ -106,11 +106,11 @@ items shipped after their design passes + sign-off:
   registered client; `RelayState` never a redirect.
 - ✅ **Signed-AuthnRequest, option O3.** Decided: the SP signing
   keypair is **per-connection config** (`SamlSpConfig.signingKey =
-  {privateKeyPem, certPem}`), decoupled from the OIDC `KeyStore` — the
+{privateKeyPem, certPem}`), decoupled from the OIDC `KeyStore` — the
   IdP pins the cert; rotation is an IdP-coordination event. No
   KeyStore port change, KMS-agnostic. node-saml signs the HTTP-Redirect
   AuthnRequest; SP metadata auto-advertises `AuthnRequestsSigned="true"`
-  + a signing `KeyDescriptor` when enabled (kept truthful).
+  - a signing `KeyDescriptor` when enabled (kept truthful).
 
 **Phase 3 — COMPLETE (2026-05-18).** Single Logout (SLO) + production
 polish. Full SAML conformance matrix (cases 1–18) is ✅. The two
@@ -123,7 +123,7 @@ forking decisions were taken with the user:
   mapping lives in the host's `success(input)` callback (the host owns
   the final `SubjectClaim`). Decision: the library verifies the signed
   `LogoutRequest` (node-saml, SAML-AD1 — no hand-rolled XML-DSig),
-  then fires a new *general* `IdPOptions.onLogout` host hook (sibling
+  then fires a new _general_ `IdPOptions.onLogout` host hook (sibling
   of `success`); the host does its own teardown and may return
   `{ revokeSubject }`, in which case the library runs the existing
   `revokeAllForSubject` (`domain/revoke.ts`) for it. Method handlers
@@ -144,17 +144,18 @@ forking decisions were taken with the user:
 
 Encrypted assertions (no fork — mirrors the O3 `signingKey`
 precedent): `SamlSpConfig.allowEncryptedAssertions` (default `false`)
-+ per-connection `decryptionKey?: { privateKeyPem }` → node-saml
-`decryptionPvk`; no port change.
+
+- per-connection `decryptionKey?: { privateKeyPem }` → node-saml
+  `decryptionPvk`; no port change.
 
 **Progress:**
 
 - ✅ **3b — framework core** (commit `ab246e0`). `IdPOptions.onLogout`
-  + `MethodResult.challenge.logout` + public-logout domain pipeline
-  ({onLogout?, tokenStore, auditLog?, clock}) + `session_logout`
-  `via` discriminant. Riskiest layer (privileged side-effect path)
-  tested in `test/domain/method-route-public.test.ts`. The 5th
-  general framework change, documented in `ARCHITECTURE.md`.
+  - `MethodResult.challenge.logout` + public-logout domain pipeline
+    ({onLogout?, tokenStore, auditLog?, clock}) + `session_logout`
+    `via` discriminant. Riskiest layer (privileged side-effect path)
+    tested in `test/domain/method-route-public.test.ts`. The 5th
+    general framework change, documented in `ARCHITECTURE.md`.
 - ✅ **3c — inbound `LogoutRequest` (IdP-initiated receive).**
   `GET|POST /m/<id>/sls` public route (`sls.ts`), gated public iff
   `idp.sloUrl` is set (mirrors `unsolicitedCallback` ⇐ `idpInitiated`).
@@ -205,14 +206,14 @@ precedent): `SamlSpConfig.allowEncryptedAssertions` (default `false`)
   SAML-named kinds; rides general events — `SAML-AD3`); internal
   security-review checklist `saml-sp-security-review.md` (OASIS SAML
   2.0 Security Considerations + OWASP SAML cheatsheet walked, controls
-  + accepted residuals documented); ACS perf tripwire
-  (`perf.test.ts` — p95 ≈ 5ms, generous 500ms catastrophic-regression
-  ceiling; precise OIDC ratio is too env-sensitive for CI so an
-  absolute bound + printed distribution is used instead);
-  `INTEGRATION.md` §9.5 extended (SLO both directions, `onLogout`
-  host hook, encrypted assertions, SP-initiated CSRF host contract;
-  stale "no KeyDescriptor / SLO" paragraph corrected; phase language
-  kept out of the public doc).
+  - accepted residuals documented); ACS perf tripwire
+    (`perf.test.ts` — p95 ≈ 5ms, generous 500ms catastrophic-regression
+    ceiling; precise OIDC ratio is too env-sensitive for CI so an
+    absolute bound + printed distribution is used instead);
+    `INTEGRATION.md` §9.5 extended (SLO both directions, `onLogout`
+    host hook, encrypted assertions, SP-initiated CSRF host contract;
+    stale "no KeyDescriptor / SLO" paragraph corrected; phase language
+    kept out of the public doc).
 
 **Interop hardening shipped 2026-09-05** (post-`0.12.0`, unreleased):
 `requestedAuthnContext` + the inverted `RequestedAuthnContext` default
@@ -234,7 +235,7 @@ assertion to one. 658 tests green, both tsconfigs clean.
    "Generating the SP keypair": the `openssl` recipe (verified by
    running it and driving the output through `signAuthnRequest` +
    metadata), why `-nodes` is required, and the honest note that SP cert
-   rotation is a *coordinated swap* — metadata advertises one signing
+   rotation is a _coordinated swap_ — metadata advertises one signing
    cert, so there is no overlap window on our side. A future
    enhancement would be multi-cert SP metadata to make SP-side rotation
    hot too, matching the IdP side.
@@ -250,7 +251,7 @@ Optional future work is per-deal only (Holder-of-Key, ECP, Artifact,
 back-channel SOAP SLO). SAML IdP role is out of scope — see SAML-AD8.
 
 **Five framework changes SAML drove** (documented in
-`ARCHITECTURE.md`), each a *general* capability, not SAML-specific
+`ARCHITECTURE.md`), each a _general_ capability, not SAML-specific
 surface: `MethodContext.methodScratch` (precursor `395ec99`),
 `handleCallback` POST-body state recovery (`db45ab6`, also unblocks
 OAuth `form_post`), `AuthMethod.publicRoutes` (anonymous flowless
@@ -388,7 +389,7 @@ The framework's existing `success` path expects a flow (for `client_id`,
 `redirect_uri`, scopes, code-challenge). To bridge:
 
 - `SamlSpConfig` exposes optional `idpInitiated: { defaultClientId,
-  defaultRedirectUri, defaultScopes }`.
+defaultRedirectUri, defaultScopes }`.
 - When ACS sees an unsolicited Response and `idpInitiated` is
   configured, the framework synthesizes a flow at ACS time using those
   defaults plus the verified assertion.
@@ -446,9 +447,9 @@ Question #1 in favour of the consistent answer.
 
 ```ts
 import {
-  samlSpFactory,                    // ✅ shipped
-  parseSamlIdpMetadata,             // ✅ shipped (Phase 2 partial, 2026-05-15)
-  type SamlSpConfig,                // ✅ shipped
+  samlSpFactory, // ✅ shipped
+  parseSamlIdpMetadata, // ✅ shipped (Phase 2 partial, 2026-05-15)
+  type SamlSpConfig, // ✅ shipped
 } from "@_mustachio/openauth/methods/saml-sp"
 ```
 
@@ -459,24 +460,25 @@ instance:
 type SamlSpConfig = {
   idp: {
     entityId: string
-    ssoUrl: string                       // HTTP-Redirect or HTTP-POST
-    sloUrl?: string                      // Single Logout endpoint (Session 3)
-    nameIdFormat?: SamlNameIdFormat      // persistent | transient | emailAddress | unspecified
+    ssoUrl: string // HTTP-Redirect or HTTP-POST
+    sloUrl?: string // Single Logout endpoint (Session 3)
+    nameIdFormat?: SamlNameIdFormat // persistent | transient | emailAddress | unspecified
     signingCerts: ReadonlyArray<{
       pem: string
       notBefore?: number
       notAfter?: number
-    }>                                   // ≥1; multiple supported for hot rotation
+    }> // ≥1; multiple supported for hot rotation
   }
   attributeMapping: SamlAttributeMapping // maps SAML attrs → SubjectClaim shape
-  signAuthnRequest?: boolean             // default false; required by some IdPs
-  signingKey?: { kid: string }           // KeyStore kid for AuthnRequest signing
-  idpInitiated?: {                       // see SAML-AD7
+  signAuthnRequest?: boolean // default false; required by some IdPs
+  signingKey?: { kid: string } // KeyStore kid for AuthnRequest signing
+  idpInitiated?: {
+    // see SAML-AD7
     defaultClientId: string
     defaultRedirectUri: string
     defaultScopes?: string[]
   }
-  clockSkewSeconds?: number              // default 60
+  clockSkewSeconds?: number // default 60
 }
 ```
 
@@ -497,12 +499,12 @@ type SamlNameIdFormat =
   | "unspecified"
 
 type SamlAttributeMapping = {
-  subject?: SamlAttributeRef             // which attr → providerSubject
+  subject?: SamlAttributeRef // which attr → providerSubject
   email?: SamlAttributeRef
   emailVerified?: { source: "literal"; value: boolean }
-                                         // SAML assertions imply verified
+  // SAML assertions imply verified
   name?: SamlAttributeRef
-  groups?: SamlAttributeRef              // multi-valued
+  groups?: SamlAttributeRef // multi-valued
   custom?: Record<string, SamlAttributeRef>
 }
 
@@ -515,7 +517,7 @@ Method-private state stashed in `FlowRecord.methodState`:
 
 ```ts
 type SamlSpState = {
-  relayState: string                     // framework state envelope, echoed
+  relayState: string // framework state envelope, echoed
   issuedAt: number
 }
 // InResponseTo correlation is NOT here — node-saml's CacheProvider
@@ -529,9 +531,9 @@ callback):
 type SamlSpProperties = {
   nameId: { value: string; format: SamlNameIdFormat }
   attributes: Record<string, string | string[]>
-  sessionIndex?: string                  // for SLO correlation (Session 3)
+  sessionIndex?: string // for SLO correlation (Session 3)
   authnInstant: number
-  raw: { responseXml: string }           // host's escape hatch
+  raw: { responseXml: string } // host's escape hatch
 }
 ```
 
@@ -598,17 +600,17 @@ route key regardless of HTTP verb. `ctx.dispatch.callbackUrl` is that
 route key, and metadata/SLS will be served via the credential-style
 `/m/<methodId>/*` mount (`app.all("/m/*")`) in later sessions.
 
-| Route key          | Trigger                                       | Behaviour                                                                                                                                  | Status |
-| ------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
-| `GET /authorize`   | Framework dispatch from `/authorize`          | Build AuthnRequest (HTTP-Redirect binding) via node-saml, save `SamlSpState` to `methodState`, `MethodResult.challenge` 302 to IdP SSO.    | **Done** |
-| `GET /callback`    | IdP HTTP-POST to `/cb/<methodId>` (universal) | Verify Response — the full gauntlet via node-saml. Returns `success` / `denied` / `error`.                                                 | **Done** |
+| Route key        | Trigger                                       | Behaviour                                                                                                                               | Status   |
+| ---------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `GET /authorize` | Framework dispatch from `/authorize`          | Build AuthnRequest (HTTP-Redirect binding) via node-saml, save `SamlSpState` to `methodState`, `MethodResult.challenge` 302 to IdP SSO. | **Done** |
+| `GET /callback`  | IdP HTTP-POST to `/cb/<methodId>` (universal) | Verify Response — the full gauntlet via node-saml. Returns `success` / `denied` / `error`.                                              | **Done** |
 
 Later sessions add, via the `/m/<methodId>/*` mount:
 
-| Path                          | Trigger                | Behaviour                                                                 |
-| ----------------------------- | ---------------------- | ------------------------------------------------------------------------- |
-| `/m/<methodId>/metadata`      | Anonymous, public      | SP metadata XML. `CachePolicy.sMaxAge = 300`. (Session 2)                 |
-| `/m/<methodId>/sls`           | IdP front-channel SLO  | Verify LogoutRequest, revoke session, redirect LogoutResponse. (Session 3)|
+| Path                     | Trigger               | Behaviour                                                                  |
+| ------------------------ | --------------------- | -------------------------------------------------------------------------- |
+| `/m/<methodId>/metadata` | Anonymous, public     | SP metadata XML. `CachePolicy.sMaxAge = 300`. (Session 2)                  |
+| `/m/<methodId>/sls`      | IdP front-channel SLO | Verify LogoutRequest, revoke session, redirect LogoutResponse. (Session 3) |
 
 IdP-initiated SSO cannot ride `/cb/<methodId>` — `handleCallback`
 verifies the state envelope and consumes a pre-existing flow before
@@ -628,7 +630,7 @@ factory/type surface stays cheap and the edge-clean guards stay green.
   `authnRequestId` was dropped — `InResponseTo` correlation is handled
   by node-saml's `CacheProvider` (`cache-provider.ts`,
   `methodScratch`-backed, cross-node for free). `spEntityId` + `acsUrl`
-  were *added*: they are derived at AuthnRequest time (where
+  were _added_: they are derived at AuthnRequest time (where
   `ctx.dispatch` is available) and read back at the ACS (where
   `ctx.dispatch` is `null`) so the assertion's AudienceRestriction is
   validated against the exact value the IdP saw in the request.
@@ -638,7 +640,7 @@ factory/type surface stays cheap and the edge-clean guards stay green.
   `?state=` from the query. Added `extractCallbackState(req)`: query
   first, then a **cloned** body read (`state` for OAuth `form_post`,
   `RelayState` for SAML) when the query param is absent. This is a
-  *general* POST-callback fix (also unblocks true OAuth `form_post`),
+  _general_ POST-callback fix (also unblocks true OAuth `form_post`),
   not SAML-specific; the router already declared intent to support
   `POST /cb/*`. The clone keeps the body intact for the ACS handler.
   Documented in `ARCHITECTURE.md`. So SAML drove **two** framework
@@ -648,7 +650,7 @@ factory/type surface stays cheap and the edge-clean guards stay green.
   `scratch:<tenantId>:<methodId>:`, `SessionStore`-backed) landed
   ahead of this increment. Documented in `ARCHITECTURE.md`.
 - **`wantAuthnResponseSigned: false`, `wantAssertionsSigned: true`.**
-  Requiring the *assertion* signed is mandatory (identity, Conditions
+  Requiring the _assertion_ signed is mandatory (identity, Conditions
   and AudienceRestriction all live in the signed bytes). Also
   requiring the outer `<Response>` signed is stricter than the
   Okta/Entra default and would reject the majority of real IdPs, so it
@@ -671,19 +673,19 @@ gauntlet is `@node-saml/node-saml@5.1.0`'s `validatePostResponseAsync`
 `buildSamlInstance` config. Every gauntlet item below is exercised
 end-to-end through `dispatchMethod` in `test/methods/saml-sp/acs.test.ts`.
 
-| # | Item | Enforced by | Test |
-| - | ---- | ----------- | ---- |
-| 1 | XML well-formedness / no entity expansion (XXE) | `@xmldom/xmldom` (no external-entity resolution) | `XXE: external entity is never expanded into the subject` |
-| 2 | Signature present | node-saml `wantAssertionsSigned: true` | `attack: unsigned assertion` |
-| 3 | Signature verifies vs configured cert (within rotation window) | node-saml + `selectActiveCertPems` | `attack: signed with wrong key` |
-| 4 | Issuer match | node-saml `idpIssuer` | covered by valid + audience cases |
-| 5 | AudienceRestriction = SP entityID | node-saml `audience` | `attack: audience mismatch` |
-| 6 | SubjectConfirmationData/@Recipient = ACS URL | `checkRecipient` in `acs.ts` (node-saml does not check it) — denies on mismatch **and** on absent Recipient | `recipient mismatch`, `noRecipient` |
-| 7 | InResponseTo single-use | node-saml `validateInResponseTo: always` + `methodScratch` cache | `replay rejected` |
-| 8 | Conditions/SubjectConfirmation timestamps within skew | node-saml `acceptedClockSkewMs` | `attack: expired conditions` |
-| 9 | Replay | for SP-init, subsumed by item 7 (request id is single-use); explicit assertion-ID dedup lands with IdP-init (Session 2) | `replay rejected` |
-| 10 | Signed-references-only extraction (XSW) | node-saml `getVerifiedXml` → `getSignedReferences()`; exactly-one-ID + signature-is-parent checks | `attack: signature-wrapping (XSW)` |
-| 11 | NameID comment safety (CVE-2018-0489 class) | inherited from node-saml's verified-content read | covered by XSW + valid cases |
+| #   | Item                                                           | Enforced by                                                                                                             | Test                                                      |
+| --- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| 1   | XML well-formedness / no entity expansion (XXE)                | `@xmldom/xmldom` (no external-entity resolution)                                                                        | `XXE: external entity is never expanded into the subject` |
+| 2   | Signature present                                              | node-saml `wantAssertionsSigned: true`                                                                                  | `attack: unsigned assertion`                              |
+| 3   | Signature verifies vs configured cert (within rotation window) | node-saml + `selectActiveCertPems`                                                                                      | `attack: signed with wrong key`                           |
+| 4   | Issuer match                                                   | node-saml `idpIssuer`                                                                                                   | covered by valid + audience cases                         |
+| 5   | AudienceRestriction = SP entityID                              | node-saml `audience`                                                                                                    | `attack: audience mismatch`                               |
+| 6   | SubjectConfirmationData/@Recipient = ACS URL                   | `checkRecipient` in `acs.ts` (node-saml does not check it) — denies on mismatch **and** on absent Recipient             | `recipient mismatch`, `noRecipient`                       |
+| 7   | InResponseTo single-use                                        | node-saml `validateInResponseTo: always` + `methodScratch` cache                                                        | `replay rejected`                                         |
+| 8   | Conditions/SubjectConfirmation timestamps within skew          | node-saml `acceptedClockSkewMs`                                                                                         | `attack: expired conditions`                              |
+| 9   | Replay                                                         | for SP-init, subsumed by item 7 (request id is single-use); explicit assertion-ID dedup lands with IdP-init (Session 2) | `replay rejected`                                         |
+| 10  | Signed-references-only extraction (XSW)                        | node-saml `getVerifiedXml` → `getSignedReferences()`; exactly-one-ID + signature-is-parent checks                       | `attack: signature-wrapping (XSW)`                        |
+| 11  | NameID comment safety (CVE-2018-0489 class)                    | inherited from node-saml's verified-content read                                                                        | covered by XSW + valid cases                              |
 
 **Item 6 (Recipient) — shipped in Phase 2; historical rationale for
 the Phase 1 deferral follows.** node-saml validates
@@ -737,8 +739,8 @@ SP-initiated flow, with the full signature gauntlet locked down.
   edge-clean scan + the compile-time leak guard.
 - Test suite: ✅ `cert-rotation.test.ts`, ✅ `config-schema.test.ts`,
   ✅ `authnrequest.test.ts`, ✅ `acs.test.ts` (valid + 5-attack matrix
-  + XXE-no-disclosure + replay, end-to-end through `dispatchMethod`
-  with a real node-saml instance and `signSamlPost`-signed fixtures).
+  - XXE-no-disclosure + replay, end-to-end through `dispatchMethod`
+    with a real node-saml instance and `signSamlPost`-signed fixtures).
 - ✅ Leak guard forbids `@node-saml/*` / `xml-crypto` from the root
   (`saml-sp-no-thirdparty-leaks.test.ts` +
   `saml-sp-edge-clean-root.test.ts`).
@@ -770,8 +772,8 @@ gaps (Recipient, live-IdP test) are tracked, not silent.
   pin to exact patch version, add a smoke test that fails if a major
   bump silently changes the signed-references API contract.
 - Attribute mapping spec drift across IdPs. **Mitigation:** ship Okta
-  + Entra fixtures in tests; document the "if it isn't here, add a
-  custom mapper" escape hatch.
+  - Entra fixtures in tests; document the "if it isn't here, add a
+    custom mapper" escape hatch.
 
 **Estimated effort:** 3 weeks.
 
@@ -795,7 +797,7 @@ building more SAML surface on a non-deployable base is wasted motion.
   tracks the `createSession`/`readSession`/`revokeSession` shape, not
   `consumeFlow`. Per-adapter:
   - ✅ Postgres: `openauth_scratch (scratch_key text PK, value text,
-    expires_at bigint)`; `INSERT … ON CONFLICT DO UPDATE`; lazy GC on
+expires_at bigint)`; `INSERT … ON CONFLICT DO UPDATE`; lazy GC on
     expired read.
   - ✅ DynamoDB: single-table item `pk="scratch"` + native `ttl`
     attribute (best-effort eviction) **and** a clock filter on read
@@ -805,7 +807,7 @@ building more SAML surface on a non-deployable base is wasted motion.
     sensitive for InResponseTo — see `ports/CONSISTENCY.md` D1
     caveat).
   - ✅ Durable Object: keyed entry `scratch:<key>` → `{value,
-    expiresAt}`; lazy-delete on expired read. No transaction needed
+expiresAt}`; lazy-delete on expired read. No transaction needed
     (no read-modify-write; the DO serializes writes).
 - **Plan-vs-reality correction:** the deliverable text said to "mirror
   the existing optional-method pattern (`savePar`/`consumePar`)" and
@@ -864,7 +866,7 @@ metadata enterprise IdPs can import, and close the deferred
 Recipient-binding gap.
 
 > Cert rotation is **already shipped in Phase 1** (`cert-rotation.ts`,
-> `selectActiveCertPems`, with overlap-window tests) — it is *not* a
+> `selectActiveCertPems`, with overlap-window tests) — it is _not_ a
 > Phase 2 deliverable. The title kept "+ cert rotation" in an earlier
 > draft; corrected here.
 
@@ -917,17 +919,17 @@ Recipient-binding gap.
   the gated path byte-identical. `cacheControlFor` lifted to
   `http/cookies.ts` as `cacheControlHeader` (shared, no third copy).
   Anti-drift + fail-closed tests green. (`parseSamlIdpMetadata` — the
-  *inbound* side — was already done; this is the *outbound* side.)
+  _inbound_ side — was already done; this is the _outbound_ side.)
 - ✅ **Signed-AuthnRequest, option O3** (2026-05-15). SP signing
   keypair is per-connection config (`signingKey = {privateKeyPem,
-  certPem}`), decoupled from the OIDC `KeyStore` — the IdP pins the
+certPem}`), decoupled from the OIDC `KeyStore` — the IdP pins the
   cert; rotation is an IdP-coordination event. No KeyStore port
   change, KMS-agnostic. node-saml signs the HTTP-Redirect
   AuthnRequest; SP metadata auto-advertises `AuthnRequestsSigned="true"`
-  + signing `KeyDescriptor` when enabled (truthful). Schema enforces
-  `signAuthnRequest ⇒ signingKey`. Tests: `authnrequest.test.ts`
-  (signed redirect carries SigAlg+Signature; unsigned has neither),
-  `config-schema.test.ts`, `metadata.test.ts` (signing advertised).
+  - signing `KeyDescriptor` when enabled (truthful). Schema enforces
+    `signAuthnRequest ⇒ signingKey`. Tests: `authnrequest.test.ts`
+    (signed redirect carries SigAlg+Signature; unsigned has neither),
+    `config-schema.test.ts`, `metadata.test.ts` (signing advertised).
 - ✅ Test extensions landed: `idp-initiated.test.ts`,
   `metadata.test.ts` (incl. signed-metadata + DOM structure).
   `recipient.test.ts` superseded (coverage in `acs.test.ts`);
@@ -986,10 +988,10 @@ host-driven method route, not an `/end_session` side effect;
   front-channel round-trip (conformance case 16).
 - **3e — Encrypted-assertion support behind a feature flag**
   (`SamlSpConfig.allowEncryptedAssertions: boolean`, default `false`)
-  + per-connection `decryptionKey?: { privateKeyPem }` (mirrors the
-  O3 `signingKey` precedent — decoupled from the OIDC `KeyStore`, no
-  port change). Wired to `@node-saml/node-saml`'s `decryptionPvk`
-  (its `xml-encryption` integration).
+  - per-connection `decryptionKey?: { privateKeyPem }` (mirrors the
+    O3 `signingKey` precedent — decoupled from the OIDC `KeyStore`, no
+    port change). Wired to `@node-saml/node-saml`'s `decryptionPvk`
+    (its `xml-encryption` integration).
 - Audit-log catalog additions: `saml_authn_request_built`,
   `saml_response_verified`, `saml_response_rejected{reason}`,
   `saml_replay_detected`, `saml_logout_request_received`,
@@ -1076,26 +1078,26 @@ assumed one. The matrix below is the **cross-phase target**, not a
 single file. Result classification is `success` / `denied` (reason =
 node-saml's message, free-text — **not** typed reason codes) / `error`.
 
-| # | Case                                              | Phase | Status |
-| - | ------------------------------------------------- | ----- | ------ |
-| 1 | SP-initiated SSO end-to-end (fixture)             | 1     | ✅ (`signSamlPost` fixture; real Okta/Entra deferred) |
-| 2 | Valid → mapped `SamlSpProperties`                 | 1     | ✅ |
-| 3 | Unsigned assertion → not `success`                | 1     | ✅ |
-| 4 | Wrong-cert signature → not `success`              | 1     | ✅ |
-| 5 | Audience mismatch → not `success`                 | 1     | ✅ |
-| 6 | Stale `NotOnOrAfter` → not `success`              | 1     | ✅ |
-| 7 | XSW wrapping → not `success`                      | 1     | ✅ |
-| 8 | XXE → external entity never expanded into subject | 1     | ✅ |
-| 9 | Replay (same Response twice) → 2nd not `success`  | 1     | ✅ |
-| 10| `signAuthnRequest:true` → **signed** redirect (O3; was "rejected" pre-Phase-2) | 2 | ✅ (SigAlg+Signature; unsigned has neither) |
-| 11| No cert in validity window → `error`              | 1     | ✅ |
-| 12| `Recipient` mismatch → not `success`              | 2     | ✅ (`checkRecipient`; + `noRecipient` deny case) |
-| 13| IdP-initiated success with `defaultClientId`      | 2     | ✅ (`idp-initiated.test.ts` — 302+code) |
-| 14| IdP-initiated with hostile `RelayState`           | 2     | ✅ (never a redirect; replay deduped) |
-| 15| SP metadata XML matches IdP-importer expectations | 2     | ✅ (`metadata.test.ts`; anti-drift vs AuthnRequest) |
-| 16| Front-channel SLO round-trip                      | 3     | ✅ receive (`sls-http.test.ts`: signed→302+revoke+audit, forged→denied, replay→rejected) + SP-initiated send & `LogoutResponse` return leg (`slo-initiate-http.test.ts`) |
-| 17| Encrypted assertion off → rejected                | 3     | ✅ (`acs-encrypted.test.ts`; operator-legible deny reason) |
-| 18| Encrypted assertion on → accepted                 | 3     | ✅ (`acs-encrypted.test.ts`; decrypted, inner XML-DSig still enforced) |
+| #   | Case                                                                           | Phase | Status                                                                                                                                                                   |
+| --- | ------------------------------------------------------------------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | SP-initiated SSO end-to-end (fixture)                                          | 1     | ✅ (`signSamlPost` fixture; real Okta/Entra deferred)                                                                                                                    |
+| 2   | Valid → mapped `SamlSpProperties`                                              | 1     | ✅                                                                                                                                                                       |
+| 3   | Unsigned assertion → not `success`                                             | 1     | ✅                                                                                                                                                                       |
+| 4   | Wrong-cert signature → not `success`                                           | 1     | ✅                                                                                                                                                                       |
+| 5   | Audience mismatch → not `success`                                              | 1     | ✅                                                                                                                                                                       |
+| 6   | Stale `NotOnOrAfter` → not `success`                                           | 1     | ✅                                                                                                                                                                       |
+| 7   | XSW wrapping → not `success`                                                   | 1     | ✅                                                                                                                                                                       |
+| 8   | XXE → external entity never expanded into subject                              | 1     | ✅                                                                                                                                                                       |
+| 9   | Replay (same Response twice) → 2nd not `success`                               | 1     | ✅                                                                                                                                                                       |
+| 10  | `signAuthnRequest:true` → **signed** redirect (O3; was "rejected" pre-Phase-2) | 2     | ✅ (SigAlg+Signature; unsigned has neither)                                                                                                                              |
+| 11  | No cert in validity window → `error`                                           | 1     | ✅                                                                                                                                                                       |
+| 12  | `Recipient` mismatch → not `success`                                           | 2     | ✅ (`checkRecipient`; + `noRecipient` deny case)                                                                                                                         |
+| 13  | IdP-initiated success with `defaultClientId`                                   | 2     | ✅ (`idp-initiated.test.ts` — 302+code)                                                                                                                                  |
+| 14  | IdP-initiated with hostile `RelayState`                                        | 2     | ✅ (never a redirect; replay deduped)                                                                                                                                    |
+| 15  | SP metadata XML matches IdP-importer expectations                              | 2     | ✅ (`metadata.test.ts`; anti-drift vs AuthnRequest)                                                                                                                      |
+| 16  | Front-channel SLO round-trip                                                   | 3     | ✅ receive (`sls-http.test.ts`: signed→302+revoke+audit, forged→denied, replay→rejected) + SP-initiated send & `LogoutResponse` return leg (`slo-initiate-http.test.ts`) |
+| 17  | Encrypted assertion off → rejected                                             | 3     | ✅ (`acs-encrypted.test.ts`; operator-legible deny reason)                                                                                                               |
+| 18  | Encrypted assertion on → accepted                                              | 3     | ✅ (`acs-encrypted.test.ts`; decrypted, inner XML-DSig still enforced)                                                                                                   |
 
 OASIS interop suite integration is **not in scope** (matches existing
 posture per `idp-rebuild-plan.md` § Conformance Scope — hand-built
@@ -1142,14 +1144,14 @@ matrix only).
 
 ## Risks & Mitigations
 
-| Risk                                                                 | Mitigation                                                                                                |
-| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `@node-saml/node-saml` ships an XSW-class CVE                        | Pin exact patch version (no caret-range); subscribe to GitHub Security Advisories feed for `node-saml/*`; have a rollback strategy. Recent precedents: CVE-2025-54369 / 54419 (node-saml ≤5.0.1), CVE-2025-29774 / 29775 (xml-crypto ≤6.0.0). The current pins (`node-saml@5.1.0` + `xml-crypto@6.1.2`) post-date all four. |
-| Customer brings a SAML IdP we haven't tested (Ping, ADFS, Shibboleth)| Fixture corpus expands per customer; gauntlet items are protocol-spec-based, not IdP-specific.            |
-| Attribute mapping fails for a non-standard schema                    | Custom mapping escape hatch via `SamlAttributeMapping.custom`; documented examples in `INTEGRATION.md`.    |
-| Node-only export confuses Workers users                              | Build-time guard + clear error message at import time on edge runtimes; documented in `INTEGRATION.md`.   |
-| IdP-initiated SSO becomes an open-redirect vector                    | Explicit test (case 13); `RelayState` is opaque to the framework in IdP-initiated mode.                   |
-| `methodScratch` becomes a backdoor for other methods                 | Document scope tightly: only for cross-flow per-method state; not a general-purpose key-value store.      |
+| Risk                                                                  | Mitigation                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@node-saml/node-saml` ships an XSW-class CVE                         | Pin exact patch version (no caret-range); subscribe to GitHub Security Advisories feed for `node-saml/*`; have a rollback strategy. Recent precedents: CVE-2025-54369 / 54419 (node-saml ≤5.0.1), CVE-2025-29774 / 29775 (xml-crypto ≤6.0.0). The current pins (`node-saml@5.1.0` + `xml-crypto@6.1.2`) post-date all four. |
+| Customer brings a SAML IdP we haven't tested (Ping, ADFS, Shibboleth) | Fixture corpus expands per customer; gauntlet items are protocol-spec-based, not IdP-specific.                                                                                                                                                                                                                              |
+| Attribute mapping fails for a non-standard schema                     | Custom mapping escape hatch via `SamlAttributeMapping.custom`; documented examples in `INTEGRATION.md`.                                                                                                                                                                                                                     |
+| Node-only export confuses Workers users                               | Build-time guard + clear error message at import time on edge runtimes; documented in `INTEGRATION.md`.                                                                                                                                                                                                                     |
+| IdP-initiated SSO becomes an open-redirect vector                     | Explicit test (case 13); `RelayState` is opaque to the framework in IdP-initiated mode.                                                                                                                                                                                                                                     |
+| `methodScratch` becomes a backdoor for other methods                  | Document scope tightly: only for cross-flow per-method state; not a general-purpose key-value store.                                                                                                                                                                                                                        |
 
 ## Definition of Done (overall)
 

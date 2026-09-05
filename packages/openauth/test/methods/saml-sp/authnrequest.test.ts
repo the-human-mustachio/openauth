@@ -184,9 +184,8 @@ describe("SAML SP — SP-initiated AuthnRequest", () => {
     const res = await dispatchAuthorize(baseConfig(), store)
     expect(res.ok).toBe(true)
     if (!res.ok || res.value.kind !== "challenge") return
-    const q = new URL(
-      res.value.response.headers.get("location") as string,
-    ).searchParams
+    const q = new URL(res.value.response.headers.get("location") as string)
+      .searchParams
     expect(q.get("SAMLRequest")).toBeTruthy()
     expect(q.get("SigAlg")).toBeNull()
     expect(q.get("Signature")).toBeNull()

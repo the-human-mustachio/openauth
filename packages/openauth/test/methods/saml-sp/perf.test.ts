@@ -96,9 +96,7 @@ describe("SAML SP — ACS performance tripwire", () => {
       }
       const loc = primed.value.response.headers.get("location") as string
       const sr = new URL(loc).searchParams.get("SAMLRequest") as string
-      const reqXml = inflateRawSync(Buffer.from(sr, "base64")).toString(
-        "utf8",
-      )
+      const reqXml = inflateRawSync(Buffer.from(sr, "base64")).toString("utf8")
       const requestId = /\sID="([^"]+)"/.exec(reqXml)?.[1] as string
       const f = await store.readFlow(flow.flowId)
       if (!f.ok) throw new Error("flow vanished")

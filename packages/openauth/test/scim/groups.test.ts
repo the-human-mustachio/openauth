@@ -154,10 +154,9 @@ describe("SCIM Groups — CRUD", () => {
     expect(first).not.toHaveProperty("members")
 
     const withMembers = await call({ directory })
-    const w = (withMembers.res.body?.["Resources"] as Record<
-      string,
-      unknown
-    >[])[0]
+    const w = (
+      withMembers.res.body?.["Resources"] as Record<string, unknown>[]
+    )[0]
     expect(w?.["members"]).toBeDefined()
   })
 
@@ -202,18 +201,14 @@ describe("membership deltas stay deltas (SCIM-AD9)", () => {
 
   test("Entra's remove with a value array → the same removeMembers", async () => {
     const r = normalizeGroupPatch(
-      patchOp([
-        { op: "remove", path: "members", value: [{ value: "u2" }] },
-      ]),
+      patchOp([{ op: "remove", path: "members", value: [{ value: "u2" }] }]),
     )
     expect(r.ok && r.value.removeMembers).toEqual(["u2"])
   })
 
   test("replace → a full members list, and no incremental fields", async () => {
     const r = normalizeGroupPatch(
-      patchOp([
-        { op: "replace", path: "members", value: [{ value: "u9" }] },
-      ]),
+      patchOp([{ op: "replace", path: "members", value: [{ value: "u9" }] }]),
     )
     expect(r.ok).toBe(true)
     if (!r.ok) return
@@ -266,7 +261,7 @@ describe("membership deltas stay deltas (SCIM-AD9)", () => {
 
   test("an unsupported group path is rejected, not dropped", async () => {
     const r = normalizeGroupPatch(
-      patchOp([{ op: "replace", path: "members[type eq \"x\"]", value: [] }]),
+      patchOp([{ op: "replace", path: 'members[type eq "x"]', value: [] }]),
     )
     expect(r.ok).toBe(false)
   })
@@ -285,9 +280,7 @@ describe("membership PATCH end to end", () => {
       directory,
       method: "PATCH",
       path: "/Groups/g1",
-      body: patchOp([
-        { op: "add", path: "members", value: [{ value: "u2" }] },
-      ]),
+      body: patchOp([{ op: "add", path: "members", value: [{ value: "u2" }] }]),
     })
     expect(added.res.status).toBe(200)
     expect(

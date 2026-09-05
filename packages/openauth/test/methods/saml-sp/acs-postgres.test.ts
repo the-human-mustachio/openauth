@@ -15,7 +15,14 @@
  * no external services.
  */
 import { PGlite } from "@electric-sql/pglite"
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "bun:test"
 import { inflateRawSync } from "node:zlib"
 
 import {
@@ -216,13 +223,7 @@ describe("SAML SP — SP-initiated SSO on Postgres SessionStore", () => {
     const first = await postAssertion(store, method, tenant, primed.flow, saml)
     expect(first.ok && first.value.kind).toBe("success")
 
-    const second = await postAssertion(
-      store,
-      method,
-      tenant,
-      primed.flow,
-      saml,
-    )
+    const second = await postAssertion(store, method, tenant, primed.flow, saml)
     expect(second.ok).toBe(true)
     if (!second.ok) return
     // The InResponseTo entry was consumed from Postgres scratch on the

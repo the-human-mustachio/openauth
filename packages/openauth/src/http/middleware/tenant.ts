@@ -34,7 +34,6 @@ import {
 } from "../errors"
 import { authError, type AuthError } from "../../types/error"
 
-
 /**
  * SCIM has its own media type and error envelope, and its own
  * disclosure rule: an unauthenticated caller must not be able to tell an

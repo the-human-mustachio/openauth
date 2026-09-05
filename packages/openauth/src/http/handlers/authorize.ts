@@ -340,4 +340,3 @@ function clearFlowCookie() {
     maxAge: 0,
   }
 }
-

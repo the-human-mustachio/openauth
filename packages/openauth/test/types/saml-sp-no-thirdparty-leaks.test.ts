@@ -43,9 +43,9 @@ function assertAssignable<Expected>(_value: Expected): void {
 }
 
 test("SAML SP: SamlNameIdFormat is the locked closed union", () => {
-  assertAssignable<
-    "persistent" | "transient" | "emailAddress" | "unspecified"
-  >("persistent" as SamlNameIdFormat)
+  assertAssignable<"persistent" | "transient" | "emailAddress" | "unspecified">(
+    "persistent" as SamlNameIdFormat,
+  )
   expect(true).toBe(true)
 })
 

@@ -228,7 +228,7 @@ function applyOperation(
     }
     if (!isRecord(value)) {
       return invalidPath(
-        'a PATCH operation without a path must carry an object value',
+        "a PATCH operation without a path must carry an object value",
       )
     }
     for (const [k, v] of Object.entries(value)) {
@@ -254,7 +254,8 @@ function applyOperation(
       )
     }
     const key = mv.attribute === "emails" ? "emails" : "phoneNumbers"
-    const current = mv.attribute === "emails" ? draft.emails : draft.phoneNumbers
+    const current =
+      mv.attribute === "emails" ? draft.emails : draft.phoneNumbers
     if (removing) {
       const filtered = (current ?? []).filter(
         (e) => (e.type ?? "").toLowerCase() !== mv.type.toLowerCase(),
@@ -327,7 +328,10 @@ function applyOperation(
       if (removing) delete current["manager"]
       else {
         const v = isRecord(value)
-          ? { value: asString(value["value"]), displayName: asString(value["displayName"]) }
+          ? {
+              value: asString(value["value"]),
+              displayName: asString(value["displayName"]),
+            }
           : { value: asString(value) }
         current["manager"] = v
       }
@@ -576,7 +580,6 @@ export function normalizePatch(
   return ok(draft.patch)
 }
 
-
 /**
  * Extract the member id from a `members[value eq "…"]` path.
  *
@@ -761,9 +764,7 @@ export function normalizeGroupPatch(
         return null
       }
       default:
-        return invalidPath(
-          `attribute "${rawPath}" is not patchable on a Group`,
-        )
+        return invalidPath(`attribute "${rawPath}" is not patchable on a Group`)
     }
   }
 

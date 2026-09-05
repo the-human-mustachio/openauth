@@ -52,8 +52,9 @@ const ATTRIBUTES: Record<string, ScimFilterAttribute> = {
  * rather than a 400 would look like "no such group" — a wrong answer
  * dressed as a valid one.
  */
-export const USER_FILTER_ATTRIBUTES: ReadonlySet<ScimFilterAttribute> =
-  new Set(["id", "userName", "externalId", "active", "emails.value"])
+export const USER_FILTER_ATTRIBUTES: ReadonlySet<ScimFilterAttribute> = new Set(
+  ["id", "userName", "externalId", "active", "emails.value"],
+)
 
 export const GROUP_FILTER_ATTRIBUTES: ReadonlySet<ScimFilterAttribute> =
   new Set(["id", "displayName", "externalId"])
@@ -232,7 +233,6 @@ export function parseScimFilter(
   if (!second.ok) return second
   return ok({ op: "and", left: first.value, right: second.value })
 }
-
 
 /**
  * Replace the contents of every quoted literal with spaces, preserving

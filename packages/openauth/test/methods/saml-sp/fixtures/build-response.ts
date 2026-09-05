@@ -16,8 +16,7 @@ import { signSamlPost } from "@node-saml/node-saml/lib/saml-post-signing"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
-const F = (n: string) =>
-  readFileSync(join(import.meta.dir, n), "utf8")
+const F = (n: string) => readFileSync(join(import.meta.dir, n), "utf8")
 
 export const IDP_CERT = F("idp-cert.pem")
 const IDP_KEY = F("idp-key.pem")
@@ -63,10 +62,7 @@ function attributeXml(attrs: Record<string, string | string[]>): string {
     out.push(
       `<saml:Attribute Name="${name}">` +
         vals
-          .map(
-            (v) =>
-              `<saml:AttributeValue>${v}</saml:AttributeValue>`,
-          )
+          .map((v) => `<saml:AttributeValue>${v}</saml:AttributeValue>`)
           .join("") +
         `</saml:Attribute>`,
     )
@@ -157,10 +153,7 @@ export function buildSamlResponse(opts: BuildOpts): string {
     // exactly one element may carry the signed ID.
     const m = xml.match(/<saml:Assertion[\s\S]*?<\/saml:Assertion>/)
     if (m) {
-      const forged = m[0].replace(
-        />[^<]*</,
-        ">attacker-controlled-subject<",
-      )
+      const forged = m[0].replace(/>[^<]*</, ">attacker-controlled-subject<")
       xml = xml.replace(m[0], forged + m[0])
     }
   }

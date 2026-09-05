@@ -122,11 +122,7 @@ export type SessionStore = {
    * `MethodContext.methodScratch` at call time. Implement all three
    * methods together — partial implementations are not supported.
    */
-  saveScratch?(
-    key: string,
-    value: string,
-    ttlMs: number,
-  ): Promise<Result<void>>
+  saveScratch?(key: string, value: string, ttlMs: number): Promise<Result<void>>
   readScratch?(key: string): Promise<Result<string>>
   deleteScratch?(key: string): Promise<Result<void>>
 }

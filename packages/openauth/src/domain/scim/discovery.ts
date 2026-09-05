@@ -29,9 +29,7 @@ export function serviceProviderConfig(
   maxResults: number,
 ): Record<string, unknown> {
   return {
-    schemas: [
-      "urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig",
-    ],
+    schemas: ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"],
     documentationUri: "https://datatracker.ietf.org/doc/html/rfc7644",
     patch: { supported: true },
     bulk: { supported: false, maxOperations: 0, maxPayloadSize: 0 },
@@ -74,9 +72,7 @@ export function resourceTypes(
     endpoint: "/Users",
     description: "User Account",
     schema: SCIM_USER_SCHEMA,
-    schemaExtensions: [
-      { schema: SCIM_ENTERPRISE_SCHEMA, required: false },
-    ],
+    schemaExtensions: [{ schema: SCIM_ENTERPRISE_SCHEMA, required: false }],
     meta: {
       resourceType: "ResourceType",
       location: `${baseUrl}/ResourceTypes/User`,

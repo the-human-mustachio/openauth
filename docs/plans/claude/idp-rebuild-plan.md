@@ -594,6 +594,7 @@ Recovery mechanisms, in order of preference:
 2. **Tenant-partitioned callback host (tenant-resolution aid only).** Some operators prefer tenant-per-subdomain (`acme.idp.example/callback`, `beta.idp.example/callback`). Configure with `callbackHostFor: (tenantId) => string`. **The host alone is never sufficient to authorize a callback — it only tells the framework which tenant config to load. The authorization transaction must still be identified by `flowId`** obtained via mechanism #1 (MACed state) or #3 (`flowId` in URI). A callback host with no recoverable `flowId` is rejected with `invalid_request`. This mechanism reduces global key dependency for tenant resolution; it does not replace flow identification.
 
 3. **`flowId`-in-URI fallback (hardened, narrow).** If `state` is unreachable (legacy upstreams that strip `state`, certain POST-binding cases), `flowId` travels via the **registered redirect URI**:
+
    - Path-embedded: `https://idp.example/cb/<methodId>/<flowId>` (preferred — providers preserve full path).
    - Query-embedded: `https://idp.example/cb/<methodId>?flowId=<flowId>` (if provider tolerates query strings in pre-registered redirect URIs).
    - **Defense in depth:** an HttpOnly/Secure/SameSite=Lax cookie named `idp.flow` containing the same `flowId` is set at `/authorize` time. On callback, if the cookie is present it must match the URI's `flowId`. If the cookie is missing (cross-site POST-binding cases), the framework requires an explicit `prompt=consent` re-auth before issuing tokens.
@@ -1267,6 +1268,7 @@ Each phase has: **Goal**, **Deliverables**, **Acceptance Criteria**, **Risks**. 
 - **`oauth4webapi` dependency** — added per AD7b. Used for PKCE primitives (`generateRandomCodeVerifier`, `calculatePKCECodeChallenge`). The token-exchange dance and id_token validation stay on plain `fetch` + `jose` because per-provider quirks make oauth4webapi's strict `AuthorizationServer` shape more friction than help; the door is open to migrate fully when a real customer benefits.
 - **Public API exports** — `buildOauth2Method`, `buildOidcMethod`, all 15 `*Factory` exports, plus `Oauth2Properties` / `Oauth2State` / `Oauth2MethodInput` / `OidcMethodInput` types.
 - **15-case provider matrix test** at `test/methods/providers.test.ts`. One parameterized case per provider:
+
   1. Configure a tenant with that provider as the sole enabled method.
   2. Run `/authorize` and assert the redirect lands on the expected upstream host with the framework state, configured `client_id`, and `response_type=code`.
   3. Simulate the upstream callback (`/cb/<methodId>?state=…&code=upstream-code`) and assert the framework mints an auth code and redirects back to the RP.

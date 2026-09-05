@@ -212,13 +212,7 @@ describe("SAML SP — ACS gauntlet", () => {
         idpEntityId: IDP_ENTITY,
         ...opts,
       })
-      const res = await postAssertion(
-        store,
-        method,
-        tenant,
-        primed.flow,
-        saml,
-      )
+      const res = await postAssertion(store, method, tenant, primed.flow, saml)
 
       expect(res.ok).toBe(true)
       if (!res.ok) return
@@ -272,22 +266,10 @@ describe("SAML SP — ACS gauntlet", () => {
       idpEntityId: IDP_ENTITY,
       nameId: "bob-001",
     })
-    const first = await postAssertion(
-      store,
-      method,
-      tenant,
-      primed.flow,
-      saml,
-    )
+    const first = await postAssertion(store, method, tenant, primed.flow, saml)
     expect(first.ok && first.value.kind).toBe("success")
 
-    const second = await postAssertion(
-      store,
-      method,
-      tenant,
-      primed.flow,
-      saml,
-    )
+    const second = await postAssertion(store, method, tenant, primed.flow, saml)
     expect(second.ok).toBe(true)
     if (!second.ok) return
     expect(second.value.kind === "success").toBe(false)

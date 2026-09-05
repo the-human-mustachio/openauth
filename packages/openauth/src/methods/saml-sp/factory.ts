@@ -97,14 +97,10 @@ const samlSpConfigSchema = z
     message: "signingKey is required when signAuthnRequest is true",
     path: ["signingKey"],
   })
-  .refine(
-    (c) => !c.allowEncryptedAssertions || c.decryptionKey !== undefined,
-    {
-      message:
-        "decryptionKey is required when allowEncryptedAssertions is true",
-      path: ["decryptionKey"],
-    },
-  )
+  .refine((c) => !c.allowEncryptedAssertions || c.decryptionKey !== undefined, {
+    message: "decryptionKey is required when allowEncryptedAssertions is true",
+    path: ["decryptionKey"],
+  })
   // An assertion nobody signed, inside a Response nobody signed, is
   // unauthenticated XML. Refuse the combination outright rather than
   // let a connection be configured into accepting anything.

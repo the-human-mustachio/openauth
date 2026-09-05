@@ -319,9 +319,7 @@ export function serializeGroup(
   return {
     schemas: [SCIM_GROUP_SCHEMA],
     id: group.id,
-    ...(group.externalId !== undefined
-      ? { externalId: group.externalId }
-      : {}),
+    ...(group.externalId !== undefined ? { externalId: group.externalId } : {}),
     displayName: group.displayName,
     // Omitted entirely when the host did not load membership — `[]`
     // would tell the client the group has been emptied.

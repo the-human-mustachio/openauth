@@ -16,7 +16,9 @@ const VALID = {
     entityId: "https://idp.example/saml/metadata",
     ssoUrl: "https://idp.example/saml/sso",
     nameIdFormat: "persistent",
-    signingCerts: [{ pem: "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----" }],
+    signingCerts: [
+      { pem: "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----" },
+    ],
   },
   attributeMapping: {
     subject: { source: "nameId" },
@@ -54,8 +56,10 @@ describe("samlSpFactory.configSchema", () => {
       ...VALID,
       signAuthnRequest: true,
       signingKey: {
-        privateKeyPem: "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----",
-        certPem: "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+        privateKeyPem:
+          "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----",
+        certPem:
+          "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
       },
     }
     const r = await validate(ok)
@@ -95,8 +99,10 @@ describe("samlSpFactory.configSchema", () => {
       ...VALID,
       allowEncryptedAssertions: true,
       decryptionKey: {
-        privateKeyPem: "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----",
-        certPem: "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
+        privateKeyPem:
+          "-----BEGIN PRIVATE KEY-----\nMII...\n-----END PRIVATE KEY-----",
+        certPem:
+          "-----BEGIN CERTIFICATE-----\nMII...\n-----END CERTIFICATE-----",
       },
     }
     const r = await validate(ok)

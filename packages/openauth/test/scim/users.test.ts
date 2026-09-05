@@ -264,7 +264,7 @@ describe("SCIM — list, filter, pagination (cases 5, 6, 7)", () => {
   test("unsupported filter → 400 invalidFilter naming what works", async () => {
     const cases = [
       'filter=userName co "alice"',
-      'filter=title pr',
+      "filter=title pr",
       'filter=(userName eq "a") or (userName eq "b")',
       'filter=nickName eq "ally"',
     ]
@@ -290,8 +290,9 @@ describe("SCIM — list, filter, pagination (cases 5, 6, 7)", () => {
     // totalResults is the full match count, not the page size — Okta
     // drives its paging loop off this.
     expect(second.res.body?.["totalResults"]).toBe(3)
-    const ids = (second.res.body?.["Resources"] as Record<string, unknown>[])
-      .map((u) => u["id"])
+    const ids = (
+      second.res.body?.["Resources"] as Record<string, unknown>[]
+    ).map((u) => u["id"])
     expect(ids).toEqual(["u3"])
   })
 
@@ -509,11 +510,17 @@ describe("review regressions", () => {
     directory.seed(TENANT, { id: "u1", userName: "jack or jill", active: true })
     directory.seed(TENANT, { id: "u2", userName: "not really", active: true })
 
-    const or = await call({ directory, query: 'filter=userName eq "jack or jill"' })
+    const or = await call({
+      directory,
+      query: 'filter=userName eq "jack or jill"',
+    })
     expect(or.res.status).toBe(200)
     expect(or.res.body?.["totalResults"]).toBe(1)
 
-    const not = await call({ directory, query: 'filter=userName eq "not really"' })
+    const not = await call({
+      directory,
+      query: 'filter=userName eq "not really"',
+    })
     expect(not.res.status).toBe(200)
     expect(not.res.body?.["totalResults"]).toBe(1)
   })
@@ -549,9 +556,7 @@ describe("review regressions", () => {
     })
     expect(res.status).toBe(201)
     // RFC 7644 §3.1, and Okta's validator checks for it.
-    expect(res.headers?.["location"]).toBe(
-      `${BASE}/Users/${res.body?.["id"]}`,
-    )
+    expect(res.headers?.["location"]).toBe(`${BASE}/Users/${res.body?.["id"]}`)
     // It must agree with meta.location rather than being rebuilt.
     expect(res.headers?.["location"]).toBe(
       (res.body?.["meta"] as Record<string, string>)["location"],

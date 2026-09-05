@@ -112,9 +112,7 @@ export function mapProfile(
   put("name", mapping.name)
   put("groups", mapping.groups)
   if (mapping.emailVerified) {
-    attributes["emailVerified"] = mapping.emailVerified.value
-      ? "true"
-      : "false"
+    attributes["emailVerified"] = mapping.emailVerified.value ? "true" : "false"
   }
   for (const [key, ref] of Object.entries(mapping.custom ?? {})) {
     put(key, ref)

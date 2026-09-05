@@ -78,7 +78,11 @@ export function makeScimHandler(deps: HttpDeps) {
         } catch {
           return scimResponse(
             400,
-            scimErrorBody(400, "request body is not valid JSON", "invalidSyntax"),
+            scimErrorBody(
+              400,
+              "request body is not valid JSON",
+              "invalidSyntax",
+            ),
           )
         }
       }

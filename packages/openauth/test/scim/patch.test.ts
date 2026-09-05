@@ -156,8 +156,7 @@ describe("complex sub-attributes", () => {
     const r = normalize([
       {
         op: "replace",
-        path:
-          "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:department",
+        path: "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User:department",
         value: "Platform",
       },
     ])

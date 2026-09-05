@@ -1013,7 +1013,7 @@ POST     /m/<methodId>/logout    ← host-driven SP-initiated logout
   `LogoutRequest` to `/sls` (HTTP-Redirect or HTTP-POST). The library
   verifies the XML-DSig against `idp.signingCerts` (node-saml — no
   hand-rolled crypto), replay-dedups the request `@ID`, emits a signed
-  `LogoutResponse` 302 back to `idp.sloUrl`, and — *before* responding
+  `LogoutResponse` 302 back to `idp.sloUrl`, and — _before_ responding
   — fires your **`onLogout`** hook. Authenticity is the signature, not
   a cookie: a forged request gets a 403 and no side effect.
 - **`onLogout` host hook** (top-level `IdPOptions.onLogout`, a sibling
@@ -1023,7 +1023,7 @@ POST     /m/<methodId>/logout    ← host-driven SP-initiated logout
 
   ```ts
   onLogout: async ({ tenant, methodId, nameId, sessionIndex }) => {
-    await myApp.endSessionFor(nameId)          // your session teardown
+    await myApp.endSessionFor(nameId) // your session teardown
     const subject = await myApp.subjectFor(nameId)
     return subject ? { revokeSubject: subject } : undefined
     // returning { revokeSubject } makes the library run the same
@@ -1076,7 +1076,7 @@ metadata advertises a `use="encryption"` `KeyDescriptor` iff this is
 configured, so the IdP knows which cert to encrypt to.
 
 **Configuring the IdP side (manual — no metadata importer yet).** Both
-values the host registers at the IdP are *derived*, not configured, so
+values the host registers at the IdP are _derived_, not configured, so
 they are stable across deploys:
 
 - **SP EntityID / Audience** = `<issuerUrl>/<tenantId>/<methodId>`
@@ -1113,7 +1113,7 @@ document missing an `IDPSSODescriptor` / signing cert / `entityID`.
 `attributeMapping` is still authored by hand — it is a per-deployment
 policy decision, not data the IdP publishes.
 
-**The reverse direction — publishing *our* SP metadata.** Most IdPs
+**The reverse direction — publishing _our_ SP metadata.** Most IdPs
 also accept an SP metadata URL/file instead of hand-entered EntityID +
 ACS. The library serves it, **unauthenticated**, at:
 
@@ -1123,7 +1123,7 @@ GET /m/<methodId>/metadata        → application/samlmetadata+xml
 
 No `idp.flow` cookie, no session — paste this URL straight into the
 IdP admin console. The document's `entityID` and ACS `Location` are
-derived from the *same* logic the live AuthnRequest/ACS path uses, so
+derived from the _same_ logic the live AuthnRequest/ACS path uses, so
 they cannot drift from what the runtime actually accepts (a CI test
 asserts this equality). It advertises `WantAssertionsSigned="true"`,
 the HTTP-POST ACS, and `NameIDFormat` iff `config.idp.nameIdFormat` is
@@ -1135,7 +1135,7 @@ metadata never advertises something the SP cannot honour:
   iff `signAuthnRequest` + `signingKey` (else
   `AuthnRequestsSigned="false"`, no descriptor);
 - a `use="encryption"` `KeyDescriptor` iff `allowEncryptedAssertions`
-  + `decryptionKey`;
+  - `decryptionKey`;
 - `SingleLogoutService` (HTTP-Redirect **and** HTTP-POST, same-host
   as the ACS) iff `idp.sloUrl` is configured.
 
@@ -1221,7 +1221,7 @@ success: async (input) => {
 
 **Forcing re-authentication (`forceAuthn`).** `forceAuthn: true` sets
 `ForceAuthn="true"` on the AuthnRequest, asking the IdP to
-re-authenticate even if it has a live session. It is a *request*: SAML
+re-authenticate even if it has a live session. It is a _request_: SAML
 obliges the IdP to nothing and the Response carries no proof either way,
 so never treat a successful assertion as evidence of fresh
 authentication.
@@ -1251,7 +1251,7 @@ IdP-side trust config; treat it as an IdP-coordination event.
 **Signature posture (`requireSignedAssertion` / `requireSignedResponse`).**
 The defaults (`true` / `false`) are correct for Okta, Entra, and the
 large majority of IdPs: the assertion carries the identity, conditions,
-and audience, so signing *it* is what binds them. Two reasons to change
+and audience, so signing _it_ is what binds them. Two reasons to change
 them:
 
 ```ts
@@ -1301,7 +1301,7 @@ it, so there is no overlap window on this side: generate the new pair,
 update `signingKey`, and have the IdP admin re-import your metadata (or
 paste the new cert) in the same change. Plan it as a maintenance
 window with the customer. This is deliberately asymmetric with IdP
-certs, which *do* rotate hot — see below.
+certs, which _do_ rotate hot — see below.
 
 #### Keeping IdP signing certs fresh
 
@@ -1495,11 +1495,11 @@ find the race.
 **Which error you return decides whether a failure gets fixed.** SCIM
 clients retry `5xx` and give up on `4xx`, so:
 
-| Return | Becomes | Use it for |
-| --- | --- | --- |
-| `authError.conflict(…)` | `409 uniqueness` | A collision only you can detect |
+| Return                        | Becomes            | Use it for                                      |
+| ----------------------------- | ------------------ | ----------------------------------------------- |
+| `authError.conflict(…)`       | `409 uniqueness`   | A collision only you can detect                 |
 | `authError.invalidRequest(…)` | `400 invalidValue` | A **permanent** rejection you will never accept |
-| anything else | `500` | A transient fault worth retrying |
+| anything else                 | `500`              | A transient fault worth retrying                |
 
 The middle row matters most for groups. An IdP's group push can name a
 member its user push filtered out, or one deleted between operations. If
@@ -1536,7 +1536,7 @@ methods on `ScimDirectory` or none. Omit them and `/scim/v2/Groups`
 answers `501`, and the discovery documents leave the Group resource type
 out entirely — a client is never told a resource works when it does not.
 
-Membership is the one place the library does *not* resolve a patch into
+Membership is the one place the library does _not_ resolve a patch into
 a final value, and the reason is size. A user's email list is small; a
 group's membership is not. Resolving "add one member" against a
 20,000-member group would mean reading all 20,000 rows and writing them

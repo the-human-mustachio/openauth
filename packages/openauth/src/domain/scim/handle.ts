@@ -81,7 +81,6 @@ export type ScimRequestInput = {
   directory: ScimDirectory
 }
 
-
 /**
  * A 201 for a newly created resource. RFC 7644 §3.1 requires a
  * `Location` header; the value is already computed as `meta.location`,
@@ -279,11 +278,7 @@ async function replaceUser(
     return fail(parsed.error.status, parsed.error.detail, parsed.error.scimType)
   }
   const write: ScimUserWrite = parsed.value
-  const replaced = await input.directory.replaceUser(
-    input.tenant.id,
-    id,
-    write,
-  )
+  const replaced = await input.directory.replaceUser(input.tenant.id, id, write)
   const r = unwrap(replaced)
   if ("response" in r) return r.response
   return { status: 200, body: serializeUser(r.value, input.baseUrl) }
@@ -328,7 +323,6 @@ async function deleteUser(
   if ("response" in r) return r.response
   return { status: 204, body: null }
 }
-
 
 /**
  * A directory that implements the whole optional Group half of the port.
@@ -398,7 +392,6 @@ async function handleGroups(
   method: string,
   maxPageSize: number,
 ): Promise<ScimResponse> {
-
   if (path === "/Groups" || path === "/Groups/") {
     if (method === "GET") {
       const filter = parseScimFilter(
@@ -458,7 +451,10 @@ async function handleGroups(
     case "GET": {
       const existing = await loadGroup(input, groups, id)
       if ("response" in existing) return existing.response
-      return { status: 200, body: serializeGroup(existing.group, input.baseUrl) }
+      return {
+        status: 200,
+        body: serializeGroup(existing.group, input.baseUrl),
+      }
     }
     case "PUT": {
       const existing = await loadGroup(input, groups, id)

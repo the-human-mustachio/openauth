@@ -45,7 +45,7 @@ Two bugs the conformance tests caught before any IdP could:
   so **every** correctly-formed PATCH was rejected. Every provisioning
   update would have failed.
 - The filter parser split `emails[type eq "work"].value eq "x"` on the
-  *inner* `eq`, mis-reading the attribute — Entra's shape, broken.
+  _inner_ `eq`, mis-reading the attribute — Entra's shape, broken.
 
 Also removed an unused `clock` from `ScimRequestInput`: the host stamps
 its own record timestamps, so the library needs no clock here.
@@ -117,8 +117,8 @@ and `saml-sp-plan.md`.
 
 ### SCIM-AD1 — SCIM Service Provider role only, inbound
 
-The library is the SCIM *Service Provider* (the system being
-provisioned into). Corporate IdPs are the SCIM *clients*. We never
+The library is the SCIM _Service Provider_ (the system being
+provisioned into). Corporate IdPs are the SCIM _clients_. We never
 originate provisioning traffic.
 
 This is deliberately the same shape as SAML SP and is what keeps
@@ -139,7 +139,7 @@ the SAML effort (where replay state genuinely fitted `SessionStore`) and
 is not a standing prohibition. Recording the supersession explicitly so
 it is a decision rather than a drift.
 
-Rationale: this is the *same* shape as everything else in the library.
+Rationale: this is the _same_ shape as everything else in the library.
 `ConfigStore`, `MethodStore` and `success` are all protocol-over-
 host-owned-state. SCIM is not an exception to the architecture — it is
 an instance of it. This is precisely why SCIM is defensible here while
@@ -209,8 +209,12 @@ spell "deactivate" differently).
 The library resolves that into a typed delta:
 
 ```ts
-{ active: false }
-{ emails: [{ type: "work", value: "a@b.com", primary: true }] }
+{
+  active: false
+}
+{
+  emails: [{ type: "work", value: "a@b.com", primary: true }]
+}
 ```
 
 The port never sees `path: 'emails[type eq "work"].value'`. Absorbing
@@ -220,7 +224,7 @@ at all — it is the piece every host would otherwise get subtly wrong.
 **Amended 2026-09-05 after branch review.** The original rule — "an
 operation we cannot resolve is an error" — was too blunt and broke the
 operation this feature exists for. Okta's default profile mappings push
-`title`, `nickName`, `locale` and friends in the *same* `PatchOp` as
+`title`, `nickName`, `locale` and friends in the _same_ `PatchOp` as
 `active`, so a fatal unknown-attribute error took the deactivation down
 with it, and Okta retried the identical payload forever. It was also
 asymmetric with `parseUserWrite`, which ignores unknown attributes on
@@ -269,7 +273,7 @@ plus rewrite, on the hottest path of a group push.
 
 So `ScimGroupPatch` carries `addMembers` / `removeMembers`
 (incremental) or `members` (full replace), and the host issues one
-insert or delete. The library still normalizes the *shapes* — Okta's
+insert or delete. The library still normalizes the _shapes_ — Okta's
 `{op:"add", path:"members", value:[…]}`, Okta's
 `members[value eq "u1"]` removal path, Entra's
 `{op:"remove", path:"members", value:[…]}` — so no SCIM path expression
@@ -287,9 +291,13 @@ and a 4xx there stalls a group push indefinitely.
 
 ```ts
 import type {
-  ScimConfig, ScimDirectory,
-  ScimUserRecord, ScimUserWrite, ScimUserPatch,
-  ScimUserQuery, ScimPage,
+  ScimConfig,
+  ScimDirectory,
+  ScimUserRecord,
+  ScimUserWrite,
+  ScimUserPatch,
+  ScimUserQuery,
+  ScimPage,
 } from "@_mustachio/openauth"
 ```
 
@@ -301,10 +309,21 @@ over HTTP), so unlike SAML it stays edge-clean and available on Workers.
 ```ts
 export type ScimDirectory = {
   getUser(t: TenantId, id: string): Promise<Result<ScimUserRecord | null>>
-  findUsers(t: TenantId, q: ScimUserQuery): Promise<Result<ScimPage<ScimUserRecord>>>
+  findUsers(
+    t: TenantId,
+    q: ScimUserQuery,
+  ): Promise<Result<ScimPage<ScimUserRecord>>>
   createUser(t: TenantId, u: ScimUserWrite): Promise<Result<ScimUserRecord>>
-  replaceUser(t: TenantId, id: string, u: ScimUserWrite): Promise<Result<ScimUserRecord>>
-  patchUser(t: TenantId, id: string, d: ScimUserPatch): Promise<Result<ScimUserRecord>>
+  replaceUser(
+    t: TenantId,
+    id: string,
+    u: ScimUserWrite,
+  ): Promise<Result<ScimUserRecord>>
+  patchUser(
+    t: TenantId,
+    id: string,
+    d: ScimUserPatch,
+  ): Promise<Result<ScimUserRecord>>
   deleteUser(t: TenantId, id: string): Promise<Result<void>>
 }
 ```
@@ -364,36 +383,36 @@ guidance, audit events, `INTEGRATION.md` § SCIM.
 
 ## Conformance Scope
 
-| #  | Case                                                   | Phase |
-| -- | ------------------------------------------------------ | ----- |
-| 1  | Bearer token accepted; wrong token → 401                | 1     |
-| 2  | SCIM disabled for tenant → 403 (no tenant enumeration)  | 1     |
-| 3  | `POST /Users` → 201 + full resource incl. `id`, `meta`  | 1     |
-| 4  | Duplicate `userName` → 409 `scimType: "uniqueness"`     | 1     |
-| 5  | `GET /Users?filter=userName eq "…"` → ListResponse      | 1     |
-| 6  | Unsupported filter → 400 `invalidFilter`, names support | 1     |
-| 7  | Pagination is 1-based; `itemsPerPage` honest            | 1     |
-| 8  | `PATCH {active:false}` → normalized delta to the port   | 1     |
-| 9  | Entra-shaped PATCH path → same normalized delta         | 1     |
-| 10 | Unsupported PATCH path → 400 `invalidPath`, not dropped | 1     |
-| 11 | `PUT` full replace semantics                            | 1     |
-| 12 | `DELETE` reaches `deleteUser`, never deactivation       | 1     |
-| 13 | `password` in payload is refused, not stored            | 1     |
-| 14 | Discovery docs parse + advertise only what we serve     | 1     |
-| 15 | Group create + membership add/remove                    | 2 ✅  |
-| 16 | Okta SCIM validator, full run                           | 3     |
-| 17 | Entra provisioning against a live tenant                | 3     |
+| #   | Case                                                    | Phase |
+| --- | ------------------------------------------------------- | ----- |
+| 1   | Bearer token accepted; wrong token → 401                | 1     |
+| 2   | SCIM disabled for tenant → 403 (no tenant enumeration)  | 1     |
+| 3   | `POST /Users` → 201 + full resource incl. `id`, `meta`  | 1     |
+| 4   | Duplicate `userName` → 409 `scimType: "uniqueness"`     | 1     |
+| 5   | `GET /Users?filter=userName eq "…"` → ListResponse      | 1     |
+| 6   | Unsupported filter → 400 `invalidFilter`, names support | 1     |
+| 7   | Pagination is 1-based; `itemsPerPage` honest            | 1     |
+| 8   | `PATCH {active:false}` → normalized delta to the port   | 1     |
+| 9   | Entra-shaped PATCH path → same normalized delta         | 1     |
+| 10  | Unsupported PATCH path → 400 `invalidPath`, not dropped | 1     |
+| 11  | `PUT` full replace semantics                            | 1     |
+| 12  | `DELETE` reaches `deleteUser`, never deactivation       | 1     |
+| 13  | `password` in payload is refused, not stored            | 1     |
+| 14  | Discovery docs parse + advertise only what we serve     | 1     |
+| 15  | Group create + membership add/remove                    | 2 ✅  |
+| 16  | Okta SCIM validator, full run                           | 3     |
+| 17  | Entra provisioning against a live tenant                | 3     |
 
 ## Risks & Mitigations
 
-| Risk | Mitigation |
-| ---- | ---------- |
-| Okta's validator is stricter than the RFC in places | Treat the validator as the acceptance bar (case 16), not the spec text. Budget a hardening pass for it. |
-| Entra's PATCH shapes differ from Okta's | Normalize both to one delta (SCIM-AD6); case 9 asserts they converge. |
-| Filter subset is too narrow for a real customer | 400 names what is supported, so the gap is visible immediately rather than silently wrong. Widen the subset per evidence, not per speculation. |
-| Host implements the port with a race on `userName` uniqueness | Document that uniqueness is the host's invariant; the library cannot enforce what it does not store. |
-| SCIM becomes a backdoor user-write API | Bearer token is per tenant and per connection; `403` when unconfigured; audit every mutation. |
-| Deprovisioning silently fails and access lingers | Audit events on every mutation, and a port error surfaces as a SCIM 5xx so the IdP retries rather than marking success. |
+| Risk                                                          | Mitigation                                                                                                                                     |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Okta's validator is stricter than the RFC in places           | Treat the validator as the acceptance bar (case 16), not the spec text. Budget a hardening pass for it.                                        |
+| Entra's PATCH shapes differ from Okta's                       | Normalize both to one delta (SCIM-AD6); case 9 asserts they converge.                                                                          |
+| Filter subset is too narrow for a real customer               | 400 names what is supported, so the gap is visible immediately rather than silently wrong. Widen the subset per evidence, not per speculation. |
+| Host implements the port with a race on `userName` uniqueness | Document that uniqueness is the host's invariant; the library cannot enforce what it does not store.                                           |
+| SCIM becomes a backdoor user-write API                        | Bearer token is per tenant and per connection; `403` when unconfigured; audit every mutation.                                                  |
+| Deprovisioning silently fails and access lingers              | Audit events on every mutation, and a port error surfaces as a SCIM 5xx so the IdP retries rather than marking success.                        |
 
 ## Open Questions
 

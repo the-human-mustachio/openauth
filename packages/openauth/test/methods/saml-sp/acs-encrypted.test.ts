@@ -200,13 +200,11 @@ describe("SAML SP — encrypted assertions", () => {
     expect(res.value.kind === "success").toBe(false)
     expect(res.value.kind).toBe("denied")
     if (res.value.kind !== "denied") return
-    expect(res.value.reason.toLowerCase()).toContain(
-      "encrypted assertion",
-    )
+    expect(res.value.reason.toLowerCase()).toContain("encrypted assertion")
     expect(res.value.reason).toContain("allowEncryptedAssertions")
   })
 
-  test("metadata advertises a use=\"encryption\" KeyDescriptor iff configured", async () => {
+  test('metadata advertises a use="encryption" KeyDescriptor iff configured', async () => {
     const withEnc = buildSpMetadataXml({
       spEntityId: "https://idp.example/acme/corp-saml",
       acsUrl: "https://idp.example/cb/corp-saml",

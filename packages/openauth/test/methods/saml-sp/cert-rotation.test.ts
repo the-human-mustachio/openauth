@@ -18,9 +18,9 @@ describe("selectActiveCertPems", () => {
   })
 
   test("notBefore is inclusive", () => {
-    expect(
-      selectActiveCertPems([{ pem: "A", notBefore: NOW }], NOW),
-    ).toEqual(["A"])
+    expect(selectActiveCertPems([{ pem: "A", notBefore: NOW }], NOW)).toEqual([
+      "A",
+    ])
     expect(
       selectActiveCertPems([{ pem: "A", notBefore: NOW + 1 }], NOW),
     ).toEqual([])
@@ -30,9 +30,7 @@ describe("selectActiveCertPems", () => {
     expect(
       selectActiveCertPems([{ pem: "A", notAfter: NOW + 1 }], NOW),
     ).toEqual(["A"])
-    expect(
-      selectActiveCertPems([{ pem: "A", notAfter: NOW }], NOW),
-    ).toEqual([])
+    expect(selectActiveCertPems([{ pem: "A", notAfter: NOW }], NOW)).toEqual([])
   })
 
   test("overlapping rotation window returns both certs", () => {

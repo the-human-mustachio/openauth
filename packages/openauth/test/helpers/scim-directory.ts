@@ -50,9 +50,7 @@ function matches(user: ScimUserRecord, filter: ScimFilter): boolean {
 
 function groupMatches(group: ScimGroupRecord, filter: ScimFilter): boolean {
   if (filter.op === "and") {
-    return (
-      groupMatches(group, filter.left) && groupMatches(group, filter.right)
-    )
+    return groupMatches(group, filter.left) && groupMatches(group, filter.right)
   }
   switch (filter.attribute) {
     case "id":

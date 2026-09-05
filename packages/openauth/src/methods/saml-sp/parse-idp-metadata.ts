@@ -66,9 +66,7 @@ function toPem(rawX509: string): string {
   )
 }
 
-export function parseSamlIdpMetadata(
-  xml: string,
-): Result<SamlIdpConfig> {
+export function parseSamlIdpMetadata(xml: string): Result<SamlIdpConfig> {
   if (typeof xml !== "string" || xml.trim().length === 0) {
     return err(authError.invalidRequest("metadata XML is empty"))
   }
@@ -94,15 +92,11 @@ export function parseSamlIdpMetadata(
 
   const entityDescriptor = els(doc, "EntityDescriptor")[0]
   if (!entityDescriptor) {
-    return err(
-      authError.invalidRequest("metadata has no <EntityDescriptor>"),
-    )
+    return err(authError.invalidRequest("metadata has no <EntityDescriptor>"))
   }
   const entityId = entityDescriptor.getAttribute("entityID")
   if (!entityId) {
-    return err(
-      authError.invalidRequest("EntityDescriptor has no entityID"),
-    )
+    return err(authError.invalidRequest("EntityDescriptor has no entityID"))
   }
 
   const idp = els(entityDescriptor, "IDPSSODescriptor")[0]

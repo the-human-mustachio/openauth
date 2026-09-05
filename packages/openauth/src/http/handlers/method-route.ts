@@ -45,10 +45,7 @@ export function makeMethodRouteHandler(deps: HttpDeps) {
         const httpMethod =
           c.req.method.toUpperCase() === "POST" ? "POST" : "GET"
         const routeKey = `${httpMethod} ${subPath}` as RouteKey
-        const resolved = await deps.methodCache.resolve(
-          tenant.config,
-          methodId,
-        )
+        const resolved = await deps.methodCache.resolve(tenant.config, methodId)
         if (
           !isErr(resolved) &&
           resolved.value.publicRoutes?.includes(routeKey)
