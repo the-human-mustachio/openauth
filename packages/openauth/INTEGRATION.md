@@ -1189,6 +1189,394 @@ attribute) arrives as a string array in
 strings. The host owns the final `SubjectClaim` mapping in `success`,
 exactly as with OAuth/OIDC.
 
+**Requesting MFA (`requestedAuthnContext`).** By default **no
+`<RequestedAuthnContext>` is sent**, which lets the IdP apply its own
+sign-on policy — the right behaviour for nearly every connection. Set
+this only when the IdP has told you which class refs it honours:
+
+```ts
+requestedAuthnContext: {
+  classRefs: ["urn:oasis:names:tc:SAML:2.0:ac:classes:MultiFactorAuthn"],
+  comparison: "minimum",   // default "exact"
+}
+```
+
+Be deliberate here. A `RequestedAuthnContext` the IdP cannot satisfy is
+answered with `NoAuthnContext` rather than a login, and `"exact"` is an
+easy way to produce that — an IdP that ran MFA does not match a request
+for plain `PasswordProtectedTransport`. `"minimum"` is usually the safer
+choice when the goal is "at least MFA."
+
+Requesting a context does not verify one was used. Read
+`SamlSpProperties.authnContextClassRef` for what the IdP actually
+asserted, and make step-up decisions on that:
+
+```ts
+success: async (input) => {
+  const ctx = input.properties.authnContextClassRef
+  const mfa = ctx?.endsWith(":MultiFactorAuthn") ?? false
+  // …record `mfa` on your session, gate sensitive routes on it
+}
+```
+
+**Forcing re-authentication (`forceAuthn`).** `forceAuthn: true` sets
+`ForceAuthn="true"` on the AuthnRequest, asking the IdP to
+re-authenticate even if it has a live session. It is a *request*: SAML
+obliges the IdP to nothing and the Response carries no proof either way,
+so never treat a successful assertion as evidence of fresh
+authentication.
+
+**Aligning session lifetime (`sessionNotOnOrAfter`).** When the IdP
+supplies `AuthnStatement/@SessionNotOnOrAfter`, it is surfaced as a Unix
+ms timestamp on `SamlSpProperties`. The library does not act on it —
+token and session lifetimes are host policy, and this library owns no
+session. If you want "when their IdP session ends, ours ends," clamp
+your own session/token TTL to it in `success`.
+
+**Adopting an existing entityID (`spEntityId`).** The SP entityID is
+derived as `<issuerUrl>/<tenantId>/<methodId>` — stable and zero-config.
+Override it only to adopt an entityID that already exists at the IdP, so
+a customer can migrate an existing SAML app without editing their
+production SSO config:
+
+```ts
+spEntityId: "https://legacy-sp.example/saml/sp",
+```
+
+The override flows to everything at once — AuthnRequest issuer, audience
+validation, SP metadata, logout messages — so the published metadata
+stays truthful. Changing it on a live connection invalidates the
+IdP-side trust config; treat it as an IdP-coordination event.
+
+**Signature posture (`requireSignedAssertion` / `requireSignedResponse`).**
+The defaults (`true` / `false`) are correct for Okta, Entra, and the
+large majority of IdPs: the assertion carries the identity, conditions,
+and audience, so signing *it* is what binds them. Two reasons to change
+them:
+
+```ts
+requireSignedResponse: true,               // defence in depth, both signed
+// or, for an IdP that signs ONLY the Response:
+requireSignedAssertion: false,
+requireSignedResponse: true,
+```
+
+Turning both off is rejected by the config schema — an unsigned
+assertion inside an unsigned Response is unauthenticated XML. When
+`requireSignedAssertion` is `false`, SP metadata advertises
+`WantAssertionsSigned="false"` so it keeps stating actual behaviour.
+
+#### Generating the SP keypair
+
+`signingKey` and `decryptionKey` each need a PEM private key and a
+matching self-signed X.509 certificate. Node's standard library cannot
+produce an X.509 certificate — it generates keypairs, not certs — so
+this is an `openssl` step you run once per connection and store with the
+rest of the connection's config:
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes \
+  -keyout sp-signing-key.pem \
+  -out    sp-signing-cert.pem \
+  -days   1095 \
+  -subj   "/CN=idp.example SAML SP"
+```
+
+- **`-nodes` is required.** A passphrase-protected key cannot be loaded
+  from config; the PEM must be unencrypted at rest in the process. Keep
+  it secret the same way you keep any per-tenant credential — encrypt
+  the `MethodStore` at rest, or supply it through your own resolver.
+- **RSA 2048 or better.** Some IdPs still reject EC keys for SAML.
+- **Long validity.** Expiry forces a coordinated swap (below), so a
+  3-year cert is normal here rather than lax.
+- **The `CN` is cosmetic.** SAML pins the certificate by value; nothing
+  validates it as a chain or checks the subject. Use something you will
+  recognise in an IdP admin console.
+- **Use separate keypairs for signing and decryption.** They are pinned
+  independently at the IdP and rotated on different occasions.
+
+**SP cert rotation is a coordinated swap, not a hot rotation.** SP
+metadata advertises exactly one signing certificate, and the IdP pins
+it, so there is no overlap window on this side: generate the new pair,
+update `signingKey`, and have the IdP admin re-import your metadata (or
+paste the new cert) in the same change. Plan it as a maintenance
+window with the customer. This is deliberately asymmetric with IdP
+certs, which *do* rotate hot — see below.
+
+#### Keeping IdP signing certs fresh
+
+`idp.signingCerts` accepts several PEMs, each with an optional
+`notBefore` / `notAfter` window, and the verifier accepts any cert whose
+window covers now. That is what makes IdP-side rotation survivable
+without a redeploy — but nothing refreshes the list for you. The library
+deliberately performs no I/O: `parseSamlIdpMetadata` is pure, and
+fetching is the host's job.
+
+Without a refresh loop the failure mode is a bad morning: the customer
+rotates their IdP certificate and every login breaks at once. Poll the
+connection's metadata URL on a schedule (daily is plenty) and merge:
+
+```ts
+import { parseSamlIdpMetadata } from "@_mustachio/openauth/methods/saml-sp"
+import type { SamlIdpSigningCert } from "@_mustachio/openauth/methods/saml-sp"
+
+/** How long a retired cert keeps verifying after the IdP drops it. */
+const OVERLAP_MS = 7 * 24 * 60 * 60 * 1000
+
+function mergeSigningCerts(
+  current: ReadonlyArray<SamlIdpSigningCert>,
+  incoming: ReadonlyArray<SamlIdpSigningCert>,
+  now: number,
+): SamlIdpSigningCert[] | null {
+  const has = (list: ReadonlyArray<SamlIdpSigningCert>, pem: string) =>
+    list.some((c) => c.pem.trim() === pem.trim())
+  const added = incoming.filter((c) => !has(current, c.pem))
+  if (added.length === 0) return null // nothing changed
+
+  return [
+    // Certs the IdP dropped get an expiry rather than deletion, so an
+    // assertion signed moments before the change still verifies.
+    ...current.map((c) =>
+      has(incoming, c.pem) || c.notAfter !== undefined
+        ? c
+        : { ...c, notAfter: now + OVERLAP_MS },
+    ),
+    // New certs are active immediately — the IdP may cut over at any
+    // moment, and it does not tell you when.
+    ...added,
+  ]
+}
+
+async function refreshIdpCerts(tenantId: string, methodId: string) {
+  const stored = await myConfigStore.readSamlConnection(tenantId, methodId)
+
+  const res = await fetch(stored.metadataUrl)
+  if (!res.ok) return // transient — keep what works, try again tomorrow
+  const parsed = parseSamlIdpMetadata(await res.text())
+  if (!parsed.ok) return // malformed feed must never clobber a good config
+
+  const merged = mergeSigningCerts(
+    stored.config.idp.signingCerts,
+    parsed.value.signingCerts,
+    Date.now(),
+  )
+  if (!merged || merged.length === 0) return // never write an empty set
+
+  await myConfigStore.writeSamlConnection(tenantId, methodId, {
+    ...stored.config,
+    idp: { ...stored.config.idp, signingCerts: merged },
+  })
+}
+```
+
+Three rules matter more than the exact code:
+
+1. **Append, never replace.** Overwriting the list at the moment you
+   notice a change breaks in-flight logins signed by the outgoing key.
+2. **Every failure path keeps the existing config.** A network blip or a
+   malformed feed must not be able to empty `signingCerts` — an empty
+   active set fails every login with a configuration error.
+3. **Retire on a timer, not on sight.** Give dropped certs a `notAfter`
+   in the future rather than deleting them, and let them age out.
+
+Note that only `signingCerts` is safe to merge automatically. A changed
+`entityId` or `ssoUrl` means the IdP has been reconfigured, not rotated
+— surface that to an operator instead of applying it.
+
+---
+
+## 9A. SCIM 2.0 — automated user provisioning
+
+SCIM is the companion to SAML in enterprise deals: SAML lets people log
+in, SCIM keeps the directory in sync — created on hire, updated on
+change, **deactivated on termination**. The deprovisioning half is the
+one customers audit.
+
+Direction is inbound, like SAML SP: the customer's Okta or Entra calls
+you. The library never pushes users anywhere.
+
+**The library owns the protocol; you own the data.** Routing, bearer
+auth, schema validation, PATCH normalization, the error envelope,
+pagination and the discovery documents are handled here. Every read and
+write goes through a `ScimDirectory` you implement against your own
+tables. **No user data is stored in the library** — it has no user
+model, by design.
+
+### Wiring it up
+
+```ts
+import { createIdP, type ScimDirectory } from "@_mustachio/openauth"
+
+const scimDirectory: ScimDirectory = {
+  async getUser(tenantId, id) { /* … */ },
+  async findUsers(tenantId, query) { /* … */ },
+  async createUser(tenantId, user) { /* … */ },
+  async replaceUser(tenantId, id, user) { /* … */ },
+  async patchUser(tenantId, id, patch) { /* … */ },
+  async deleteUser(tenantId, id) { /* … */ },
+}
+
+const idp = createIdP({ /* … */, scimDirectory })
+```
+
+Omit `scimDirectory` and `/scim/v2/*` answers `501` regardless of
+per-tenant config — SCIM is opt-in for the whole deployment.
+
+Then enable it per tenant, with a bearer token you mint and hand to the
+IdP admin. Hash it exactly like a client secret; never store the raw
+value:
+
+```ts
+import { hashClientSecret } from "@_mustachio/openauth"
+
+const token = crypto.randomUUID() + crypto.randomUUID() // show once
+tenant.scim = { enabled: true, tokenHash: await hashClientSecret(token) }
+```
+
+In Okta or Entra, the connector wants the base URL `https://your-issuer/scim/v2`
+and that token as the bearer.
+
+### What the endpoints do
+
+```
+GET    /scim/v2/ServiceProviderConfig | /ResourceTypes | /Schemas
+GET    /scim/v2/Users                 — filter + pagination
+POST   /scim/v2/Users
+GET|PUT|PATCH|DELETE /scim/v2/Users/{id}
+GET    /scim/v2/Groups                — filter + pagination
+POST   /scim/v2/Groups
+GET|PUT|PATCH|DELETE /scim/v2/Groups/{id}
+```
+
+Groups are covered below and are opt-in.
+
+### Four things worth knowing
+
+**0. Unknown attributes are skipped, not rejected.** An attribute this
+library does not model — `title`, `nickName`, `locale` — is dropped from
+both writes and patches rather than failing the request. Okta pushes
+several of them in the same `PatchOp` as `active`, and failing the whole
+request over one would take the deactivation with it.
+
+**1. `patchUser` is where deprovisioning happens.** Okta and Entra
+normally deactivate with `PATCH {active: false}` rather than `DELETE`.
+Getting that one operation right matters more than everything else here.
+
+The library resolves every spelling — Okta's pathless
+`{op:"replace", value:{active:false}}`, Entra's
+`{op:"Replace", path:"active", value:"False"}` (yes, the boolean arrives
+as a string), and targeted paths like `emails[type eq "work"].value` —
+into a flat delta:
+
+```ts
+async patchUser(tenantId, id, patch) {
+  // present ⇒ set to this, null ⇒ clear, absent ⇒ leave alone.
+  // Values are fully resolved: `patch.emails` is the complete new list,
+  // never a fragment, and no SCIM path expression reaches you.
+}
+```
+
+**2. `DELETE` is not deactivation.** The library will not quietly turn a
+destructive request into a soft one — that would erase the distinction
+in your audit trail. If you don't want cascading deletes, implement
+`deleteUser` as a tombstone deliberately and write it down.
+
+**3. `totalResults` must be the full match count**, not the size of the
+page you return. Okta drives its paging loop off it, so returning the
+page length makes the import loop or stop early. `startIndex` is 1-based.
+
+**4. You own uniqueness.** The library stores no rows, so it cannot
+enforce that `userName` is unique. Return
+`err(authError.conflict("…", "userName"))` and it becomes a `409` with
+`scimType: "uniqueness"`. Use a real database constraint rather than
+check-then-write: Okta's initial import is heavily concurrent and will
+find the race.
+
+**Which error you return decides whether a failure gets fixed.** SCIM
+clients retry `5xx` and give up on `4xx`, so:
+
+| Return | Becomes | Use it for |
+| --- | --- | --- |
+| `authError.conflict(…)` | `409 uniqueness` | A collision only you can detect |
+| `authError.invalidRequest(…)` | `400 invalidValue` | A **permanent** rejection you will never accept |
+| anything else | `500` | A transient fault worth retrying |
+
+The middle row matters most for groups. An IdP's group push can name a
+member its user push filtered out, or one deleted between operations. If
+you return a generic error there, the IdP retries the same doomed
+request indefinitely; return `invalidRequest` and it stops and shows an
+admin what is wrong. Your message is passed through on both `4xx` paths
+— it is what appears in the provisioning log, so make it specific.
+
+Reserve `500` for genuinely transient problems. It is the right answer
+there: retrying beats reporting a success for a write that never
+happened.
+
+### Filter support is deliberately narrow
+
+RFC 7644's filter grammar is large; Okta and Entra use a sliver of it.
+Supported:
+
+```
+userName eq "…"    externalId eq "…"    id eq "…"    active eq true|false
+emails[type eq "work"].value eq "…"     <term> and <term>
+```
+
+Anything else gets a `400` naming what works, rather than a silently
+wrong result. The parsed filter reaches your port as a small typed tree
+(`ScimFilter`), never as a string — you never write a filter parser.
+
+If a real connection needs something outside this set, the `400` will
+say so immediately; widen it then, on evidence.
+
+### Groups (optional)
+
+Group provisioning is opt-in as a **set**: implement all six group
+methods on `ScimDirectory` or none. Omit them and `/scim/v2/Groups`
+answers `501`, and the discovery documents leave the Group resource type
+out entirely — a client is never told a resource works when it does not.
+
+Membership is the one place the library does *not* resolve a patch into
+a final value, and the reason is size. A user's email list is small; a
+group's membership is not. Resolving "add one member" against a
+20,000-member group would mean reading all 20,000 rows and writing them
+back on every change. So your port receives the client's intent:
+
+```ts
+async patchGroup(tenantId, id, patch) {
+  if (patch.members) {
+    // Full replace — exactly this membership, nothing else.
+  } else {
+    // Incremental — one insert / one delete, not a rewrite.
+    patch.addMembers    // [{ value, display? }]
+    patch.removeMembers // ["userId", …]
+  }
+}
+```
+
+The two forms are mutually exclusive: a full replace in the same request
+absorbs any add or remove alongside it, so you never receive `members`
+together with the incremental fields and need no ordering rule.
+
+**Make membership operations idempotent.** Adding an existing member or
+removing an absent one must succeed quietly. IdPs retry, and a `4xx`
+there stalls a group push indefinitely.
+
+**Honour `excludeMembers`.** When a client sends
+`excludedAttributes=members` — Okta does while enumerating groups —
+`ScimGroupQuery.excludeMembers` is `true` and you should skip loading
+membership entirely. Ignoring it turns a cheap listing into a fan-out
+read per group. Return the record with `members` **omitted**, not `[]`:
+an empty array tells the client the group has been emptied.
+
+### Consistency requirement
+
+`ScimDirectory` needs **read-your-writes**. A SCIM client will
+`GET /Users?filter=userName eq "…"` immediately after creating a user to
+confirm the create; an eventually-consistent read there causes duplicate
+users, which is the classic SCIM failure and unpleasant to unpick. See
+`src/ports/CONSISTENCY.md`.
+
 ---
 
 ## 10. Subject identity & JWT validation in your services
@@ -1355,7 +1743,7 @@ introduce security bugs:
 
 ---
 
-## 15. Phase 8 features that are NOT yet in the library
+## 15. Features that are NOT yet in the library
 
 If you need any of these and want them on the library side rather than
 in front of it, raise scope before integrating:
@@ -1382,7 +1770,7 @@ in front of it, raise scope before integrating:
 - **Logger / Tracer ports** — wrap `idp.handle` with your own
   request-logging middleware until structured ports land.
 
-### What landed in Phase 8 Session 2
+### Recently landed
 
 The OIDC issuance + standards features below are **shipped** and
 documented in §15a–e below:
@@ -1700,6 +2088,9 @@ Each of these has a corresponding case in
 | The embedding contract                        | `ARCHITECTURE.md` § "Embedding pattern"             |
 | Port consistency requirements                 | `src/ports/CONSISTENCY.md`                          |
 | The phased build history + decisions          | `docs/plans/claude/idp-rebuild-plan.md`             |
+| SAML SP decisions + conformance matrix        | `docs/plans/claude/saml-sp-plan.md`                 |
+| SCIM decisions + the protocol/data split      | `docs/plans/claude/scim-plan.md`                    |
+| SCIM protocol behaviour end to end            | `test/scim/*.test.ts`                               |
 | Public type shapes                            | `src/types/*.ts`                                    |
 | What's expected of each port impl             | `test/ports/*.ts` (parameterized conformance suite) |
 | Example end-to-end flow under memory adapters | `test/integration/full-flow.test.ts`                |

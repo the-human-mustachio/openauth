@@ -161,6 +161,34 @@ The `client_credentials` grant authenticates with `client_id` +
 `ClientConfig` MUST be `type: "confidential"` with a `secretHash`, and
 its `grantTypes` MUST include `"client_credentials"`.
 
+## `samlSpFactory` — enterprise SAML 2.0
+
+Lives on a **Node-only** subpath, because its XML-signature dependency
+needs `node:crypto`. The root entry never re-exports it, so Workers and
+browser builds stay edge-clean:
+
+```ts
+import { samlSpFactory } from "@_mustachio/openauth/methods/saml-sp"
+
+const methods = { "saml-sp": samlSpFactory } // key MUST equal factory.kind
+```
+
+It is an ordinary `AuthMethodFactory` — `/authorize` dispatch, the state
+envelope, the flow record and your `success` callback all work
+unchanged. Service Provider only: the library consumes assertions from
+Okta / Entra / Ping / ADFS and never issues them.
+
+Per-connection config covers the IdP's entityID, SSO URL and signing
+certs (several, with validity windows, for hot rotation), attribute
+mapping, and opt-ins for IdP-initiated SSO, signed AuthnRequests,
+encrypted assertions and Single Logout.
+
+One deployment requirement: SAML needs the `SessionStore` scratch trio
+(`saveScratch` / `readScratch` / `deleteScratch`) for replay protection.
+Every bundled production adapter implements it.
+
+See `INTEGRATION.md` § 9.5 for the full configuration reference.
+
 ## Wiring them into `createIdP`
 
 ```ts

@@ -98,6 +98,25 @@ export type {
   SigningKey,
 } from "./ports/key-store"
 export type { MethodStore } from "./ports/method-store"
+export type { ScimDirectory } from "./ports/scim-directory"
+export type {
+  ScimConfig,
+  ScimEnterpriseUser,
+  ScimGroupMember,
+  ScimGroupPatch,
+  ScimGroupQuery,
+  ScimGroupRecord,
+  ScimGroupWrite,
+  ScimFilter,
+  ScimFilterAttribute,
+  ScimMultiValue,
+  ScimName,
+  ScimPage,
+  ScimUserPatch,
+  ScimUserQuery,
+  ScimUserRecord,
+  ScimUserWrite,
+} from "./types/scim"
 export type {
   ParRecord,
   SessionRecord,
@@ -241,6 +260,7 @@ export function createIdP(opts: IdPOptions): IdP {
     sessionStore: opts.sessionStore,
     keyStore: opts.keyStore,
     ...(opts.methodStore ? { methodStore: opts.methodStore } : {}),
+    ...(opts.scimDirectory ? { scimDirectory: opts.scimDirectory } : {}),
     ...(auditLog ? { auditLog } : {}),
     methodCache,
     stateKeys: opts.stateKeys,

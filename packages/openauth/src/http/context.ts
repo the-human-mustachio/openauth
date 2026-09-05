@@ -11,6 +11,7 @@ import type { AuditLog } from "../ports/audit-log"
 import type { ConfigStore } from "../ports/config-store"
 import type { KeyStore } from "../ports/key-store"
 import type { MethodStore } from "../ports/method-store"
+import type { ScimDirectory } from "../ports/scim-directory"
 import type { SessionStore } from "../ports/session-store"
 import type { TokenStore } from "../ports/token-store"
 import type { MethodCache } from "../domain/method-cache"
@@ -43,6 +44,8 @@ export type HttpDeps = {
   keyStore: KeyStore
   methodStore?: MethodStore
   auditLog?: AuditLog
+  /** See `IdPOptions.scimDirectory`. Absent ⇒ `/scim/v2/*` answers 501. */
+  scimDirectory?: ScimDirectory
   methodCache: MethodCache
   stateKeys: StateKeyRing
   /** Resolves the issuer URL — string or per-request function. */

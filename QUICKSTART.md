@@ -236,4 +236,6 @@ a symbol isn't exported there, it isn't public.
 | See per-port consistency requirements          | [`packages/openauth/src/ports/CONSISTENCY.md`](packages/openauth/src/ports/CONSISTENCY.md) |
 | Read a runnable steel-thread                   | [`examples/embed-postgres/`](examples/embed-postgres/)                                     |
 | See the phased rebuild plan + design decisions | [`docs/plans/claude/idp-rebuild-plan.md`](docs/plans/claude/idp-rebuild-plan.md)           |
+| Connect an enterprise SAML IdP                 | [`INTEGRATION.md` § 9.5](packages/openauth/INTEGRATION.md)                                 |
+| Accept SCIM provisioning from Okta / Entra     | [`INTEGRATION.md` § 9A](packages/openauth/INTEGRATION.md)                                  |
 | Crib from conformance tests                    | `packages/openauth/test/conformance/oauth-2.1.test.ts`                                     |

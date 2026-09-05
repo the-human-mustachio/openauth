@@ -7,6 +7,7 @@ import type { AuditLog } from "../ports/audit-log"
 import type { ConfigStore } from "../ports/config-store"
 import type { KeyStore } from "../ports/key-store"
 import type { MethodStore } from "../ports/method-store"
+import type { ScimDirectory } from "../ports/scim-directory"
 import type { SessionStore } from "../ports/session-store"
 import type { TokenStore } from "../ports/token-store"
 
@@ -280,6 +281,17 @@ export type IdPOptions = {
   auditLog?: AuditLog
   /** Optional — falls back to `ConfigStore` for `MethodConfig` lookups. */
   methodStore?: MethodStore
+  /**
+   * The host's user directory, as SCIM needs to see it. Supply it to
+   * serve `/scim/v2/*`; omit it and those routes answer 501 regardless
+   * of per-tenant config.
+   *
+   * The library owns the SCIM protocol and stores no user data — every
+   * read and write goes through this port to the host's own tables. See
+   * `SCIM-AD2` in `docs/plans/claude/scim-plan.md` and
+   * `INTEGRATION.md` § SCIM.
+   */
+  scimDirectory?: ScimDirectory
 
   /** Issuer URL. Function form lets multi-tenant deployments derive it per request. */
   issuerUrl: string | ((req: Request) => string)

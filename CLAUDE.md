@@ -26,6 +26,8 @@ in `packages/openauth/ARCHITECTURE.md`.
 | `packages/openauth/INTEGRATION.md`           | End-to-end embedding guide for hosts: install, public API, adapters, the four host contracts, hardening rules. |
 | `packages/openauth/src/ports/CONSISTENCY.md` | Consistency contracts for every port.                                                                          |
 | `docs/plans/claude/idp-rebuild-plan.md`      | Phased rebuild plan — sequencing + decisions.                                                                  |
+| `docs/plans/claude/saml-sp-plan.md`          | SAML 2.0 SP — decisions (SAML-AD1–AD8), conformance matrix, and why there is no SAML IdP role.                 |
+| `docs/plans/claude/scim-plan.md`             | SCIM 2.0 — decisions (SCIM-AD1–AD9), the protocol/data split, conformance matrix.                              |
 
 ## Source tree
 
@@ -37,12 +39,14 @@ packages/openauth/
 │   ├── index.ts              # public entry — `createIdP`, type re-exports
 │   ├── client.ts             # @_mustachio/openauth/client — RP-side helpers
 │   ├── error.ts, pkce.ts
-│   ├── types/                # public-surface types (idp, tenant, method, ...)
+│   ├── types/                # public-surface types (idp, tenant, method, scim, ...)
 │   ├── ports/                # port interfaces + CONSISTENCY.md
 │   ├── domain/               # pure functions over ports (authorize, token, ...)
+│   │   └── scim/             # SCIM protocol layer (filter, patch, resource, ...)
 │   ├── http/                 # Hono adapter, schemas, middleware, handlers
 │   ├── methods/              # auth methods + provider factories
-│   │   └── providers/        # 15 vendor factories (google, github, ...)
+│   │   ├── providers/        # 15 vendor factories (google, github, ...)
+│   │   └── saml-sp/          # SAML 2.0 SP — Node-only subpath export
 │   ├── adapters/             # concrete port impls
 │   │   ├── memory/  postgres/  d1/  durable-object/
 │   │   └── dynamo/  kv/       kms/
@@ -61,10 +65,16 @@ import { createIdP } from "@_mustachio/openauth"
 //   oauth2Factory, oidcFactory, buildOauth2Method, buildOidcMethod
 // + 15 vendor factories: googleFactory, githubFactory, … cognitoFactory
 // + port interfaces: ConfigStore, TokenStore, SessionStore, KeyStore,
-//   MethodStore, AuditLog
+//   MethodStore, AuditLog, ScimDirectory
+// + SCIM types: ScimConfig, ScimUserRecord/Write/Patch/Query,
+//   ScimGroupRecord/Write/Patch/Query, ScimGroupMember, ScimPage, ScimFilter
 import { createClient } from "@_mustachio/openauth/client"
 // + storage adapters: @_mustachio/openauth/adapters/{memory,postgres,d1,
 //   durable-object,dynamo,kv,kms}
+import { samlSpFactory } from "@_mustachio/openauth/methods/saml-sp"
+// SAML lives on its own **Node-only** subpath (xml-crypto needs node:crypto);
+// the root entry never re-exports it, so edge builds stay clean. SCIM has no
+// such constraint — it is JSON over HTTP and lives on the root entry.
 ```
 
 The host calls `createIdP(opts)` and serves the returned `idp.handle` as
@@ -96,7 +106,15 @@ bun run build                     # Astro/Starlight docs site
   required `secretHash`.
 - The public API never reaches a `jose` / `hono` / `oauth4webapi` /
   `@simplewebauthn/server` type. See `INTEGRATION.md` § 16 and
-  `test/types/public-api-no-thirdparty-leaks.test.ts`.
+  `test/types/public-api-no-thirdparty-leaks.test.ts`. The SAML subpath
+  has its own guard (`saml-sp-no-thirdparty-leaks.test.ts`).
+- **SAML and SCIM are inbound only.** The library consumes SAML
+  assertions and receives SCIM provisioning; it never issues assertions
+  and never pushes users outward. Downstream apps speak the OIDC issuer.
+  See `SAML-AD8` / `SCIM-AD1` — a standing decision, not an unbuilt
+  feature.
+- SCIM stores no user data: the protocol lives in the library, the
+  persistence behind the host's `ScimDirectory` port (`SCIM-AD2`).
 
 ## Release
 

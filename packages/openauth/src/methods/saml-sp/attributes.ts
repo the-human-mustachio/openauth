@@ -27,7 +27,12 @@ export type VerifiedProfile = {
   nameIDFormat: string
   sessionIndex?: string
   attributes: Record<string, unknown>
+  /** `AuthnStatement/@AuthnInstant`, raw XSD dateTime. */
   authnInstant?: string
+  /** `AuthnStatement/@SessionNotOnOrAfter`, already parsed to Unix ms. */
+  sessionNotOnOrAfter?: number
+  /** `AuthnContext/AuthnContextClassRef` — what the IdP actually asserted. */
+  authnContextClassRef?: string
   responseXml: string
 }
 
@@ -131,6 +136,12 @@ export function mapProfile(
         ? { sessionIndex: profile.sessionIndex }
         : {}),
       authnInstant: Number.isNaN(authnInstant) ? Date.now() : authnInstant,
+      ...(profile.sessionNotOnOrAfter !== undefined
+        ? { sessionNotOnOrAfter: profile.sessionNotOnOrAfter }
+        : {}),
+      ...(profile.authnContextClassRef !== undefined
+        ? { authnContextClassRef: profile.authnContextClassRef }
+        : {}),
       raw: { responseXml: profile.responseXml },
     },
   }

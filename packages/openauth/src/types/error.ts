@@ -50,6 +50,12 @@ export type AuthError =
   // endpoints. Use for control-flow signalling that should never escape to a
   // standards-compliant client.
   | { code: "internal_error"; description: string; cause?: unknown }
+  // Uniqueness / state conflict. Raised by hosts from `ScimDirectory`
+  // when a create or update collides with an existing record — only the
+  // host can know, since only the host stores the rows. The SCIM layer
+  // renders it as `409` with `scimType: "uniqueness"`. It has no OAuth
+  // endpoint mapping and should never reach one.
+  | { code: "conflict"; description: string; attribute?: string }
   // RFC 9449 §5.2 — DPoP proof verification failed (bad signature, htm/htu
   // mismatch, iat outside window, replayed jti, missing/mismatched cnf.jkt).
   // Returned as a 400 with `error="invalid_dpop_proof"` on form-body
@@ -129,6 +135,11 @@ export const authError = {
   invalidTarget: (description: string): AuthError => ({
     code: "invalid_target",
     description,
+  }),
+  conflict: (description: string, attribute?: string): AuthError => ({
+    code: "conflict",
+    description,
+    ...(attribute !== undefined ? { attribute } : {}),
   }),
   internalError: (description: string, cause?: unknown): AuthError => ({
     code: "internal_error",

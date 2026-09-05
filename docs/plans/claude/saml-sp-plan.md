@@ -34,10 +34,10 @@ Point_ for current state.
 > further down are the detailed ledger; this is the summary + the next
 > action.
 
-**As of 2026-05-15** — branch `feat/saml-sp`, several commits ahead of
-`master` (run `git log --oneline master..feat/saml-sp` for the exact
-range — it advances with every doc/commit, so it is intentionally not
-frozen here), nothing pushed, nothing merged.
+**SHIPPED (2026-09-04).** `feat/saml-sp` merged to `master` as `fd7091e`
+and released as `@_mustachio/openauth@0.12.0` (`9d722a5`) — tagged on
+origin and published to npm. The phase history below is the ledger of
+how it got there; git is authoritative for current state.
 
 **Done:** SAML Phase 1 (SP-initiated SSO) complete and independently
 security-reviewed. End-to-end working: `/authorize` → IdP →
@@ -214,11 +214,40 @@ precedent): `SamlSpConfig.allowEncryptedAssertions` (default `false`)
   stale "no KeyDescriptor / SLO" paragraph corrected; phase language
   kept out of the public doc).
 
-**Recommended next action:** **Phase 3 is complete — SAML SP is
-feature-complete.** Remaining: the owner-deferred live Okta/Entra
-dev-tenant integration test (needs real credentials; tracked, not a
-blocker). Optional future work is per-deal only (Holder-of-Key, ECP,
-Artifact, back-channel SOAP SLO — all declared non-goals).
+**Interop hardening shipped 2026-09-05** (post-`0.12.0`, unreleased):
+`requestedAuthnContext` + the inverted `RequestedAuthnContext` default
+(see Open Question 4 — this closed a latent MFA-interop bug),
+`forceAuthn`, `spEntityId` override (SAML-AD5), `requireSignedAssertion`
+/ `requireSignedResponse`, and `sessionNotOnOrAfter` +
+`authnContextClassRef` on `SamlSpProperties` (with `authnInstant` now
+actually read from the assertion rather than silently falling back to
+the clock). The ACS also went from three parses of the verified
+assertion to one. 658 tests green, both tsconfigs clean.
+
+**Recommended next action — in order:**
+
+1. **Live Okta/Entra dev-tenant test** (the one deferred item). Every
+   fixture in the suite is self-signed locally, so nothing here has met
+   a real IdP. Watch the strict missing-`Recipient` deny and Entra's
+   URN-style attribute names first.
+2. ~~**SP cert story.**~~ **Done 2026-09-05** — `INTEGRATION.md` §9.5
+   "Generating the SP keypair": the `openssl` recipe (verified by
+   running it and driving the output through `signAuthnRequest` +
+   metadata), why `-nodes` is required, and the honest note that SP cert
+   rotation is a *coordinated swap* — metadata advertises one signing
+   cert, so there is no overlap window on our side. A future
+   enhancement would be multi-cert SP metadata to make SP-side rotation
+   hot too, matching the IdP side.
+3. ~~**IdP metadata refresh recipe.**~~ **Done 2026-09-05** —
+   `INTEGRATION.md` §9.5 "Keeping IdP signing certs fresh": a worked
+   merge that appends rather than replaces, retires dropped certs on a
+   `notAfter` timer instead of deleting them, and keeps the existing
+   config on every failure path. Only `signingCerts` is safe to merge
+   automatically; a changed `entityId` / `ssoUrl` is a reconfiguration
+   and goes to an operator.
+
+Optional future work is per-deal only (Holder-of-Key, ECP, Artifact,
+back-channel SOAP SLO). SAML IdP role is out of scope — see SAML-AD8.
 
 **Five framework changes SAML drove** (documented in
 `ARCHITECTURE.md`), each a *general* capability, not SAML-specific
@@ -249,8 +278,9 @@ front-channel SLO; also a foundation for OIDC back-channel logout).
 ## Non-Goals
 
 - **SAML IdP role.** The library does not issue SAML assertions to
-  downstream apps. Downstream apps speak our OIDC issuer. Revisit only
-  if a concrete deployment requires us to act as a SAML hub.
+  downstream apps. Downstream apps speak our OIDC issuer. Closed as a
+  standing decision — see SAML-AD8 for the rationale and the conditions
+  that would reopen it.
 - **Edge runtime support.** SAML is Node-only. Workers / Durable Objects
   / D1 deployments continue to use OAuth/OIDC methods.
 - **Encrypted assertions, Holder-of-Key, ECP, Artifact binding.** All
@@ -324,11 +354,23 @@ hosts that want it.
 
 ### SAML-AD5 — SP entityID derived, not configured
 
-Per-instance SP entityID is `<issuerUrl>/<tenantId>/<methodId>` (or a
-configurable override). This mirrors the way our OIDC issuer URL is
-derived and keeps the entityID stable across deploys for a given
-(tenant, methodId) pair. SP metadata is served at
-`GET /<methodId>/metadata`.
+Per-instance SP entityID is `<issuerUrl>/<tenantId>/<methodId>`. This
+mirrors the way our OIDC issuer URL is derived and keeps the entityID
+stable across deploys for a given (tenant, methodId) pair. SP metadata
+is served at `GET /<methodId>/metadata`.
+
+**Override shipped 2026-09-05** (`SamlSpConfig.spEntityId`) — the
+"configurable override" this decision always allowed for, implemented
+once a migration case for it was clear: a customer with an existing SAML
+app already has an entityID registered at their IdP, and without an
+override, onboarding forces them to edit production SSO config.
+
+All five consumers resolve through one function,
+`resolveSpEntityId(config, issuerUrl, tenantId, methodId)` —
+AuthnRequest, ACS audience validation, SP metadata, `/sls`, and
+`/logout`. Single-resolution is what keeps the anti-drift invariant
+true for the override as well as the default; `metadata.test.ts` asserts
+it directly.
 
 ### SAML-AD6 — Replay state via `SessionStore`, not a new port
 
@@ -356,6 +398,43 @@ The framework's existing `success` path expects a flow (for `client_id`,
 
 This is the one architectural change vs. OAuth/OIDC methods. Spelled
 out in Session 2.
+
+### SAML-AD8 — SAML is inbound-only; no SAML IdP role
+
+**Decided 2026-09-05.** The library consumes assertions and will not
+issue them. SAML SP is an intake ramp: it lets an enterprise's existing
+IdP feed identity into the OIDC issuer this library already is.
+Downstream apps keep speaking OIDC.
+
+Rationale — the binding constraint is **sessions**, not scope. A SAML
+IdP must run an SSO session ("logged in 20 minutes ago, don't
+re-prompt"); one-login-many-apps is the entire point. This library
+deliberately owns no session concept — that is why `onLogout` is
+host-collaborative and why SP-initiated SLO makes the host supply the
+`NameID`. Serving the IdP role means either reopening that boundary or
+pushing a large new burden onto every host. Secondary costs: a SAML SP
+registry parallel to `ClientConfig`, custody + rotation of an assertion
+signing key (awkward under KMS, which `KeyStore` handles fine for JWTs),
+a new terminal `FlowRecord` disposition (today every flow ends in
+`saveEncryptedCode`), and IdP-side SLO fan-out to N registered SPs. It
+also does not fit `AuthMethod` the way SP did (SAML-AD3) — it is a
+second protocol front-end beside `/authorize` + `/token`.
+
+Deferring is cheap: the role is purely additive and costs about the same
+later. Building it now buys permanent surface area — signing keys to
+custody forever, registry migrations, and every downstream app that
+trusts our signature becomes something we can break.
+
+SCIM sits on the same side of this line: it is inbound directory sync,
+not outbound provisioning, so it reinforces this posture rather than
+straining it. See `scim-plan.md` SCIM-AD1.
+
+**Reopen only if** a named customer needs a specific downstream app that
+cannot speak OIDC (check first — much SAML-era SaaS has since added it),
+or the host repositions as a workforce-identity product. If reopened, it
+belongs in its own subpath/package, not the core — same isolation as
+SAML-AD2. Supersedes the looser "revisit if a deployment requires a SAML
+hub" wording in Non-Goals.
 
 ## Public API Surface
 
@@ -599,14 +678,15 @@ end-to-end through `dispatchMethod` in `test/methods/saml-sp/acs.test.ts`.
 | 3 | Signature verifies vs configured cert (within rotation window) | node-saml + `selectActiveCertPems` | `attack: signed with wrong key` |
 | 4 | Issuer match | node-saml `idpIssuer` | covered by valid + audience cases |
 | 5 | AudienceRestriction = SP entityID | node-saml `audience` | `attack: audience mismatch` |
-| 6 | SubjectConfirmationData/@Recipient = ACS URL | **NOT enforced by node-saml — deferred** (see below) | — |
+| 6 | SubjectConfirmationData/@Recipient = ACS URL | `checkRecipient` in `acs.ts` (node-saml does not check it) — denies on mismatch **and** on absent Recipient | `recipient mismatch`, `noRecipient` |
 | 7 | InResponseTo single-use | node-saml `validateInResponseTo: always` + `methodScratch` cache | `replay rejected` |
 | 8 | Conditions/SubjectConfirmation timestamps within skew | node-saml `acceptedClockSkewMs` | `attack: expired conditions` |
 | 9 | Replay | for SP-init, subsumed by item 7 (request id is single-use); explicit assertion-ID dedup lands with IdP-init (Session 2) | `replay rejected` |
 | 10 | Signed-references-only extraction (XSW) | node-saml `getVerifiedXml` → `getSignedReferences()`; exactly-one-ID + signature-is-parent checks | `attack: signature-wrapping (XSW)` |
 | 11 | NameID comment safety (CVE-2018-0489 class) | inherited from node-saml's verified-content read | covered by XSW + valid cases |
 
-**Item 6 (Recipient) — deferred, documented.** node-saml validates
+**Item 6 (Recipient) — shipped in Phase 2; historical rationale for
+the Phase 1 deferral follows.** node-saml validates
 Issuer, AudienceRestriction, Conditions/SubjectConfirmation timestamps
 and InResponseTo, but does **not** validate
 `SubjectConfirmationData/@Recipient`. Audience (= our SP entityID,
@@ -959,11 +1039,10 @@ host-driven method route, not an `/end_session` side effect;
   mounts already existed. Phase 8 sessions touch `src/domain/`
   token/grant code; the one overlap point is `src/domain/callback.ts`,
   already landed.
-- SCIM is **deferred** until SAML Phase 1 ships (per current
-  prioritization discussion). SCIM and SAML are commercially adjacent
-  but technically independent; once SAML Phase 1 unblocks the
-  "supports SAML" RFP claim, SCIM becomes the next-largest enterprise
-  unlock.
+- SCIM was **deferred** until SAML shipped. It has: see
+  `scim-plan.md` (2026-09-05) — Option B, library owns the protocol and
+  a new `ScimDirectory` port, host owns persistence. Planning only,
+  awaiting sign-off on two decisions.
 
 ## Cross-cutting Decisions Captured
 
@@ -1043,10 +1122,23 @@ matrix only).
    logout intent and drives whatever downstream notification it
    needs. Consistent with the locked "no new ports" cross-cutting
    decision and the host-collaborative boundary.
-4. **AuthnContext class refs.** Some IdPs require us to assert
-   `AuthnContextClassRef` (e.g., MFA-required). Worth a config option?
-   Defer to Phase 3 polish unless raised in customer feedback before
-   then.
+4. ~~**AuthnContext class refs.** Some IdPs require us to assert
+   `AuthnContextClassRef` (e.g., MFA-required). Worth a config
+   option?~~ **Resolved (2026-09-05)** — yes, and it turned out to be
+   two features plus a latent interop bug:
+
+   - **Requesting** — `SamlSpConfig.requestedAuthnContext`
+     (`classRefs` + `comparison`).
+   - **Verifying** — `SamlSpProperties.authnContextClassRef` surfaces
+     what the IdP actually asserted, read from the signed assertion.
+     Requesting is not proof; step-up decisions need the returned value.
+   - **The bug** — we never set node-saml's authn-context options, so
+     its defaults applied: every AuthnRequest we emitted carried
+     `<RequestedAuthnContext Comparison="exact">` demanding
+     `PasswordProtectedTransport`. An IdP running an MFA policy can
+     answer that with `NoAuthnContext` instead of a login. The default
+     is now inverted — no `RequestedAuthnContext` unless configured —
+     and `authn-options.test.ts` keeps it inverted.
 
 ## Risks & Mitigations
 

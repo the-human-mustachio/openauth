@@ -15,10 +15,13 @@ and a handful of OAuth extension RFCs. This page lists what's enforced.
 | **RFC 7009** Token revocation | `/revoke`. Confidential clients must authenticate; wrong-client revoke returns `invalid_grant` without consuming. |
 | **RFC 7662** Token introspection | `/introspect`. Client auth required; cross-client introspect returns `{active: false}` (don't leak token existence). |
 | **RFC 8693** Token exchange | Optional via `IdPOptions.exchangeAudience` hook. If hook isn't supplied, exchange requests return `unsupported_grant_type`. |
-| **RFC 9126** PAR | Not yet shipped (Phase 8 follow-up). |
-| **RFC 9449** DPoP | Not yet shipped (Phase 8 follow-up). |
-| **RFC 8705** mTLS client auth | Not yet shipped (Phase 8 follow-up). |
-| **RFC 7591** DCR | Not yet shipped. Hosts can register clients via `ConfigStore` directly. |
+| **RFC 9126** PAR | `/par`. Shipped. |
+| **RFC 9449** DPoP | Sender-constrained access tokens. Shipped. |
+| **RFC 7591** DCR | `/register`, via the `registerClient` host hook. Shipped. |
+| **OIDC RP-Initiated Logout 1.0** | `/end_session`, with registered `post_logout_redirect_uris`. |
+| **SAML 2.0 Web Browser SSO** | Service Provider only — we consume assertions, never issue them. SP- and IdP-initiated SSO, SP metadata, front-channel Single Logout, encrypted assertions. Node-only, on the `/methods/saml-sp` subpath. |
+| **SCIM 2.0** (RFC 7643 / 7644) | Users and Groups at `/scim/v2/*`. The library owns the protocol; your `ScimDirectory` owns the data. Filtering supports the subset real IdPs emit; `/Bulk`, sorting and ETags are not implemented and are advertised as unsupported. |
+| **RFC 8705** mTLS client auth | Not shipped — needs a host-side TLS termination contract. |
 
 ## Behavioral contracts
 
@@ -88,13 +91,14 @@ function hashClientSecret(plain: string): string {
 ```
 
 (This format is documented in `domain/token.ts:hashClientSecret`. A
-future Phase 8 session migrates production deployments to argon2id; the
-storage shape — `string` — won't change.)
+future release migrates production deployments to argon2id; the storage
+shape — `string` — won't change.)
 
 ## Public-API third-party type leakage
 
 The public API never reaches a `jose` / `hono` / `oauth4webapi` /
-`@simplewebauthn/server` / `aws4fetch` type into a re-exported type.
+`@simplewebauthn/server` / `aws4fetch` / `@node-saml/node-saml` type
+into a re-exported type.
 Consumers that `file:`-link or `npm link` this package against their own
 copy of those libraries will not hit duplicate-type errors.
 
@@ -112,20 +116,22 @@ What that means in practice:
 
 Enforced by `test/types/public-api-no-thirdparty-leaks.test.ts`.
 
-## Phase-8 features that are NOT yet shipped
+## Not shipped
 
 If you need any of these and want them on the library side rather than
 in front of it, raise scope before integrating:
 
-- **DPoP (RFC 9449)** — sender-constrained tokens. Bearer tokens only
-  for now.
-- **PAR (RFC 9126)** — pushed authorization requests.
 - **mTLS client auth (RFC 8705)** — relies on a host-side
   `extractClientCert(req)` hook that doesn't exist yet.
-- **Dynamic Client Registration (RFC 7591)** — host-callable helper
-  pattern, not landed yet.
 - **Rate-limiter port** — put rate limits in your proxy / CDN / WAF in
-  front of the IdP for now.
+  front of the IdP for now. This one is **not optional in production**:
+  the library applies no rate limits at any endpoint.
+- **A SAML IdP role** — we consume assertions, never issue them, and
+  that is a standing decision rather than a gap. Serving it would need
+  an SSO session this library deliberately does not own.
+- **SCIM `/Bulk`, sorting, ETags** — optional in the spec and not
+  required by Okta or Entra. The discovery document advertises them as
+  unsupported rather than claiming otherwise.
 - **Logger / Tracer ports** — wrap `idp.handle` with your own
   request-logging middleware until structured ports land.
 
