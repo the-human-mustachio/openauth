@@ -150,6 +150,37 @@ export interface ClientInput {
    */
   issuer?: string
   /**
+   * The client secret, for **confidential** clients only.
+   *
+   * Supply this for a server-side app registered as a confidential client;
+   * `exchange()` and `refresh()` then authenticate at `/token`. Omit it for
+   * public clients (SPA, mobile, CLI) — a secret cannot be kept in code
+   * that ships to users, and the IdP requires PKCE there instead.
+   *
+   * Without this, a confidential client's `exchange()` is rejected with
+   * `invalid_client`: the token endpoint has no way to authenticate it.
+   *
+   * @example
+   * ```ts
+   * {
+   *   clientID: "my-server-app",
+   *   clientSecret: process.env.CLIENT_SECRET
+   * }
+   * ```
+   */
+  clientSecret?: string
+  /**
+   * How to present `clientSecret` at the token endpoint.
+   *
+   * `client_secret_basic` (the default) sends HTTP Basic credentials, which
+   * is what RFC 6749 §2.3.1 prefers and what the IdP parses first.
+   * `client_secret_post` puts them in the form body. Both are advertised in
+   * discovery as `token_endpoint_auth_methods_supported`.
+   *
+   * @default "client_secret_basic"
+   */
+  tokenEndpointAuthMethod?: "client_secret_basic" | "client_secret_post"
+  /**
    * Optionally, override the internally used fetch function.
    *
    * This is useful if you are using a polyfilled fetch function in your application and you
@@ -159,18 +190,6 @@ export interface ClientInput {
 }
 
 export interface AuthorizeOptions {
-  /**
-   * Enable the PKCE flow. This is for SPA apps.
-   *
-   * ```ts
-   * {
-   *   pkce: true
-   * }
-   * ```
-   *
-   * @default false
-   */
-  pkce?: boolean
   /**
    * The provider you want to use for the OAuth flow.
    *
@@ -306,7 +325,13 @@ export interface VerifyOptions {
    */
   issuer?: string
   /**
-   * @internal
+   * The audience to require on the token.
+   *
+   * Defaults to this client's `clientID`, which is what the IdP puts in
+   * `aud` for an ordinary login. Set this when verifying a token minted
+   * for a **resource** — an `/authorize` call that passed `audience` puts
+   * that value in `aud` instead, so a resource server verifying it must
+   * name itself here.
    */
   audience?: string
   /**
@@ -320,9 +345,14 @@ export interface VerifyOptions {
 
 export interface VerifyResult<T extends SubjectSchema> {
   /**
-   * This is always `undefined` when the verify is successful.
+   * This is always `false` when the verify is successful.
+   *
+   * A literal, not an optional — `err?: undefined` would leave the
+   * property present on this arm, so `"err" in result` narrowed nothing
+   * and callers had to test truthiness instead. Matches `ExchangeSuccess`
+   * and `RefreshSuccess`.
    */
-  err?: undefined
+  err: false
   /**
    * Returns the refreshed tokens only if they’ve been refreshed.
    *
@@ -365,40 +395,30 @@ export interface VerifyError {
  */
 export interface Client {
   /**
-   * Start the autorization flow. For example, in SSR sites.
+   * Start the authorization code flow.
    *
    * ```ts
-   * const { url } = await client.authorize(<redirect_uri>, "code")
+   * const { challenge, url } = await client.authorize(<redirect_uri>)
+   * // store `challenge`, then redirect the user to `url`
    * ```
    *
-   * This takes a redirect URI and the type of flow you want to use. The redirect URI is the
-   * location where the user will be redirected to after the flow is complete.
+   * Returns the URL to send the user to, and a `challenge` carrying the
+   * CSRF `state` and the PKCE `verifier`. Persist the challenge (a cookie
+   * server-side, `sessionStorage` in a SPA) and hand the verifier back to
+   * {@link Client.exchange} when the user returns.
    *
-   * Supports both the _code_ and _token_ flows. We recommend using the _code_ flow as it's more
-   * secure.
+   * **PKCE is always used.** The IdP requires it for public clients, and
+   * OAuth 2.1 §7.5.1 recommends it for confidential ones too, so there is
+   * no reason to offer it as a toggle. Before 0.14.0 it was opt-in and
+   * off by default, which meant the documented server-side flow could not
+   * complete against a public client at all.
    *
-   * :::tip
-   * This returns a URL to redirect the user to. This starts the OAuth flow.
-   * :::
-   *
-   * This returns a URL to the auth server. You can redirect the user to the URL to start the
-   * OAuth flow.
-   *
-   * For SPA apps, we recommend using the PKCE flow.
-   *
-   * ```ts {4}
-   * const { challenge, url } = await client.authorize(
-   *   <redirect_uri>,
-   *   "code",
-   *   { pkce: true }
-   * )
-   * ```
-   *
-   * This returns a redirect URL and a challenge that you need to use later to verify the code.
+   * Only the authorization code flow is supported. The implicit flow
+   * (`response_type=token`) is removed in OAuth 2.1 and the IdP rejects
+   * it with `unsupported_response_type`.
    */
   authorize(
     redirectURI: string,
-    response: "code" | "token",
     opts?: AuthorizeOptions,
   ): Promise<AuthorizeResult>
   /**
@@ -593,74 +613,76 @@ export function createClient(input: ClientInput): Client {
     return result
   }
 
-  const result = {
-    async authorize(
-      redirectURI: string,
-      response: "code" | "token",
-      opts?: AuthorizeOptions,
+  /**
+   * Client authentication for the token endpoint (RFC 6749 §2.3.1).
+   * Applied only when a `clientSecret` is configured; public clients
+   * authenticate with PKCE instead and send neither.
+   */
+  function applyClientAuth(
+    headers: Record<string, string>,
+    body: URLSearchParams,
+  ) {
+    const secret = input.clientSecret
+    if (secret === undefined) return
+    if (
+      (input.tokenEndpointAuthMethod ?? "client_secret_basic") ===
+      "client_secret_post"
     ) {
-      const result = new URL(issuer + "/authorize")
+      body.set("client_secret", secret)
+      return
+    }
+    // §2.3.1 requires form-urlencoding each half before base64.
+    const cred = `${encodeURIComponent(input.clientID)}:${encodeURIComponent(secret)}`
+    headers["authorization"] = `Basic ${btoa(cred)}`
+  }
+
+  const result = {
+    async authorize(redirectURI: string, opts?: AuthorizeOptions) {
+      const wk = await getIssuer()
+      const url = new URL(wk.authorization_endpoint)
+      // PKCE unconditionally: required by the IdP for public clients, and
+      // recommended for confidential ones by OAuth 2.1 §7.5.1.
+      const pkce = await generatePKCE()
       const challenge: Challenge = {
         state: crypto.randomUUID(),
+        verifier: pkce.verifier,
       }
-      result.searchParams.set("client_id", input.clientID)
-      result.searchParams.set("redirect_uri", redirectURI)
-      result.searchParams.set("response_type", response)
-      result.searchParams.set("state", challenge.state)
-      if (opts?.provider) result.searchParams.set("provider", opts.provider)
+      url.searchParams.set("client_id", input.clientID)
+      url.searchParams.set("redirect_uri", redirectURI)
+      url.searchParams.set("response_type", "code")
+      url.searchParams.set("state", challenge.state)
+      url.searchParams.set("code_challenge_method", "S256")
+      url.searchParams.set("code_challenge", pkce.challenge)
+      if (opts?.provider) url.searchParams.set("provider", opts.provider)
       if (opts?.scope !== undefined) {
         const scope = Array.isArray(opts.scope)
           ? opts.scope.join(" ")
           : opts.scope
-        if (scope) result.searchParams.set("scope", scope)
+        if (scope) url.searchParams.set("scope", scope)
       }
-      if (opts?.pkce && response === "code") {
-        const pkce = await generatePKCE()
-        result.searchParams.set("code_challenge_method", "S256")
-        result.searchParams.set("code_challenge", pkce.challenge)
-        challenge.verifier = pkce.verifier
-      }
-      return {
-        challenge,
-        url: result.toString(),
-      }
-    },
-    /**
-     * @deprecated use `authorize` instead, it will do pkce by default unless disabled with `opts.pkce = false`
-     */
-    async pkce(
-      redirectURI: string,
-      opts?: {
-        provider?: string
-      },
-    ) {
-      const result = new URL(issuer + "/authorize")
-      if (opts?.provider) result.searchParams.set("provider", opts.provider)
-      result.searchParams.set("client_id", input.clientID)
-      result.searchParams.set("redirect_uri", redirectURI)
-      result.searchParams.set("response_type", "code")
-      const pkce = await generatePKCE()
-      result.searchParams.set("code_challenge_method", "S256")
-      result.searchParams.set("code_challenge", pkce.challenge)
-      return [pkce.verifier, result.toString()]
+      return { challenge, url: url.toString() }
     },
     async exchange(
       code: string,
       redirectURI: string,
       verifier?: string,
     ): Promise<ExchangeSuccess | ExchangeError> {
-      const tokens = await f(issuer + "/token", {
+      const wk = await getIssuer()
+      const body = new URLSearchParams({
+        code,
+        redirect_uri: redirectURI,
+        grant_type: "authorization_code",
+        client_id: input.clientID,
+      })
+      if (verifier) body.set("code_verifier", verifier)
+      const headers: Record<string, string> = {
+        "Content-Type": "application/x-www-form-urlencoded",
+      }
+      applyClientAuth(headers, body)
+      const tokens = await f(wk.token_endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          code,
-          redirect_uri: redirectURI,
-          grant_type: "authorization_code",
-          client_id: input.clientID,
-          code_verifier: verifier || "",
-        }).toString(),
+        headers,
+        body: body.toString(),
       })
       const json = (await tokens.json()) as any
       if (!tokens.ok) {
@@ -698,15 +720,24 @@ export function createClient(input: ClientInput): Client {
           }
         }
       }
-      const tokens = await f(issuer + "/token", {
+      const wk = await getIssuer()
+      // `client_id` was previously omitted here too. The IdP rejects a
+      // confidential client's refresh outright when the request carries no
+      // client identity (RFC 6749 §6), so rotation was unreachable for
+      // exactly the clients that most need it.
+      const body = new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refresh,
+        client_id: input.clientID,
+      })
+      const headers: Record<string, string> = {
+        "Content-Type": "application/x-www-form-urlencoded",
+      }
+      applyClientAuth(headers, body)
+      const tokens = await f(wk.token_endpoint, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          refresh_token: refresh,
-        }).toString(),
+        headers,
+        body: body.toString(),
       })
       const json = (await tokens.json()) as any
       if (!tokens.ok) {
@@ -733,55 +764,40 @@ export function createClient(input: ClientInput): Client {
     ): Promise<VerifyResult<T> | VerifyError> {
       const jwks = await getJWKS()
       try {
-        // Two issuer shapes are supported:
+        // RFC 9068 §4 / RFC 7519 §4.1.3 — `aud` MUST be checked. Until
+        // 0.14.0 only `iss` was, so any client sharing an issuer accepted
+        // any other client's token: a confused deputy across every RP on
+        // the deployment.
         //
-        //   1. New `createIdP` — `AccessTokenClaims.claim = { type,
-        //      properties }`. No `mode` claim.
-        //   2. Legacy `issuer({...})` — `payload.type` / `payload.properties`
-        //      at the top level, gated by `payload.mode === "access"` so the
-        //      same key ring couldn't sign a refresh token that verified as
-        //      an access token.
-        //
-        // Prefer the nested shape, fall back to the top-level shape.
+        // The IdP sets `aud` to the requested `audience` when one was
+        // asked for at /authorize, and to the client id otherwise — so a
+        // resource server verifying a resource-scoped token passes its own
+        // identifier via `options.audience`, and everyone else gets the
+        // right default for free.
         const result = await jwtVerify<{
           claim?: {
             type: keyof T
             properties: v1.InferInput<T[keyof T]>
           }
-          mode?: "access" | "refresh"
-          type?: keyof T
-          properties?: v1.InferInput<T[keyof T]>
         }>(token, jwks, {
           issuer,
+          audience: options?.audience ?? input.clientID,
         })
         const claim = result.payload.claim
-        let subjectType: keyof T | undefined
-        let subjectProperties: v1.InferInput<T[keyof T]> | undefined
-        if (claim && typeof claim.type === "string") {
-          // New shape — `mode` is not emitted; nested claim is authoritative.
-          subjectType = claim.type
-          subjectProperties = claim.properties
-        } else if (
-          result.payload.mode === "access" &&
-          typeof result.payload.type === "string"
-        ) {
-          // Legacy shape — keep the mode gate so a refresh-token payload
-          // signed under the same keys does not verify as an access token.
-          subjectType = result.payload.type
-          subjectProperties = result.payload.properties
-        }
-        if (subjectType === undefined) {
+        if (!claim || typeof claim.type !== "string") {
           return { err: new InvalidSubjectError() }
         }
+        const subjectType = claim.type
         const schema = subjects[subjectType]
         if (!schema) {
           return { err: new InvalidSubjectError() }
         }
-        const validated = await schema["~standard"].validate(subjectProperties)
+        const validated = await schema["~standard"].validate(claim.properties)
         if (validated.issues) {
           return { err: new InvalidSubjectError() }
         }
         return {
+          err: false,
           aud: result.payload.aud as string,
           subject: {
             type: subjectType,

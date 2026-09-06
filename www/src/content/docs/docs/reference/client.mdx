@@ -20,51 +20,89 @@ The helper is optional — any OAuth client library can talk to the IdP.
 Use this when you want a thin typed wrapper without pulling another
 dependency.
 
-## Server-side code flow (SSR sites)
+## Public vs confidential clients
+
+A **public** client — a SPA, a mobile or desktop app, a CLI — ships to
+users and cannot keep a secret, so it authenticates with PKCE alone. That
+is the default: construct the client with a `clientID` only.
+
+A **confidential** client is server-side code where a secret genuinely
+stays secret. Pass `clientSecret`, and `exchange` and `refresh` will
+authenticate at the token endpoint:
+
+```ts
+const client = createClient({
+  clientID: "my-server-app",
+  clientSecret: process.env.CLIENT_SECRET,
+  issuer: "https://auth.yourapp.com",
+  // "client_secret_basic" (default) or "client_secret_post"
+  tokenEndpointAuthMethod: "client_secret_basic",
+})
+```
+
+Without `clientSecret`, a confidential client's `exchange()` fails with
+`invalid_client`: the token endpoint has no way to authenticate it.
+
+## The flow
+
+Identical for both kinds of client. **PKCE is always used** — the IdP
+requires it for public clients, and OAuth 2.1 §7.5.1 recommends it for
+confidential ones too — so `authorize()` always returns a `challenge`
+whose `verifier` you must hand back to `exchange()`.
 
 ```ts
 const redirectUri = "https://app.example.com/callback"
 
-// 1. Redirect the user to the IdP.
-const { url } = await client.authorize(redirectUri, "code")
-return Response.redirect(url, 302)
+// 1. Start the flow and persist the challenge. Server-side, put it in a
+//    short-lived signed cookie; in a SPA, sessionStorage.
+const { challenge, url } = await client.authorize(redirectUri)
+sessionStorage.setItem("challenge", JSON.stringify(challenge))
+location.href = url // or Response.redirect(url, 302)
 
-// 2. Handle the callback with `?code=...`.
-const tokens = await client.exchange(query.get("code")!, redirectUri)
-// tokens.access, tokens.refresh, tokens.expiresIn
+// 2. Back at your redirect URI with `?code=...`.
+const saved = JSON.parse(sessionStorage.getItem("challenge")!)
+const params = new URLSearchParams(location.search)
+
+// `state` is your CSRF defence — compare it before exchanging.
+if (params.get("state") !== saved.state) throw new Error("state mismatch")
+
+const exchanged = await client.exchange(
+  params.get("code")!,
+  redirectUri,
+  saved.verifier,
+)
+if (exchanged.err) throw exchanged.err
 
 // 3. Verify on subsequent requests. If `refresh` is supplied, the helper
-//    will refresh automatically when access is expired and return the
-//    rotated tokens to be re-set on the client.
-const verified = await client.verify(subjects, cookies.get("access_token")!, {
-  refresh: cookies.get("refresh_token") || undefined,
+//    refreshes automatically when access has expired and returns the
+//    rotated tokens to re-set on the client.
+const verified = await client.verify(subjects, exchanged.tokens.access, {
+  refresh: exchanged.tokens.refresh,
 })
+if (verified.err) throw verified.err
 console.log(verified.subject.type, verified.subject.properties)
-if (verified.refresh) {
-  // Set rotated tokens back onto the cookies.
+if (verified.tokens) {
+  // Rotated — write these back to your cookies / storage.
 }
 ```
 
-## SPA / mobile (PKCE)
+Only the authorization code flow is supported. `response_type=token` (the
+implicit flow) is removed in OAuth 2.1 and the IdP rejects it.
+
+## Audience
+
+`verify()` checks the token's `aud` against this client's `clientID`, so a
+token minted for one relying party will not verify at another sharing the
+same issuer.
+
+If you requested a resource `audience` at `/authorize`, the IdP puts that
+value in `aud` instead. A resource server verifying such a token names
+itself:
 
 ```ts
-// 1. Kick off the flow with PKCE.
-const { challenge, url } = await client.authorize(redirectUri, "code", {
-  pkce: true,
+const verified = await client.verify(subjects, token, {
+  audience: "https://api.example.com",
 })
-localStorage.setItem("challenge", JSON.stringify(challenge))
-location.href = url
-
-// 2. Handle the redirect back to your app.
-const challenge = JSON.parse(localStorage.getItem("challenge")!)
-const exchanged = await client.exchange(
-  new URLSearchParams(location.search).get("code")!,
-  redirectUri,
-  challenge.verifier,
-)
-if (exchanged.err) throw exchanged.err
-localStorage.setItem("access_token", exchanged.tokens.access)
-localStorage.setItem("refresh_token", exchanged.tokens.refresh)
 ```
 
 ## Verifying tokens on the API side
@@ -98,7 +136,7 @@ helper's `verify` narrows `verified.subject` to the right shape based on
 ```ts
 const verified = await client.verify(subjects, accessToken)
 if (verified.subject.type === "admin") {
-  verified.subject.properties.roles  // typed as string[]
+  verified.subject.properties.roles // typed as string[]
 } else if (verified.subject.type === "user") {
   verified.subject.properties.userId // typed as string
 }
@@ -112,10 +150,24 @@ This is the main reason to use the helper over hand-rolling `jose`.
 
 ```ts
 type Client = {
-  authorize(redirectUri: string, response: "code", opts?: AuthorizeOptions): Promise<AuthorizeResult>
-  exchange(code: string, redirectUri: string, verifier?: string): Promise<ExchangeSuccess | ExchangeError>
-  refresh(refreshToken: string, opts?: RefreshOptions): Promise<RefreshSuccess | RefreshError>
-  verify<T extends SubjectSchema>(subjects: T, accessToken: string, opts?: VerifyOptions): Promise<VerifyResult<T> | VerifyError>
+  authorize(
+    redirectUri: string,
+    opts?: AuthorizeOptions,
+  ): Promise<AuthorizeResult>
+  exchange(
+    code: string,
+    redirectUri: string,
+    verifier?: string,
+  ): Promise<ExchangeSuccess | ExchangeError>
+  refresh(
+    refreshToken: string,
+    opts?: RefreshOptions,
+  ): Promise<RefreshSuccess | RefreshError>
+  verify<T extends SubjectSchema>(
+    subjects: T,
+    accessToken: string,
+    opts?: VerifyOptions,
+  ): Promise<VerifyResult<T> | VerifyError>
 }
 ```
 

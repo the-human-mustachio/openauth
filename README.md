@@ -147,19 +147,32 @@ const client = createClient({
   issuer: "https://auth.yourapp.com",
 })
 
-// Server-side code flow:
-const { url } = await client.authorize(redirectUri, "code")
-// ... after the user returns with ?code=...
-const tokens = await client.exchange(code, redirectUri)
-const verified = await client.verify(subjects, tokens.access, {
-  refresh: tokens.refresh,
-})
+// 1. Start the flow. PKCE is always used, so keep the challenge:
+//    a cookie server-side, sessionStorage in a SPA.
+const { challenge, url } = await client.authorize(redirectUri)
+// ... redirect the user to `url`; they come back with ?code=...
 
-// SPA / mobile (PKCE):
-const { challenge, url } = await client.authorize(redirectUri, "code", {
-  pkce: true,
-})
+// 2. Exchange, passing back the verifier you stored.
 const exchanged = await client.exchange(code, redirectUri, challenge.verifier)
+if (exchanged.err) throw exchanged.err
+
+// 3. Verify. `aud` is checked against clientID.
+const verified = await client.verify(subjects, exchanged.tokens.access, {
+  refresh: exchanged.tokens.refresh,
+})
+if (verified.err) throw verified.err
+console.log(verified.subject)
+```
+
+For a **confidential** client (a server-side app with a secret), add it at
+construction — `exchange` and `refresh` then authenticate at `/token`:
+
+```ts
+const client = createClient({
+  clientID: "my-server-app",
+  clientSecret: process.env.CLIENT_SECRET,
+  issuer: "https://auth.yourapp.com",
+})
 ```
 
 ## Repo layout

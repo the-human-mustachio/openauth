@@ -299,4 +299,3 @@ change.
 4. Share callback state extraction so middleware recognizes `RelayState`.
 5. Wire observation hooks and server-side subject validation.
 6. Reconcile dynamic-registration ownership and remove dead code.
-

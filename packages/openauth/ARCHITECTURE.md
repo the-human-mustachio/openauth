@@ -398,9 +398,13 @@ CI lint additionally flags methods that import `cookie` /
   internal user record, decides what subject type to issue (`"user"` vs
   `"admin"` vs `"system"`), and returns the typed claim that becomes the
   JWT subject.
-- `IdPOptions.hooks.onSuccess` (optional) is for **observation only** —
-  audit, analytics, side effects. Does not influence the issued
-  subject; runs after the claim is built.
+- The returned claim is **validated against `IdPOptions.subjects`** before
+  anything is signed, and the parsed value is what gets persisted and
+  issued. A claim that violates the host's own schema fails issuance with
+  a `server_error` and an `invalid_subject_claim` audit event.
+- Observation is `AuditLog`'s job — `authorize_started` /
+  `authorize_succeeded` / `authorize_failed`, then `token_issued`. There
+  is deliberately no second hook surface for it.
 
 ## TTLs — distinct lifetimes, not interchangeable
 
@@ -753,9 +757,11 @@ algs and `alg: "none"` are rejected at parse time.
 (redirect_uris present + absolute URIs, recognized
 `token_endpoint_auth_method`), and defers persistence to the
 `IdPOptions.registerClient` host hook. The framework mints a
-`client_id` (and `client_secret` for confidential clients) and offers
-both to the host, which writes through its own `ConfigStore` and
-returns the final `ClientConfig`. Response is HTTP 201 per §3.2.1
+`client_id` (and `client_secret` for confidential clients), assembles a
+ready-to-persist `ClientConfig`, and passes both to the host, which
+writes through its own `ConfigStore` and returns the final
+`ClientConfig`. Entropy, hashing and the discriminated union stay in the
+library; the table stays the host's. Response is HTTP 201 per §3.2.1
 with `client_secret_expires_at: 0`. When the hook is not configured,
 the endpoint returns `invalid_request: "dynamic client registration
 is not enabled on this deployment"` so RPs get a clear signal rather

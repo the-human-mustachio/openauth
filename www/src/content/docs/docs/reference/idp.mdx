@@ -40,11 +40,6 @@ type IdPOptions = {
 
   theme?: ThemeConfig
 
-  hooks?: {
-    onSuccess?: (event: SuccessEvent) => Promise<void>
-    onFailure?: (event: FailureEvent) => Promise<void>
-  }
-
   persistUpstreamTokens?: PersistUpstreamTokens
   exchangeAudience?: ExchangeAudience
   renderPicker?: RenderPicker
@@ -174,6 +169,19 @@ See [Methods](/docs/concepts/methods/) for the `id` vs `kind` distinction.
 The subject schema — a `Record<string, StandardSchema>`. See
 [Subjects](/docs/reference/subjects/).
 
+**Enforced at issuance.** The claim your `success` callback returns is
+validated against these schemas before anything is signed, and the
+**parsed** value is what lands in the token — so a schema carrying a
+transform or a default actually applies. A claim naming an undeclared
+subject type, or properties that fail the schema, fails issuance with a
+`server_error` and an `invalid_subject_claim` audit event carrying schema
+paths (never values, which may be personal data).
+
+Before 0.14.0 this option was required and never read: the server signed
+whatever `success` returned, and the mismatch surfaced later in
+`client.verify()` — in a different service, after the token had been
+signed and written into the refresh payload.
+
 ### `success` — required
 
 Maps method result → issued subject. Runs at `/token` time, after PKCE
@@ -182,27 +190,18 @@ check, before tokens are minted.
 ```ts
 type SuccessMapInput = {
   tenant: TenantContext
-  methodId: string                          // tenant-local instance id
-  methodKind: string                        // factory kind
-  providerSubject: string                   // stable upstream id
-  properties: unknown                       // typed per method
+  methodId: string // tenant-local instance id
+  methodKind: string // factory kind
+  providerSubject: string // stable upstream id
+  properties: unknown // typed per method
   context: Record<string, unknown> | null
 }
 
 success: async (input) => ({
   type: "user",
-  properties: { /* shape matching subjects.user */ },
+  properties: {/* shape matching subjects.user */},
 })
 ```
-
-### `hooks` (optional)
-
-- `onSuccess` — fires after the subject claim has been minted.
-  Observation only; does NOT influence the issued subject. Use for
-  audit, analytics, side effects.
-- `onFailure` — fires on a failed attempt. Carries enough id information
-  for operators to find the offending flow / config row without leaking
-  secrets.
 
 ### `persistUpstreamTokens` (optional)
 
@@ -222,11 +221,14 @@ If absent, exchange requests return `unsupported_grant_type` — the
 graceful-degradation default.
 
 ```ts
-exchangeAudience: async (currentClaim, { audience, clientId, fromTenantId }) => {
+exchangeAudience: async (
+  currentClaim,
+  { audience, clientId, fromTenantId },
+) => {
   // Decide whether `currentClaim` may obtain a token at `audience`.
   const allowed = await db.checkExchange(currentClaim, audience)
   if (!allowed) return authError.invalidTarget(audience)
-  return { type: "user", properties: { /* role at the new audience */ } }
+  return { type: "user", properties: {/* role at the new audience */} }
 }
 ```
 
