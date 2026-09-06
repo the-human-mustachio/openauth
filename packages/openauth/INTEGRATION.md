@@ -1706,6 +1706,60 @@ custom
 `dpopBound` boolean flags so dashboards can filter by feature without
 re-parsing the access token.
 
+`token_issued` carries `subjectId`, but **not** the claim it was derived
+from, so it cannot on its own tell you which of your users a token
+belongs to. Use `IdPOptions.onTokenIssued` for that — see below.
+
+---
+
+## 11a. Revoking a user's tokens (offboarding)
+
+`TokenStore.revokeBySubject(tenantId, subjectId)` and the exported
+`revokeAllForSubject` both take the **derived subject id** — the value the
+library signs as `sub`. It is computed inside the library from the claim
+and the receiving client's `sectorIdentifier`, and `onTokenIssued` is the
+only place it is surfaced:
+
+```ts
+const idp = createIdP({
+  // ...
+  onTokenIssued: async ({ tenant, subjectId, claim }) => {
+    await db.subjectIds.record({
+      tenantId: tenant.id,
+      subjectId,
+      principalId: (claim.properties as { userId: string }).userId,
+    })
+  },
+})
+
+// Later, when a user is deactivated or a membership is removed:
+for (const subjectId of await db.subjectIds.forPrincipal(principalId)) {
+  await revokeAllForSubject(tenantId, subjectId, { tokenStore, clock })
+}
+```
+
+Why it matters: refresh rotation does **not** re-consult your `success`
+callback. `refreshTokens` mints from the claim captured on the stored
+refresh payload, so an offboarded user's chain keeps producing valid
+access tokens until it is revoked. Your own resource servers can re-check
+your database on each request, but any other relying party verifying
+against the JWKS cannot — and in a B2B deployment the customer's backend
+is usually the consumer.
+
+**Record every subject id you see; do not overwrite.** One principal has
+many, and both causes are silent:
+
+- **Pairwise clients** — `sectorIdentifier` is mixed into the derivation
+  (OIDC Core §8.1), so the same person has a different `sub` per sector.
+- **Mutable claim properties** — the derivation hashes
+  `claim.properties`, so if `success` returns an email or a role, the
+  subject id changes when that value does, and older chains persist under
+  the previous id. Returning one immutable id avoids this entirely, and
+  is what OIDC Core §2 expects of `sub`.
+
+The hook runs before the refresh token is persisted, so throwing aborts
+the grant rather than leaving a chain you have no record of.
+
 ---
 
 ## 12. Client-secret hashing

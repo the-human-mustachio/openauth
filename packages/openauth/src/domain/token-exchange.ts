@@ -36,7 +36,7 @@ import type { ConfigStore } from "../ports/config-store"
 import type { KeyStore } from "../ports/key-store"
 import type { TokenStore } from "../ports/token-store"
 import { authError, type AuthError } from "../types/error"
-import type { ExchangeAudience } from "../types/idp"
+import type { ExchangeAudience, OnTokenIssued } from "../types/idp"
 import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { SubjectClaim } from "../types/subject"
@@ -73,6 +73,8 @@ export type ExchangeTokenDeps = {
   exchangeAudience?: ExchangeAudience
   issuerUrl: string
   clock: () => number
+  /** See `IdPOptions.onTokenIssued`. Threaded to `mintTokens`. */
+  onTokenIssued?: OnTokenIssued
   newRefreshFamily?: () => string
   /** See `IdPOptions.customScopeClaims`. Forwarded to `mintTokens`. */
   customScopeClaims?: Record<string, ReadonlyArray<string>>

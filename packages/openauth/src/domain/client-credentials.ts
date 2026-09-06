@@ -22,7 +22,11 @@ import type { ConfigStore } from "../ports/config-store"
 import type { KeyStore } from "../ports/key-store"
 import type { TokenStore } from "../ports/token-store"
 import { authError, type AuthError } from "../types/error"
-import type { PersistUpstreamTokens, SuccessMapInput } from "../types/idp"
+import type {
+  OnTokenIssued,
+  PersistUpstreamTokens,
+  SuccessMapInput,
+} from "../types/idp"
 import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { SubjectClaim, SubjectSchema } from "../types/subject"
@@ -57,6 +61,8 @@ export type ClientCredentialsDeps = {
   persistUpstreamTokens?: PersistUpstreamTokens
   issuerUrl: string
   clock: () => number
+  /** See `IdPOptions.onTokenIssued`. Threaded to `mintTokens`. */
+  onTokenIssued?: OnTokenIssued
   newRefreshFamily?: () => string
   /** See `IdPOptions.customScopeClaims`. Forwarded to `mintTokens`. */
   customScopeClaims?: Record<string, ReadonlyArray<string>>

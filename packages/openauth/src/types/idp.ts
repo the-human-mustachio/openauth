@@ -97,6 +97,63 @@ export type LogoutEventInput = {
 export type LogoutHookResult = { revokeSubject?: string } | void
 
 /**
+ * Fired when tokens are minted, naming the derived subject id.
+ *
+ * This is the only way a host can learn `subjectId` — the value the
+ * library signs as `sub`, and the key `TokenStore.revokeBySubject` and
+ * `revokeAllForSubject` take. It is derived inside the library from the
+ * claim and the receiving client's `sectorIdentifier`, so without this
+ * hook a host holds a revocation primitive it can never call, and
+ * `onLogout`'s `revokeSubject` has no map to resolve against.
+ *
+ * That matters because refresh rotation never re-consults the host:
+ * `refreshTokens` mints from the claim captured on the stored payload.
+ * Revoking the chain is the only way to stop an offboarded user's tokens
+ * from being renewed indefinitely.
+ *
+ * **A principal maps to many subject ids, not one.** Record them; do not
+ * overwrite. Two reasons, both silent if you assume otherwise:
+ *
+ *  - **Pairwise** — with `ClientConfig.sectorIdentifier` set, derivation
+ *    mixes the sector in (OIDC Core §8.1), so the same person has a
+ *    distinct `sub` per sector. Revoking one leaves the others minting.
+ *  - **Claim contents** — derivation hashes `claim.properties`. If your
+ *    `success()` returns anything mutable (an email, a role), the subject
+ *    id changes when that value changes, and chains issued under the old
+ *    one survive. Returning a single immutable id is the way to avoid
+ *    this; OIDC Core §2 wants `sub` never reassigned.
+ *
+ * Runs **before** the refresh token is persisted, so throwing aborts
+ * issuance with `server_error` and leaves no chain behind. That is
+ * deliberate: recording the mapping after the token is durable would let
+ * a hook failure produce exactly the unrevokable token this exists to
+ * prevent. Like `success` and `persistUpstreamTokens`, and unlike
+ * `AuditLog`, a failure here stops the grant.
+ */
+export type OnTokenIssued = (input: {
+  tenant: TenantContext
+  /** Client the tokens were minted for. */
+  clientId: string
+  /**
+   * The `sub` of the issued access token — the key `revokeBySubject` and
+   * `revokeAllForSubject` take.
+   */
+  subjectId: string
+  /**
+   * The claim your `success()` (or token-exchange audience mapping)
+   * returned, already validated against `subjects`. Use it to attribute
+   * `subjectId` to one of your own principals.
+   */
+  claim: SubjectClaim
+  /**
+   * Refresh-token family, for `TokenStore.revokeFamily`. Absent when the
+   * grant issued no refresh token (`client_credentials`, RFC 6749
+   * §4.4.3), because then there is no chain to revoke.
+   */
+  family?: string
+}) => Promise<void> | void
+
+/**
  * Optional hook called at `/token` time, after PKCE has succeeded and
  * after the `success` callback has produced a `SubjectClaim`, but
  * **before** the access/refresh response is returned. Use this when you
@@ -355,6 +412,23 @@ export type IdPOptions = {
    * `PersistUpstreamTokens` type doc.
    */
   persistUpstreamTokens?: PersistUpstreamTokens
+
+  /**
+   * Optional hook fired as tokens are minted, carrying the derived
+   * `subjectId` alongside the claim it came from.
+   *
+   * Supply this if you need to revoke a user's tokens later — on
+   * offboarding, deactivation, or a membership change. `subjectId` is
+   * computed inside the library and appears nowhere else, so without
+   * this hook `TokenStore.revokeBySubject` / `revokeAllForSubject` are
+   * uncallable and `onLogout`'s `revokeSubject` has nothing to resolve
+   * against. See {@link OnTokenIssued} — in particular, one principal
+   * has many subject ids and they must be accumulated, not overwritten.
+   *
+   * Throwing aborts the grant; it runs before the refresh token is
+   * persisted so no unrecorded chain can survive a failure.
+   */
+  onTokenIssued?: OnTokenIssued
 
   /**
    * Optional RFC 8693 token-exchange hook. If absent, exchange

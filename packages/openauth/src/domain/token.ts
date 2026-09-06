@@ -24,7 +24,11 @@ import type { TokenStore } from "../ports/token-store"
 import type { ConfigStore } from "../ports/config-store"
 import type { AuthError } from "../types/error"
 import { authError } from "../types/error"
-import type { PersistUpstreamTokens, SuccessMapInput } from "../types/idp"
+import type {
+  OnTokenIssued,
+  PersistUpstreamTokens,
+  SuccessMapInput,
+} from "../types/idp"
 import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
 import type { SubjectClaim, SubjectSchema } from "../types/subject"
@@ -114,6 +118,8 @@ export type ExchangeCodeDeps = {
   persistUpstreamTokens?: PersistUpstreamTokens
   issuerUrl: string
   clock: () => number
+  /** See `IdPOptions.onTokenIssued`. Threaded to `mintTokens`. */
+  onTokenIssued?: OnTokenIssued
   newRefreshToken?: () => string
   /** Test override. */
   newRefreshFamily?: () => string
@@ -309,6 +315,7 @@ export async function mintTokens(args: {
     auditLog?: AuditLog
     issuerUrl: string
     clock: () => number
+    onTokenIssued?: OnTokenIssued
     newRefreshToken?: () => string
     /**
      * Host-supplied vendor scope → claim-names map merged into the
@@ -337,6 +344,27 @@ export async function mintTokens(args: {
     claim,
     receivingClient?.sectorIdentifier,
   )
+
+  // Hand the host the derived subject id *before* anything durable is
+  // written. `subjectId` exists nowhere else — it is signed as `sub` and
+  // is the key `revokeBySubject` takes — so a host that misses it holds a
+  // token it can never revoke. Running after `saveRefresh` and aborting
+  // on failure would leave precisely that: a live chain with no record.
+  if (deps.onTokenIssued) {
+    try {
+      await deps.onTokenIssued({
+        tenant,
+        clientId: payload.clientId,
+        subjectId,
+        claim,
+        // No refresh row is written when `skipRefresh` is set, so there
+        // is no chain for the host to revoke by family.
+        ...(skipRefresh ? {} : { family }),
+      })
+    } catch (e) {
+      return err(authError.serverError("onTokenIssued hook threw", e))
+    }
+  }
 
   const keyRes = await deps.keyStore.currentSigningKey()
   if (isErr(keyRes)) return err(keyRes.error)

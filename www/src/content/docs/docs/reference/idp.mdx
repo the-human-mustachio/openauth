@@ -41,6 +41,7 @@ type IdPOptions = {
   theme?: ThemeConfig
 
   persistUpstreamTokens?: PersistUpstreamTokens
+  onTokenIssued?: OnTokenIssued
   exchangeAudience?: ExchangeAudience
   renderPicker?: RenderPicker
 }
@@ -202,6 +203,57 @@ success: async (input) => ({
   properties: {/* shape matching subjects.user */},
 })
 ```
+
+### `onTokenIssued` (optional)
+
+Fires as tokens are minted, carrying the derived subject id:
+
+```ts
+onTokenIssued: async ({ tenant, clientId, subjectId, claim, family }) => {
+  await db.subjectIds.record({
+    tenantId: tenant.id,
+    subjectId,
+    principalId: (claim.properties as { userId: string }).userId,
+  })
+}
+```
+
+**This is the only way to learn `subjectId`** — the value signed as `sub`,
+and the key `TokenStore.revokeBySubject`, the exported
+`revokeAllForSubject`, and `onLogout`'s `revokeSubject` all take. It is
+derived inside the library from the claim and the receiving client's
+`sectorIdentifier`, so without this hook those revocation primitives
+cannot be called.
+
+That matters for offboarding. Refresh rotation never re-consults your
+`success` callback — it mints from the claim captured on the stored
+payload — so revoking the chain is the only way to stop a deactivated
+user's tokens being renewed. A resource server you control can re-check
+its own database, but any other relying party verifying against the JWKS
+cannot.
+
+:::caution
+**One principal maps to many subject ids. Accumulate them; never
+overwrite.** Two things fork the id, and both fail silently:
+
+- **Pairwise clients** — with `sectorIdentifier` set, the sector is mixed
+  into the derivation (OIDC Core §8.1), so the same person has a distinct
+  `sub` per sector. Revoking one leaves the others minting.
+- **Mutable claim properties** — the derivation hashes
+  `claim.properties`. If `success` returns anything that changes (an
+  email, a role), the subject id changes with it, and chains issued under
+  the old one survive. Return a single immutable id to avoid this; OIDC
+  Core §2 expects `sub` never to be reassigned.
+  :::
+
+The hook runs **before** the refresh token is persisted, so throwing
+aborts the grant with `server_error` and leaves no chain behind — a
+failure cannot produce the unrevokable token the hook exists to prevent.
+Like `success` and `persistUpstreamTokens`, and unlike `AuditLog`, a
+throw stops issuance.
+
+`family` is absent for `client_credentials`, which issues no refresh
+token and so has no chain to revoke.
 
 ### `persistUpstreamTokens` (optional)
 
