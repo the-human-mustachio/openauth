@@ -28,13 +28,24 @@ export type AuditEvent =
       flowId: string
     }
   | {
+      /**
+       * A method authenticated the end user and an authorization code was
+       * minted. Completes the `authorize_started` / `authorize_failed`
+       * pair, which shipped without it.
+       */
       kind: "authorize_succeeded"
       tenantId: TenantId
       clientId: string
       methodId: string
       methodKind: string
       flowId: string
-      subjectId: string
+      /**
+       * The **upstream** identifier the method returned. Deliberately not
+       * `subjectId`: the OIDC subject is derived from the host's
+       * `success()` claim at `/token`, which has not run yet. Correlate
+       * with `token_issued.subjectId` via `clientId` + `flowId`.
+       */
+      providerSubject: string
     }
   | {
       kind: "authorize_failed"

@@ -47,30 +47,6 @@ export type SuccessMapInput = {
 }
 
 /**
- * Optional observation hook payload — fires after the subject claim has
- * already been minted. **Does not** influence the issued subject; use it
- * for audit, analytics, side effects only.
- */
-export type SuccessEvent = SuccessMapInput & {
-  /** The final subject claim that became the JWT `sub`. */
-  claim: SubjectClaim
-}
-
-/**
- * Optional observation hook payload — fires on a failed auth attempt.
- * Carries enough id information for operators to find the offending flow
- * / config row without leaking secrets.
- */
-export type FailureEvent = {
-  tenantId: TenantId | null
-  clientId: string | null
-  methodId?: string
-  methodKind?: string
-  flowId?: string
-  error: AuthError
-}
-
-/**
  * Input to the optional `IdPOptions.onLogout` hook.
  *
  * Fires when an upstream provider notifies this IdP that a federated
@@ -217,19 +193,41 @@ export type RegisterClientResponse = {
 /**
  * Optional Dynamic Client Registration hook. Hosts that want to expose
  * RFC 7591 client provisioning supply this; the framework validates the
- * wire format, then defers persistence to the host. If absent, the
- * `/register` endpoint returns `invalid_request` so RPs receive a clear
- * "not enabled" signal rather than a 404.
+ * wire format and mints credentials, then defers **persistence** to the
+ * host. If absent, the `/register` endpoint returns `invalid_request` so
+ * RPs receive a clear "not enabled" signal rather than a 404.
  *
- * The hook receives the parsed request, the resolved tenant, and the
- * plaintext client secret (if any) the framework minted — hosts hash it
- * with `hashClientSecret` before storing on `ClientConfig.secretHash`,
- * then return the final `ClientConfig` along with the secret in the
- * `RegisterClientResponse` so the RP can record it.
+ * The library owns credential generation — entropy, hashing, and the
+ * `ClientConfig` discriminated union, which requires `pkceRequired: true`
+ * as a literal on public clients and a `secretHash` on confidential ones.
+ * Those are protocol and security concerns, and making every host
+ * reimplement them is how they get done wrong. The host owns the table:
+ * write `client` through your own `ConfigStore` and return it.
+ *
+ * Before 0.14.0 this hook received only `{ tenant, request }` and the
+ * framework discarded what it had generated, so hosts had to mint their
+ * own — contradicting both this doc comment and `ARCHITECTURE.md`.
+ *
+ * Return the config you actually persisted. Adjusting it first is fine
+ * (narrowing `scopes`, substituting your own `id`); if you replace `id`
+ * or `secretHash`, return the matching plaintext as `secret` so the RP
+ * receives something that works.
  */
 export type RegisterClient = (input: {
   tenant: TenantContext
   request: RegisterClientRequest
+  /**
+   * Framework-minted `ClientConfig`, ready to persist as-is. Public
+   * clients carry `pkceRequired: true`; confidential clients carry
+   * `secretHash` for `secret` below.
+   */
+  client: ClientConfig
+  /**
+   * Plaintext secret matching `client.secretHash`. Present only for
+   * confidential clients. Return it in the result so the RP can record
+   * it — this is the only time it exists.
+   */
+  secret?: string
 }) => Promise<Result<{ client: ClientConfig; secret?: string }, AuthError>>
 
 /**
@@ -328,12 +326,6 @@ export type IdPOptions = {
 
   theme?: ThemeConfig
 
-  hooks?: {
-    /** Observation only — does NOT influence the subject. */
-    onSuccess?: (event: SuccessEvent) => Promise<void>
-    onFailure?: (event: FailureEvent) => Promise<void>
-  }
-
   /**
    * Optional hook fired when an upstream provider signals that a
    * federated session ended — SAML front-channel Single Logout today.
@@ -342,9 +334,9 @@ export type IdPOptions = {
    * OIDC subject (if any) whose library-issued tokens to revoke. See
    * the `LogoutEventInput` / `LogoutHookResult` type docs.
    *
-   * Unlike `hooks.onSuccess`/`onFailure` (observation only) this hook
-   * **influences** library behaviour — its return drives token
-   * revocation — so it sits at the top level alongside `success`.
+   * Unlike `AuditLog` (observation only) this hook **influences**
+   * library behaviour — its return drives token revocation — so it sits
+   * at the top level alongside `success`.
    *
    * Absent ⇒ the library still verifies the logout, emits a
    * `session_logout` audit event, and returns the protocol

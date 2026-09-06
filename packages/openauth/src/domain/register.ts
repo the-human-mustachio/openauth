@@ -136,17 +136,36 @@ export async function registerNewClient(
   const hookResult = await deps.registerClient({
     tenant,
     request,
+    client: clientConfig,
+    ...(secret !== undefined ? { secret } : {}),
   })
-  // The hook may either:
-  //  - persist `clientConfig` as-is (most common) and return it,
-  //  - synthesize its own (host-owned id generation, custom scopes) and
-  //    return that — in which case the secret we minted is moot.
-  // We trust the hook's returned client + secret as authoritative.
-  void clientConfig
-
   if (isErr(hookResult)) return err(hookResult.error)
+
+  // The host returns what it actually persisted — normally `clientConfig`
+  // unchanged, sometimes adjusted (narrowed scopes, host-owned id). That
+  // return is authoritative; the framework does not second-guess it.
   const persisted = hookResult.value.client
-  const persistedSecret = hookResult.value.secret
+  // The plaintext may only be reused when the host persisted *our* hash;
+  // if it substituted its own, our secret would not verify and the RP
+  // would receive a credential that silently never works.
+  const keptOurSecret =
+    persisted.type === "confidential" &&
+    clientConfig.type === "confidential" &&
+    persisted.secretHash === clientConfig.secretHash
+  const persistedSecret =
+    hookResult.value.secret ?? (keptOurSecret ? secret : undefined)
+
+  // RFC 7591 §3.2.1 — a confidential client must leave registration with
+  // a usable secret. Better to fail loudly than to hand back a client
+  // that cannot authenticate.
+  if (persisted.type === "confidential" && persistedSecret === undefined) {
+    return err(
+      authError.serverError(
+        "registerClient persisted a confidential client with a substituted " +
+          "secretHash but returned no matching plaintext secret",
+      ),
+    )
+  }
 
   const issuedAt = Math.floor(deps.clock() / 1000)
   return ok({

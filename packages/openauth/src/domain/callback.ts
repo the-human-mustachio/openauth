@@ -257,6 +257,16 @@ async function translate(
         { keyStore: deps.keyStore, tokenStore: deps.tokenStore },
       )
       if (isErr(saved)) return err(saved.error)
+      await safeAudit(deps, {
+        kind: "authorize_succeeded",
+        tenantId: flow.tenantId,
+        clientId: flow.clientId,
+        methodId: flow.methodId,
+        methodKind: flow.methodKind,
+        flowId: flow.flowId,
+        providerSubject: result.providerSubject,
+        timestamp: now,
+      })
       return ok({
         kind: "issue-code",
         code,
@@ -446,6 +456,17 @@ async function tryIdpInitiated(
     { keyStore: deps.keyStore, tokenStore: deps.tokenStore },
   )
   if (isErr(saved)) return err(saved.error)
+  await safeAudit(deps, {
+    kind: "authorize_succeeded",
+    tenantId: input.tenant.id,
+    clientId: binding.clientId,
+    methodId,
+    methodKind: method.kind,
+    // Unsolicited: there is no FlowRecord, so no flowId to correlate on.
+    flowId: "",
+    providerSubject: result.providerSubject,
+    timestamp: now,
+  })
   return ok({
     kind: "issue-code",
     code,

@@ -73,7 +73,6 @@ export type {
 
 export type {
   ExchangeAudience,
-  FailureEvent,
   IdP,
   IdPOptions,
   LogoutEventInput,
@@ -83,7 +82,6 @@ export type {
   RegisterClientRequest,
   RegisterClientResponse,
   RenderPicker,
-  SuccessEvent,
   SuccessMapInput,
 } from "./types/idp"
 

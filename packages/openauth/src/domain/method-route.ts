@@ -192,6 +192,16 @@ async function translate(
         { keyStore: deps.keyStore, tokenStore: deps.tokenStore },
       )
       if (isErr(saved)) return err(saved.error)
+      await safeAudit(deps, {
+        kind: "authorize_succeeded",
+        tenantId: final.tenantId,
+        clientId: final.clientId,
+        methodId: final.methodId,
+        methodKind: final.methodKind,
+        flowId: final.flowId,
+        providerSubject: result.providerSubject,
+        timestamp: now,
+      })
       return ok({
         kind: "issue-code",
         code,

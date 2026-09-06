@@ -413,6 +413,16 @@ async function issueCodeFromInlineSuccess(
     { keyStore: deps.keyStore, tokenStore: deps.tokenStore },
   )
   if (isErr(saved)) return err(saved.error)
+  await safeAudit(deps, {
+    kind: "authorize_succeeded",
+    tenantId: flow.tenantId,
+    clientId: flow.clientId,
+    methodId: flow.methodId,
+    methodKind: flow.methodKind,
+    flowId: flow.flowId,
+    providerSubject: result.providerSubject,
+    timestamp: now,
+  })
   return ok({
     kind: "issue-code",
     code,
