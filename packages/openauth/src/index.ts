@@ -133,6 +133,23 @@ export type { TokenStore } from "./ports/token-store"
  */
 export { revokeAllForSubject } from "./domain/revoke"
 
+/**
+ * Build a path-absolute URL for one of the library's own routes, carrying
+ * the mount prefix from `issuerUrl`.
+ *
+ * Custom methods that render their own URLs — a form `action`, say — must
+ * use this rather than a path-absolute literal, or the URL will 404 under
+ * a deployment mounted behind a proxy at a path prefix. Root-mounted
+ * issuers yield the literal unchanged.
+ *
+ *     mountedPath(ctx.issuerUrl, `/m/${id}/send`)
+ *     // "https://x"     -> "/m/mycode/send"
+ *     // "https://x/idp" -> "/idp/m/mycode/send"
+ *
+ * See INTEGRATION.md § 8.
+ */
+export { mountedPath, mountPath } from "./domain/mount"
+
 // Phase 4 — credential + WebAuthn method factories.
 export { passwordMethod } from "./methods/password"
 export type {

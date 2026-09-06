@@ -145,6 +145,22 @@ issuerUrl: (req) => {
 }
 ```
 
+`issuerUrl` also tells the library **where it is mounted**. Any path on it
+is a mount prefix, and it is prepended to every URL the library emits —
+login form actions, the `redirect_uri` sent to upstream providers, and the
+ACS / SLS in SAML SP metadata. The example above is mounted per tenant, so
+`acme` gets a form action of `/acme/m/code/send` and a callback of
+`https://auth.example.com/acme/cb/<methodId>`.
+
+Inbound routing is unchanged: the library still serves `/authorize`,
+`/m/*` and `/cb/*` at its own root, and your proxy or wrapper strips the
+prefix before delegating. The prefix exists for the URLs that travel
+outward, which are resolved on the public side of that proxy.
+
+A root-mounted `issuerUrl` (no path, or just `/`) emits exactly what it
+always has. There is deliberately no separate `basePath` option — a second
+source could disagree with `iss` and with discovery.
+
 ### `methods`
 
 Available method factories. **The KEY of this record MUST equal

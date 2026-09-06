@@ -593,6 +593,39 @@ function honoWrap(fn: (req: Request) => Promise<Response>) {
 }
 ```
 
+**Set `issuerUrl` to the public, prefixed URL.** In the example above that
+is `https://example.com/auth`, not `https://example.com`. `issuerUrl` is the
+only thing that tells the library where it is mounted — there is deliberately
+no separate `basePath` option, because a second source could disagree with
+`iss` and with discovery.
+
+The library serves its own routes at its own root (`/authorize`, `/m/*`,
+`/cb/*`) and your wrapper strips the prefix on the way in, exactly as
+`honoWrap` does. What the prefix _is_ needed for is the other direction —
+every URL the library hands out is resolved on the public side of that
+wrapper:
+
+| Emitted URL                | Root-mounted        | Mounted at `/auth`       |
+| -------------------------- | ------------------- | ------------------------ |
+| Login form `action`        | `/m/code/send`      | `/auth/m/code/send`      |
+| Upstream `redirect_uri`    | `https://x/cb/oidc` | `https://x/auth/cb/oidc` |
+| SAML ACS / SLS in metadata | `https://x/cb/saml` | `https://x/auth/cb/saml` |
+
+Trailing slashes are normalised, so `https://example.com/auth` and
+`https://example.com/auth/` behave identically, and a root-mounted issuer
+emits exactly what it always has.
+
+Two consequences worth planning for when you mount under a prefix:
+
+- **Register the prefixed `redirect_uri`** at every upstream provider
+  (Okta, Google, Cognito, …), and re-import SP metadata at any SAML IdP so
+  it picks up the prefixed ACS and SLS. These are values held in a third
+  party's configuration; the library cannot correct them after the fact.
+- **Custom methods that render their own URLs** should build them with
+  `mountedPath(ctx.issuerUrl, "/m/<id>/<sub>")` rather than writing a
+  path-absolute literal. `MethodContext.issuerUrl` is present on every
+  route, including the ones where `ctx.dispatch` is `null`.
+
 **Path-based tenant routing** — if you have URLs like
 `/tenant/:tenantId/authorize`, do the mapping in `resolveTenant`:
 
@@ -1092,6 +1125,16 @@ they are stable across deploys:
 - **ACS URL** (Assertion Consumer Service, HTTP-POST binding) =
   `<issuerUrl>/cb/<methodId>` — the framework's universal callback,
   e.g. `https://idp.acme.com/cb/corp-saml`.
+- **SP SLS URL** (Single Logout Service, only when `idp.sloUrl` is set) =
+  `<issuerUrl>/m/<methodId>/sls`.
+
+All three are literally `<issuerUrl>` + a path, so a **path-mounted**
+deployment (§ 8) carries the prefix into every one of them: issuer
+`https://idp.acme.com/auth` gives an ACS of
+`https://idp.acme.com/auth/cb/corp-saml`. Serve SP metadata from
+`GET /m/<methodId>/metadata` and let the IdP import it rather than typing
+these by hand — the metadata is generated from the same derivation the
+runtime uses, so the two cannot drift.
 
 In the IdP admin console: set the SP EntityID and ACS URL to those two
 values, choose the HTTP-POST binding for the assertion, then populate

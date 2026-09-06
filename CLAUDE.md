@@ -68,6 +68,8 @@ import { createIdP } from "@_mustachio/openauth"
 //   MethodStore, AuditLog, ScimDirectory
 // + SCIM types: ScimConfig, ScimUserRecord/Write/Patch/Query,
 //   ScimGroupRecord/Write/Patch/Query, ScimGroupMember, ScimPage, ScimFilter
+// + mount helpers: mountedPath, mountPath — for custom methods that emit
+//   their own URLs; see "Path-mounted deployments" below
 import { createClient } from "@_mustachio/openauth/client"
 // + storage adapters: @_mustachio/openauth/adapters/{memory,postgres,d1,
 //   durable-object,dynamo,kv,kms}
@@ -92,6 +94,20 @@ bun run preview:ui                # local visual check of forms + picker
 # From www/
 bun run build                     # Astro/Starlight docs site
 ```
+
+## Path-mounted deployments
+
+`issuerUrl` is the single source of truth for where the IdP is mounted.
+The service always serves its own routes at its root (`/authorize`,
+`/m/*`, `/cb/*`) and the proxy strips the prefix inbound — but every URL
+the library **emits** is resolved on the public side of that proxy and
+must carry it. Build those with `mountedPath(issuerUrl, path)` /
+`callbackTarget(...)` in `src/domain/mount.ts`, never a path-absolute
+literal. Do not add a `basePath` option; a second source could disagree
+with `iss` and discovery.
+
+`FlowRecord.callbackPath` is the one place that stays un-prefixed: it is
+matched against the inbound request, which has already been stripped.
 
 ## Conventions
 

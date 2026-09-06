@@ -255,7 +255,22 @@ export type IdPOptions = {
    */
   resolveTenant: (req: Request) => Promise<Result<TenantId, AuthError>>
 
-  /** Opt-in for partitioned callback hosts (recovery mechanism #2). */
+  /**
+   * Opt-in for partitioned callback hosts (recovery mechanism #2).
+   *
+   * Returns the hostname a given tenant's callbacks arrive on, so the
+   * tenant is recoverable from the `Host` header before the state
+   * envelope is verified.
+   *
+   * **The issuer's mount prefix still applies to the returned host.** If
+   * `issuerUrl` is `https://example.com/idp`, a tenant host of
+   * `acme.example.com` produces `https://acme.example.com/idp/cb/<id>`.
+   * This option varies the *authority* of one deployment — those hosts
+   * are served by this same service behind the same proxy, so they share
+   * its mount. A deployment needing partitioned hosts mounted differently
+   * from the issuer is describing two mounts, which one `issuerUrl`
+   * cannot express; a second option must not be added to paper over it.
+   */
   callbackHostFor?: (tenantId: TenantId) => string
 
   /**
