@@ -25,6 +25,7 @@ import { authError, type AuthError } from "../types/error"
 import type {
   OnTokenIssued,
   PersistUpstreamTokens,
+  SubjectKey,
   SuccessMapInput,
 } from "../types/idp"
 import type { Result } from "../types/result"
@@ -63,6 +64,8 @@ export type ClientCredentialsDeps = {
   clock: () => number
   /** See `IdPOptions.onTokenIssued`. Threaded to `mintTokens`. */
   onTokenIssued?: OnTokenIssued
+  /** See `IdPOptions.subjectKey`. Threaded to `mintTokens`. */
+  subjectKey?: SubjectKey
   newRefreshFamily?: () => string
   /** See `IdPOptions.customScopeClaims`. Forwarded to `mintTokens`. */
   customScopeClaims?: Record<string, ReadonlyArray<string>>

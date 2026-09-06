@@ -42,6 +42,7 @@ type IdPOptions = {
 
   persistUpstreamTokens?: PersistUpstreamTokens
   onTokenIssued?: OnTokenIssued
+  subjectKey?: SubjectKey
   exchangeAudience?: ExchangeAudience
   renderPicker?: RenderPicker
 }
@@ -203,6 +204,45 @@ success: async (input) => ({
   properties: {/* shape matching subjects.user */},
 })
 ```
+
+### `subjectKey` (optional)
+
+Derives `sub` from an identifier you control, instead of from the whole
+of `claim.properties`:
+
+```ts
+subjectKey: (claim) => (claim.properties as { userId: string }).userId
+```
+
+**Supply this whenever `properties` carries anything mutable** — which it
+usually does. `customScopeClaims` publishes id_token and userinfo claims
+from that same record, so exposing a role or a display name is exactly
+what `properties` is for. But by default `sub` is a hash of the entire
+record, so publishing a mutable claim makes `sub` move whenever the value
+does, and OIDC Core §2 requires it never be reassigned. This lets
+identity and published claims coexist without one destabilising the
+other.
+
+The library keeps the derivation: your key is hashed, so your internal id
+is never exposed to relying parties, and the receiving client's
+`sectorIdentifier` is still mixed in, so pairwise subjects (OIDC Core
+§8.1) are unaffected. `claim.type` still participates too — keep it
+stable for a given identity, or `sub` forks the same way.
+
+An empty or blank key fails issuance rather than being hashed: an empty
+seed would give every subject of that type the same `sub`. Throwing fails
+issuance too.
+
+:::caution
+**Adopting this reassigns `sub` once.** Derivation runs on every mint, so
+existing refresh chains start emitting the new id at their next rotation.
+Either revoke outstanding chains at cutover, or accept a window where
+both ids are live — `onTokenIssued` will have recorded both, which is why
+that map accumulates.
+
+If your `properties` were never stable, there is nothing to break: the id
+was already moving.
+:::
 
 ### `onTokenIssued` (optional)
 

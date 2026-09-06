@@ -134,6 +134,7 @@ export function makeTokenHandler(deps: HttpDeps) {
           issuerUrl: c.get("issuerUrl"),
           clock: deps.clock,
           ...(deps.onTokenIssued ? { onTokenIssued: deps.onTokenIssued } : {}),
+          ...(deps.subjectKey ? { subjectKey: deps.subjectKey } : {}),
           ...(deps.customScopeClaims !== undefined
             ? { customScopeClaims: deps.customScopeClaims }
             : {}),
@@ -183,6 +184,7 @@ export function makeTokenHandler(deps: HttpDeps) {
           issuerUrl: c.get("issuerUrl"),
           clock: deps.clock,
           ...(deps.onTokenIssued ? { onTokenIssued: deps.onTokenIssued } : {}),
+          ...(deps.subjectKey ? { subjectKey: deps.subjectKey } : {}),
           ...(deps.customScopeClaims !== undefined
             ? { customScopeClaims: deps.customScopeClaims }
             : {}),
@@ -213,6 +215,7 @@ export function makeTokenHandler(deps: HttpDeps) {
           issuerUrl: c.get("issuerUrl"),
           clock: deps.clock,
           ...(deps.onTokenIssued ? { onTokenIssued: deps.onTokenIssued } : {}),
+          ...(deps.subjectKey ? { subjectKey: deps.subjectKey } : {}),
           ...(deps.customScopeClaims !== undefined
             ? { customScopeClaims: deps.customScopeClaims }
             : {}),
@@ -254,6 +257,7 @@ export function makeTokenHandler(deps: HttpDeps) {
         issuerUrl: c.get("issuerUrl"),
         clock: deps.clock,
         ...(deps.onTokenIssued ? { onTokenIssued: deps.onTokenIssued } : {}),
+        ...(deps.subjectKey ? { subjectKey: deps.subjectKey } : {}),
         ...(deps.customScopeClaims !== undefined
           ? { customScopeClaims: deps.customScopeClaims }
           : {}),

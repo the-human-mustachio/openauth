@@ -1712,6 +1712,40 @@ belongs to. Use `IdPOptions.onTokenIssued` for that — see below.
 
 ---
 
+## 11b. Keeping `sub` stable
+
+By default the subject id is a hash of the whole of `claim.properties`.
+That is only stable if the record is — and it usually is not, because
+`customScopeClaims` publishes id_token and `/userinfo` claims from that
+same record. Put a role or a display name in `properties` so customers
+can read it, and `sub` moves every time that value changes, which OIDC
+Core §2 forbids.
+
+`IdPOptions.subjectKey` separates the two:
+
+```ts
+const idp = createIdP({
+  // ...
+  subjectKey: (claim) => (claim.properties as { userId: string }).userId,
+})
+```
+
+Your key is hashed (so the internal id never reaches a relying party) and
+the receiving client's `sectorIdentifier` is still mixed in, so pairwise
+subjects behave exactly as before. `claim.type` still participates, so
+keep that stable too.
+
+Adopting it reassigns `sub` once — derivation runs on every mint, so
+existing refresh chains emit the new id at their next rotation. Revoke
+outstanding chains at cutover, or accept a window in which both ids are
+live; the map in §11a accumulates precisely so both remain revocable.
+
+Stripping `properties` back to stabilise `sub` is the alternative to
+avoid: it breaks `customScopeClaims` and every customer reading those
+fields.
+
+---
+
 ## 11a. Revoking a user's tokens (offboarding)
 
 `TokenStore.revokeBySubject(tenantId, subjectId)` and the exported

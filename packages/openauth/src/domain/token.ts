@@ -27,6 +27,7 @@ import { authError } from "../types/error"
 import type {
   OnTokenIssued,
   PersistUpstreamTokens,
+  SubjectKey,
   SuccessMapInput,
 } from "../types/idp"
 import type { Result } from "../types/result"
@@ -120,6 +121,8 @@ export type ExchangeCodeDeps = {
   clock: () => number
   /** See `IdPOptions.onTokenIssued`. Threaded to `mintTokens`. */
   onTokenIssued?: OnTokenIssued
+  /** See `IdPOptions.subjectKey`. Threaded to `mintTokens`. */
+  subjectKey?: SubjectKey
   newRefreshToken?: () => string
   /** Test override. */
   newRefreshFamily?: () => string
@@ -316,6 +319,7 @@ export async function mintTokens(args: {
     issuerUrl: string
     clock: () => number
     onTokenIssued?: OnTokenIssued
+    subjectKey?: SubjectKey
     newRefreshToken?: () => string
     /**
      * Host-supplied vendor scope → claim-names map merged into the
@@ -340,9 +344,29 @@ export async function mintTokens(args: {
   const receivingClient = tenant.config.clients.find(
     (c) => c.id === payload.clientId,
   )
+  // Resolve the host's stable identity key, if configured. A blank key
+  // would collapse every subject of this type onto one `sub`, so it is
+  // refused rather than hashed.
+  let subjectKey: string | undefined
+  if (deps.subjectKey) {
+    try {
+      subjectKey = deps.subjectKey(claim)
+    } catch (e) {
+      return err(authError.serverError("subjectKey hook threw", e))
+    }
+    if (typeof subjectKey !== "string" || subjectKey.trim() === "") {
+      return err(
+        authError.serverError(
+          "subjectKey returned an empty key; every subject of this type " +
+            "would share one `sub`",
+        ),
+      )
+    }
+  }
   const subjectId = await deriveSubjectId(
     claim,
     receivingClient?.sectorIdentifier,
+    subjectKey,
   )
 
   // Hand the host the derived subject id *before* anything durable is
@@ -511,13 +535,17 @@ export async function hashClientSecret(plain: string): Promise<string> {
 async function deriveSubjectId(
   claim: SubjectClaim,
   sectorIdentifier?: string,
+  subjectKey?: string,
 ): Promise<string> {
   const c = claim as { type: string; properties: Record<string, unknown> }
-  const ordered = canonicalize(c.properties)
+  // A host-supplied key replaces the canonicalized properties as the
+  // identity half of the seed. Everything else is unchanged, so pairwise
+  // derivation and the `type` component behave exactly as before.
+  const identity = subjectKey ?? canonicalize(c.properties)
   const seed =
     sectorIdentifier !== undefined
-      ? `${sectorIdentifier}\0${c.type}\0${ordered}`
-      : `${c.type}\0${ordered}`
+      ? `${sectorIdentifier}\0${c.type}\0${identity}`
+      : `${c.type}\0${identity}`
   return base64url.encode(await sha256(seed)).slice(0, 22)
 }
 

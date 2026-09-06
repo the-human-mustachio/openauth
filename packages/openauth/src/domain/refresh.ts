@@ -17,7 +17,7 @@ import type { ConfigStore } from "../ports/config-store"
 import type { KeyStore } from "../ports/key-store"
 import type { TokenStore } from "../ports/token-store"
 import { authError, type AuthError } from "../types/error"
-import type { OnTokenIssued } from "../types/idp"
+import type { OnTokenIssued, SubjectKey } from "../types/idp"
 import type { Result } from "../types/result"
 import { err, isErr } from "../types/result"
 import type { TenantContext } from "../types/tenant"
@@ -53,6 +53,8 @@ export type RefreshTokensDeps = {
   clock: () => number
   /** See `IdPOptions.onTokenIssued`. Threaded to `mintTokens`. */
   onTokenIssued?: OnTokenIssued
+  /** See `IdPOptions.subjectKey`. Threaded to `mintTokens`. */
+  subjectKey?: SubjectKey
   /** Reuse-detection window (ms). Default 60 s. */
   reuseWindowMs?: number
   newRefreshToken?: () => string

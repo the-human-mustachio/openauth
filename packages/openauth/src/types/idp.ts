@@ -97,6 +97,43 @@ export type LogoutEventInput = {
 export type LogoutHookResult = { revokeSubject?: string } | void
 
 /**
+ * Supplies the stable identity the subject id is derived from.
+ *
+ * By default `sub` is derived by hashing the whole of `claim.properties`,
+ * which is stable only if that record is. It generally is not: the
+ * library tells hosts to populate `properties` with the claims they want
+ * exposed, and `customScopeClaims` reads the id_token / userinfo claims
+ * off that same record. So a host publishing a role or a display name —
+ * exactly what the feature is for — gets a `sub` that moves whenever the
+ * value does, which OIDC Core §2 forbids ("locally unique and never
+ * reassigned"). The two designs pull against each other; this is how they
+ * are reconciled without stripping `properties` back.
+ *
+ * Return your own never-reassigned identifier for the subject. The
+ * library still owns the derivation: the returned key is hashed, and the
+ * receiving client's `sectorIdentifier` is still mixed in, so pairwise
+ * subjects (OIDC Core §8.1) behave exactly as before and your internal id
+ * is never exposed in the token.
+ *
+ * `claim.type` also participates in the derivation, as it always has —
+ * two subject types are two principals even if their keys collide. Keep
+ * the type stable for a given identity, or `sub` forks the same way
+ * mutable properties made it fork.
+ *
+ * Returning an empty or blank key fails issuance rather than deriving
+ * one: an empty seed would give every subject of that type the same
+ * `sub`. Throwing fails issuance too.
+ *
+ * **Adopting this reassigns `sub` once.** Derivation runs on every mint,
+ * so existing refresh chains begin emitting the new id at their next
+ * rotation. Plan a cutover: revoke outstanding chains, or accept a window
+ * in which both ids are live and rely on `onTokenIssued` having recorded
+ * both. For a host whose `properties` were never stable there was nothing
+ * to break — the id was already moving.
+ */
+export type SubjectKey = (claim: SubjectClaim) => string
+
+/**
  * Fired when tokens are minted, naming the derived subject id.
  *
  * This is the only way a host can learn `subjectId` — the value the
@@ -429,6 +466,20 @@ export type IdPOptions = {
    * persisted so no unrecorded chain can survive a failure.
    */
   onTokenIssued?: OnTokenIssued
+
+  /**
+   * Optional: derive `sub` from an identifier you control rather than
+   * from the whole of `claim.properties`.
+   *
+   * Supply this whenever `properties` carries anything mutable — which it
+   * usually does, because `customScopeClaims` publishes id_token and
+   * userinfo claims from that same record. Without it, `sub` changes
+   * whenever any published claim changes, contrary to OIDC Core §2.
+   *
+   * See {@link SubjectKey}, including the note that adopting this
+   * reassigns `sub` once.
+   */
+  subjectKey?: SubjectKey
 
   /**
    * Optional RFC 8693 token-exchange hook. If absent, exchange

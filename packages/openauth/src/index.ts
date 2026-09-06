@@ -78,6 +78,7 @@ export type {
   LogoutEventInput,
   LogoutHookResult,
   OnTokenIssued,
+  SubjectKey,
   PersistUpstreamTokens,
   RegisterClient,
   RegisterClientRequest,
@@ -286,6 +287,7 @@ export function createIdP(opts: IdPOptions): IdP {
     success: opts.success,
     subjects: opts.subjects,
     ...(opts.onTokenIssued ? { onTokenIssued: opts.onTokenIssued } : {}),
+    ...(opts.subjectKey ? { subjectKey: opts.subjectKey } : {}),
     ...(opts.onLogout ? { onLogout: opts.onLogout } : {}),
     ...(opts.persistUpstreamTokens
       ? { persistUpstreamTokens: opts.persistUpstreamTokens }

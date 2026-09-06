@@ -16,7 +16,7 @@ import type { SessionStore } from "../ports/session-store"
 import type { TokenStore } from "../ports/token-store"
 import type { MethodCache } from "../domain/method-cache"
 import type { AuthError } from "../types/error"
-import type { OnTokenIssued } from "../types/idp"
+import type { OnTokenIssued, SubjectKey } from "../types/idp"
 import type { SubjectSchema } from "../types/subject"
 import type {
   ExchangeAudience,
@@ -58,6 +58,8 @@ export type HttpDeps = {
   subjects: SubjectSchema
   /** See `IdPOptions.onTokenIssued`. */
   onTokenIssued?: OnTokenIssued
+  /** See `IdPOptions.subjectKey`. */
+  subjectKey?: SubjectKey
   resolveTenant: (req: Request) => Promise<Result<TenantId, AuthError>>
   success: (input: SuccessMapInput) => Promise<SubjectClaim>
   /** See `IdPOptions.onLogout` — upstream Single Logout host hook. */
