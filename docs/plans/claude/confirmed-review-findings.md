@@ -2,7 +2,30 @@
 
 Date: 2026-09-06
 
-Status: Confirmed against `@_mustachio/openauth` 0.13.3 (`7d03665`)
+Status: **All seven resolved in 0.14.0.** Confirmed against 0.13.3
+(`7d03665`), then independently re-verified before remediation.
+
+Two recommendations below were deliberately not followed, and the reasons
+are recorded with the fixes:
+
+- **#5** recommended wiring the hooks up. They were deleted instead:
+  `AuditLog` already declared the same two events and is the port with a
+  consistency contract, so wiring would have left two parallel
+  observation mechanisms. The review also missed that
+  `authorize_succeeded` was declared and never emitted; that is now
+  emitted from all four code-minting paths.
+- **#7** recommended host-owned credential generation as "the smaller
+  change". Entropy, hashing and the `ClientConfig` discriminated union
+  are protocol and security work, so the framework keeps them and now
+  passes the proposed client to the hook — which is what
+  `ARCHITECTURE.md` and the hook's JSDoc always claimed.
+
+Two further refinements: **#1**'s suggestion to consider removing
+`VerifyOptions.audience` would have made resource-scoped tokens
+unverifiable (`aud` is the requested `audience` when one is given, the
+client id otherwise), so it is honoured instead; and **#2** understated
+the scope — `refresh()` sent no `client_id` either, so rotation was
+unreachable for confidential clients.
 
 ## Purpose
 

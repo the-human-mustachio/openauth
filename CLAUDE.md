@@ -124,6 +124,22 @@ matched against the inbound request, which has already been stripped.
   `@simplewebauthn/server` type. See `INTEGRATION.md` § 16 and
   `test/types/public-api-no-thirdparty-leaks.test.ts`. The SAML subpath
   has its own guard (`saml-sp-no-thirdparty-leaks.test.ts`).
+- **Every declared option must have an observable effect, proven by a
+  test.** Three separate options shipped inert — `hooks` was never
+  invoked, `subjects` was required and never read, and dynamic
+  registration generated credentials it then discarded. The type checker
+  cannot see this class of defect and `bun test` will not either: what
+  catches it is a test that asserts the option _changed something_. If an
+  option cannot be given one, delete the option.
+- **Run the documented example.** The RP client's advertised flow could
+  not complete against either a public or a confidential client, because
+  `authorize` / `exchange` / `refresh` had no tests at all — only
+  `verify` did. A README snippet that no test executes is a guess. See
+  `test/conformance/rp-client-flow.test.ts`.
+- **Two copies of a request-parsing helper will drift.** The tenant
+  middleware and the callback domain kept near-identical state
+  extractors; only one learned about SAML's `RelayState`, and the other
+  ran first. Share them — `domain/state-envelope.ts`, `domain/mount.ts`.
 - **SAML and SCIM are inbound only.** The library consumes SAML
   assertions and receives SCIM provisioning; it never issues assertions
   and never pushes users outward. Downstream apps speak the OIDC issuer.
