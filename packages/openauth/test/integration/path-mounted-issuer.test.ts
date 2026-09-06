@@ -35,6 +35,7 @@ import type { AuthMethodFactory } from "../../src/types/method"
 import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
+import { testSubjects } from "../helpers/subjects"
 
 const ORIGIN = "https://example.com"
 
@@ -67,7 +68,7 @@ async function buildMounted(opts: {
     auditLog: new MemoryAuditLog(),
     issuerUrl: opts.issuerUrl,
     methods: { [opts.methodKind]: factory } as never,
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async ({ properties }) =>
       ({ type: "user", properties: properties as object }) as never,
   })

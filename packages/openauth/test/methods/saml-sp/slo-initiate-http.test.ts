@@ -32,6 +32,7 @@ import { ok, type Result } from "../../../src/types/result"
 import { buildStateKeys } from "../../helpers/state-keys"
 import { buildTenant } from "../../helpers/tenant"
 import { IDP_CERT, postLogoutResponse } from "./fixtures/build-logout"
+import { testSubjects } from "../../helpers/subjects"
 
 const ISSUER = "https://idp.example"
 const MID = "corp-saml"
@@ -75,7 +76,7 @@ async function buildSamlIdp(opts?: { withSlo?: boolean }) {
     auditLog: audit,
     issuerUrl: ISSUER,
     methods: { "saml-sp": samlSpFactory as never },
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async ({ providerSubject }) =>
       ({ type: "user", properties: { userId: providerSubject } }) as never,
     onLogout: async (input) => {

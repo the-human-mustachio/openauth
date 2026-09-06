@@ -31,6 +31,7 @@ import { authorizeUrl, driveCallback, tokenRequest } from "../helpers/idp"
 import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
+import { testSubjects } from "../helpers/subjects"
 
 const TOKEN_EXCHANGE = "urn:ietf:params:oauth:grant-type:token-exchange"
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token"
@@ -85,7 +86,7 @@ async function buildExchangeHarness(opts: {
     auditLog,
     issuerUrl,
     methods: { stub: redirectFactory({ kind: "stub" }) as never },
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async ({ providerSubject }) =>
       ({
         type: "user",

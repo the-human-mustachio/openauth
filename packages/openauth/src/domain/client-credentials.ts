@@ -25,7 +25,7 @@ import { authError, type AuthError } from "../types/error"
 import type { PersistUpstreamTokens, SuccessMapInput } from "../types/idp"
 import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
-import type { SubjectClaim } from "../types/subject"
+import type { SubjectClaim, SubjectSchema } from "../types/subject"
 import type { TenantContext, TenantId } from "../types/tenant"
 import type { TokenResponse } from "../types/token"
 
@@ -33,6 +33,8 @@ import { verifyClientCredentials } from "./client-auth"
 import { randomId } from "./crypto"
 import { mintTokens } from "./token"
 import { MethodCache } from "./method-cache"
+import { safeAudit } from "./audit"
+import { validateSubjectClaim } from "./subject"
 
 export type ClientCredentialsRequest = {
   grantType: "client_credentials"
@@ -50,6 +52,8 @@ export type ClientCredentialsDeps = {
   auditLog?: AuditLog
   methodCache: MethodCache
   success: (input: SuccessMapInput) => Promise<SubjectClaim>
+  /** Host-declared subject schemas; the claim is validated against them. */
+  subjects: SubjectSchema
   persistUpstreamTokens?: PersistUpstreamTokens
   issuerUrl: string
   clock: () => number
@@ -155,6 +159,21 @@ export async function clientCredentialsGrant(
   } catch (e) {
     return err(authError.serverError("success callback threw", e))
   }
+
+  const checked = await validateSubjectClaim(deps.subjects, claim)
+  if (isErr(checked)) {
+    await safeAudit(deps, {
+      kind: "invalid_subject_claim",
+      tenantId: tenant.id,
+      clientId: client.id,
+      subjectType: checked.error.rejection.subjectType,
+      reason: checked.error.rejection.reason,
+      detail: checked.error.rejection.detail,
+      timestamp: deps.clock(),
+    })
+    return err(checked.error)
+  }
+  claim = checked.value
 
   // 6. Mint access only — RFC 6749 §4.4.3 says client_credentials SHOULD
   //    NOT issue a refresh token. `skipRefresh: true` keeps the token-

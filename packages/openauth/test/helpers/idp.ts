@@ -24,6 +24,7 @@ import type { TenantId } from "../../src/types/tenant"
 import { redirectFactory } from "./method"
 import { buildStateKeys } from "./state-keys"
 import { buildTenant } from "./tenant"
+import { testSubjects } from "../helpers/subjects"
 
 export type HarnessOptions = {
   /** Override the tenant seed. */
@@ -77,7 +78,7 @@ export async function buildHarness(
     auditLog,
     issuerUrl,
     methods: { stub: redirectFactory({ kind: "stub" }) as never },
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async ({ providerSubject, properties }) =>
       ({
         type: "user",

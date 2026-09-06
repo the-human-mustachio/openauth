@@ -33,6 +33,7 @@ import { authorizeUrl, driveCallback, tokenRequest } from "../helpers/idp"
 import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
+import { testSubjects } from "../helpers/subjects"
 
 describe("createIdP → createClient.verify round-trip", () => {
   test("access token issued by createIdP verifies via createClient.verify", async () => {
@@ -60,7 +61,7 @@ describe("createIdP → createClient.verify round-trip", () => {
       auditLog,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       // Issue a non-default subject type to make sure the round-trip
       // preserves both the type discriminator and the properties shape.
       success: async ({ providerSubject }) =>
@@ -162,7 +163,7 @@ describe("createIdP → createClient.verify round-trip", () => {
       keyStore,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async () =>
         ({
           type: "orgMember",

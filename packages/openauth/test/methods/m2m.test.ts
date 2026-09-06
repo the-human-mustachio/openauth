@@ -19,6 +19,7 @@ import { ok } from "../../src/types/result"
 
 import { buildStateKeys } from "../helpers/state-keys"
 import { tokenRequest } from "../helpers/idp"
+import { testSubjects } from "../helpers/subjects"
 
 void MethodCache
 
@@ -77,7 +78,7 @@ describe("m2mMethod / client_credentials grant", () => {
           }),
         }) as never,
       },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject, properties }) =>
         ({
           type: "service",
@@ -157,7 +158,7 @@ describe("m2mMethod / client_credentials grant", () => {
           verify: async () => ({}),
         }) as never,
       },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject }) =>
         ({ type: "service", properties: { id: providerSubject } }) as never,
     })
@@ -231,7 +232,7 @@ describe("m2mMethod / client_credentials grant", () => {
           }),
         }) as never,
       },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject }) =>
         ({ type: "service", properties: { id: providerSubject } }) as never,
     })
@@ -291,7 +292,7 @@ describe("m2mMethod / client_credentials grant", () => {
       methods: {
         m2m: m2mMethod({ verify: async () => ({}) }) as never,
       },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async () => ({ type: "x", properties: {} }) as never,
     })
     const res = await idp.handle(

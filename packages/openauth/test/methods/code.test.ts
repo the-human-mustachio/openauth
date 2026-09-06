@@ -21,6 +21,7 @@ import { ok } from "../../src/types/result"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
 import { authorizeUrl, tokenRequest } from "../helpers/idp"
+import { testSubjects } from "../helpers/subjects"
 
 describe("codeMethod", () => {
   test("end-to-end: authorize → send → verify → token", async () => {
@@ -56,7 +57,7 @@ describe("codeMethod", () => {
           generateCode: () => "424242",
         }) as never,
       },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ properties }) =>
         ({ type: "user", properties: properties as object }) as never,
     })

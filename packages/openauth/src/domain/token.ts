@@ -27,7 +27,7 @@ import { authError } from "../types/error"
 import type { PersistUpstreamTokens, SuccessMapInput } from "../types/idp"
 import type { Result } from "../types/result"
 import { err, isErr, ok } from "../types/result"
-import type { SubjectClaim } from "../types/subject"
+import type { SubjectClaim, SubjectSchema } from "../types/subject"
 import type { TenantContext } from "../types/tenant"
 import type {
   AccessTokenClaims,
@@ -50,6 +50,7 @@ import {
 import { buildIdTokenClaims, shouldIssueIdToken } from "./id-token"
 import { signAccessToken, signIdToken } from "./jwt"
 import { validatePkce } from "./pkce"
+import { validateSubjectClaim } from "./subject"
 
 /**
  * Encrypt a `CodePayload` with the active `KeyStore` encryption key and
@@ -104,6 +105,12 @@ export type ExchangeCodeDeps = {
   keyStore: KeyStore
   auditLog?: AuditLog
   success: (input: SuccessMapInput) => Promise<SubjectClaim>
+  /**
+   * The host's declared subject schemas. The claim `success()` returns is
+   * validated against these before anything is signed — see
+   * `domain/subject.ts` for why that is the library's job.
+   */
+  subjects: SubjectSchema
   persistUpstreamTokens?: PersistUpstreamTokens
   issuerUrl: string
   clock: () => number
@@ -203,6 +210,23 @@ export async function exchangeCode(
   } catch (e) {
     return err(authError.serverError("success callback threw", e))
   }
+
+  const checked = await validateSubjectClaim(deps.subjects, claim)
+  if (isErr(checked)) {
+    await safeAudit(deps, {
+      kind: "invalid_subject_claim",
+      tenantId: payload.tenantId,
+      clientId: payload.clientId,
+      subjectType: checked.error.rejection.subjectType,
+      reason: checked.error.rejection.reason,
+      detail: checked.error.rejection.detail,
+      timestamp: deps.clock(),
+    })
+    return err(checked.error)
+  }
+  // Parsed value from here on, so the token matches what the schema
+  // declares and what `client.verify()` returns to the RP.
+  claim = checked.value
 
   // 7. Optional upstream-tokens hook (runs after success, before
   //    mint — failed mints below should NOT roll back this hook because

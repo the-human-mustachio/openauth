@@ -140,3 +140,43 @@ function isEnvelopeShape(value: unknown): value is EnvelopeShape {
     typeof v.kid === "string"
   )
 }
+
+/**
+ * Pull the MAC state envelope off an inbound callback request.
+ *
+ * The envelope normally rides `?state=` on the upstream redirect.
+ * POST-binding callbacks carry it in the form body instead: OAuth
+ * `response_mode=form_post` uses `state`, SAML's HTTP-POST binding uses
+ * `RelayState`. Read the query first (cheap, the common case) and fall
+ * back to a **cloned** body read so the downstream method handler still
+ * gets an unconsumed request body (it needs it for `code` /
+ * `SAMLResponse`).
+ *
+ * Any body-parse failure degrades to "no state" — identical to the
+ * behaviour when the query param is simply absent.
+ *
+ * **This is the single extraction point**, shared by the tenant
+ * middleware and the callback domain. They ran near-identical copies
+ * until 0.14.0, and the middleware copy — which runs *first* — read only
+ * `state`. SP-initiated SAML callbacks therefore fell through to
+ * `resolveTenant`, breaking the documented guarantee that callbacks
+ * recover the tenant without it. Keep exactly one of these.
+ */
+export async function extractCallbackState(
+  req: Request,
+): Promise<string | null> {
+  const fromQuery = new URL(req.url).searchParams.get("state")
+  if (fromQuery) return fromQuery
+  if (req.method !== "POST") return null
+  const ct = req.headers.get("content-type") ?? ""
+  if (!ct.toLowerCase().includes("application/x-www-form-urlencoded")) {
+    return null
+  }
+  try {
+    const form = new URLSearchParams(await req.clone().text())
+    const v = form.get("state") ?? form.get("RelayState")
+    return v && v.length > 0 ? v : null
+  } catch {
+    return null
+  }
+}

@@ -37,6 +37,7 @@ import { ok } from "../../src/types/result"
 
 import { buildStateKeys } from "../helpers/state-keys"
 import { authorizeUrl } from "../helpers/idp"
+import { testSubjects } from "../helpers/subjects"
 
 type ValibotProps = { greeting: string }
 type ValibotConfig = { greeting: string; loud?: boolean }
@@ -115,7 +116,7 @@ function buildIdp(t: TenantConfig) {
     auditLog: new MemoryAuditLog(),
     issuerUrl: "https://idp.example",
     methods: { "valibot-stub": valibotFactory as never },
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async ({ properties }) =>
       ({ type: "user", properties: properties as object }) as never,
   })
@@ -161,7 +162,7 @@ describe("AuthMethodFactory.configSchema accepts any Standard Schema v1 impl", (
       auditLog,
       issuerUrl: "https://idp.example",
       methods: { "valibot-stub": valibotFactory as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ properties }) =>
         ({ type: "user", properties: properties as object }) as never,
     })

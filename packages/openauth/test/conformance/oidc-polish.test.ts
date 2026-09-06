@@ -30,6 +30,7 @@ import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
 
 import type { TokenResponse } from "../../src/types/token"
+import { testSubjects } from "../helpers/subjects"
 
 function unwrapKeys(res: Result<SigningKey[]>): SigningKey[] {
   if (!res.ok) throw new Error(`signingKeys err: ${res.error.code}`)
@@ -63,7 +64,7 @@ async function buildConfidentialHarness() {
     auditLog,
     issuerUrl,
     methods: { stub: redirectFactory({ kind: "stub" }) as never },
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async ({ providerSubject }) =>
       ({
         type: "user",
@@ -154,7 +155,7 @@ describe("OIDC Core §5.5 — claims parameter", () => {
       auditLog,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject }) =>
         ({
           type: "user",
@@ -362,7 +363,7 @@ describe("OIDC Core §8.1 — pairwise subjects", () => {
       auditLog,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async () =>
         ({
           type: "user",
@@ -445,7 +446,7 @@ describe("OIDC Core §8.1 — pairwise subjects", () => {
       auditLog,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async () =>
         ({
           type: "user",
@@ -532,7 +533,7 @@ describe("RFC 7591 — Dynamic Client Registration", () => {
       auditLog,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async () => ({ type: "user", properties: {} }) as never,
       ...(opts.withHook
         ? {
@@ -694,7 +695,7 @@ describe("Audit — OIDC + DPoP event surface", () => {
       auditLog,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject }) =>
         ({
           type: "user",
@@ -760,7 +761,7 @@ describe("OIDC vendor scope extension — customScopeClaims", () => {
       auditLog,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject }) =>
         ({
           type: "user",

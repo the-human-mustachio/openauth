@@ -163,6 +163,20 @@ export type AuditEvent =
       errorPath: string
     }
   | {
+      /**
+       * `IdPOptions.success` returned a claim that violates the host's
+       * own `subjects` schema. A deployment fault, not RP behaviour —
+       * token issuance is refused. Carries paths, never values.
+       */
+      kind: "invalid_subject_claim"
+      tenantId: TenantId
+      clientId: string
+      subjectType: string
+      reason: "unknown-type" | "invalid-properties"
+      /** Standard Schema issue path, or the declared type list. */
+      detail: string
+    }
+  | {
       kind: "unknown_method_kind"
       tenantId: TenantId
       methodId: string

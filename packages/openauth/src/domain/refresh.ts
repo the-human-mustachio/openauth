@@ -57,6 +57,26 @@ export type RefreshTokensDeps = {
   customScopeClaims?: Record<string, ReadonlyArray<string>>
 }
 
+/**
+ * Requested scopes must be a subset of what the grant carries (RFC 6749
+ * §6). Returns the error rather than throwing so both call sites -- the
+ * pre-consume gate and the post-consume re-check -- read identically.
+ */
+function validateRequestedScopes(
+  requested: string | undefined,
+  granted: string[],
+): AuthError | null {
+  if (!requested) return null
+  for (const s of requested.split(" ").filter(Boolean)) {
+    if (!granted.includes(s)) {
+      return authError.invalidScope(
+        `requested scope "${s}" not granted by original refresh token`,
+      )
+    }
+  }
+  return null
+}
+
 export async function refreshTokens(
   req: RefreshGrantRequest,
   deps: RefreshTokensDeps,
@@ -123,6 +143,16 @@ export async function refreshTokens(
     }
   }
 
+  // Scope narrowing is validated against the *peeked* grant, before the
+  // token is consumed. Same reasoning as the client-auth and DPoP gates
+  // above: a request the grant cannot satisfy must not burn the token,
+  // or a client typo makes the next legitimate refresh look like theft
+  // and can revoke the whole family. `consumeRefresh` stays the
+  // authoritative atomic gate immediately below (TokenStore port:
+  // "callers race peekRefresh then consumeRefresh").
+  const scopeErr = validateRequestedScopes(req.scope, peekedPayload.scopes)
+  if (scopeErr) return err(scopeErr)
+
   const consumed = await deps.tokenStore.consumeRefresh(req.refreshToken, {
     reuseWindowMs: deps.reuseWindowMs,
   })
@@ -147,19 +177,18 @@ export async function refreshTokens(
   }
   const payload = consumed.value
 
-  // Narrow scope if requested (must be subset of original).
+  // Re-check against the consumed payload, which the port declares
+  // authoritative. In practice this cannot diverge from the peeked
+  // grant -- rotation preserves scopes -- so this is defence in depth,
+  // not the user-facing gate; that already ran above without burning.
+  const authoritativeScopeErr = validateRequestedScopes(
+    req.scope,
+    payload.scopes,
+  )
+  if (authoritativeScopeErr) return err(authoritativeScopeErr)
   const requestedScopes = req.scope
     ? req.scope.split(" ").filter(Boolean)
     : payload.scopes
-  for (const s of requestedScopes) {
-    if (!payload.scopes.includes(s)) {
-      return err(
-        authError.invalidScope(
-          `requested scope "${s}" not granted by original refresh token`,
-        ),
-      )
-    }
-  }
 
   const tenant: TenantContext = {
     id: payload.tenantId,

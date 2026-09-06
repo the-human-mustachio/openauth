@@ -38,6 +38,7 @@ import {
 import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
+import { testSubjects } from "../helpers/subjects"
 
 /** Type-narrow a `Result<SigningKey[]>` to its keys array, throwing on `err`. */
 function unwrapKeys(res: Result<SigningKey[]>): SigningKey[] {
@@ -177,7 +178,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
       auditLog,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject, properties }) =>
         ({
           type: "user",
@@ -282,7 +283,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
           properties: { handle: "ada" } as never,
         }) as never,
       },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject }) =>
         ({
           type: "user",
@@ -366,7 +367,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
       auditLog,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject }) =>
         ({
           type: "user",
@@ -444,7 +445,7 @@ describe("OIDC Core 1.0 — id_token issuance + userinfo conformance", () => {
       auditLog,
       issuerUrl,
       methods: { password: redirectFactory({ kind: "password" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject }) =>
         ({
           type: "user",

@@ -27,6 +27,7 @@ import type { AuthError } from "../../src/types/error"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
 import { authorizeUrl, tokenRequest } from "../helpers/idp"
+import { testSubjects } from "../helpers/subjects"
 
 function buildMemoryUserStore(seed: PasswordUser[]): PasswordUserStore {
   const byEmail = new Map<string, PasswordUser>()
@@ -91,7 +92,7 @@ describe("passwordMethod", () => {
       methods: {
         password: passwordMethod({ users, hasher }) as never,
       },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject, properties }) =>
         ({
           type: "user",
@@ -193,7 +194,7 @@ describe("passwordMethod", () => {
       keyStore,
       issuerUrl: "https://idp.example",
       methods: { password: passwordMethod({ users, hasher }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async () => ({ type: "user", properties: {} }) as never,
     })
 

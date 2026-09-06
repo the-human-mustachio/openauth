@@ -27,6 +27,7 @@ import { authorizeUrl, driveCallback, tokenRequest } from "../helpers/idp"
 import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
+import { testSubjects } from "../helpers/subjects"
 
 function unwrapKeys(res: Result<SigningKey[]>): SigningKey[] {
   if (!res.ok) throw new Error(`signingKeys err: ${res.error.code}`)
@@ -61,7 +62,7 @@ async function loginAndGetTokens(opts: { postLogoutRedirectUris?: string[] }) {
     auditLog,
     issuerUrl,
     methods: { stub: redirectFactory({ kind: "stub" }) as never },
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async ({ providerSubject }) =>
       ({
         type: "user",

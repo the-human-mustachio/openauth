@@ -34,6 +34,7 @@ import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
 
 import type { TokenResponse } from "../../src/types/token"
+import { testSubjects } from "../helpers/subjects"
 
 type DpopKey = {
   publicJwk: JWK
@@ -116,7 +117,7 @@ async function buildDpopHarness(
     auditLog,
     issuerUrl,
     methods: { stub: redirectFactory({ kind: "stub" }) as never },
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async ({ providerSubject }) =>
       ({
         type: "user",
@@ -628,7 +629,7 @@ describe("RFC 9449 — DPoP conformance", () => {
       auditLog,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject }) =>
         ({
           type: "user",

@@ -18,6 +18,7 @@ import { buildStateKeys } from "../helpers/state-keys"
 import type { AuthMethod, AuthMethodFactory } from "../../src/types/method"
 import { brokenIdFactory, inlineSuccessFactory } from "../helpers/method"
 import { buildTenant } from "../helpers/tenant"
+import { testSubjects } from "../helpers/subjects"
 
 /**
  * Factory that records every build's `tag` on a shared `builds` array so
@@ -143,7 +144,7 @@ describe("MethodCache", () => {
       keyStore: new MemoryKeyStore({ clock: () => Date.now() }),
       issuerUrl: "https://idp.example",
       methods: { stub: inlineSuccessFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async () => ({ type: "x", properties: {} }) as never,
     })
     expect(listeners.length).toBe(1)

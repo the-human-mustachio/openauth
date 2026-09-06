@@ -127,6 +127,7 @@ export function makeTokenHandler(deps: HttpDeps) {
           keyStore: deps.keyStore,
           ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
           success: deps.success,
+          subjects: deps.subjects,
           ...(deps.persistUpstreamTokens
             ? { persistUpstreamTokens: deps.persistUpstreamTokens }
             : {}),
@@ -174,6 +175,7 @@ export function makeTokenHandler(deps: HttpDeps) {
           ...(deps.auditLog ? { auditLog: deps.auditLog } : {}),
           methodCache: deps.methodCache,
           success: deps.success,
+          subjects: deps.subjects,
           ...(deps.persistUpstreamTokens
             ? { persistUpstreamTokens: deps.persistUpstreamTokens }
             : {}),

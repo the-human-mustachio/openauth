@@ -30,6 +30,7 @@ import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
 import { hashClientSecret } from "../../src/domain/token"
+import { testSubjects } from "../helpers/subjects"
 
 describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
   // ─── case 1 ───
@@ -195,7 +196,7 @@ describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
       auditLog,
       issuerUrl: "https://idp.example",
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject, properties }) =>
         ({
           type: "user",
@@ -579,7 +580,7 @@ describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
       auditLog,
       issuerUrl: "https://idp.example",
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async () => ({ type: "user", properties: {} }) as never,
     })
 
@@ -661,7 +662,7 @@ describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
       auditLog,
       issuerUrl: "https://idp.example",
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async ({ providerSubject }) =>
         ({ type: "user", properties: { userId: providerSubject } }) as never,
     })

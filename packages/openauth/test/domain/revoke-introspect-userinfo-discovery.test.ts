@@ -14,6 +14,7 @@ import { buildDiscoveryDocument, buildJwks } from "../../src/domain/discovery"
 import { asTenantId } from "../../src/types/tenant"
 import type { CodePayload } from "../../src/types/token"
 import { buildTenant } from "../helpers/tenant"
+import { testSubjects } from "../helpers/subjects"
 
 const tenantId = asTenantId("acme")
 
@@ -78,6 +79,7 @@ async function issueTokens(f: Awaited<ReturnType<typeof fixture>>) {
       configStore: f.configStore,
       tokenStore: f.tokenStore,
       keyStore: f.keyStore,
+      subjects: testSubjects,
       success: async () =>
         ({
           type: "user",

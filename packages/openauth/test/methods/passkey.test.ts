@@ -25,6 +25,7 @@ import { ok } from "../../src/types/result"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
 import { authorizeUrl } from "../helpers/idp"
+import { testSubjects } from "../helpers/subjects"
 
 function harness() {
   return {
@@ -91,7 +92,7 @@ describe("passkeyMethod (shape)", () => {
       methods: {
         passkey: passkeyMethod({ credentials: harness() }) as never,
       },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async () => ({ type: "user", properties: {} }) as never,
     })
 
@@ -145,7 +146,7 @@ describe("passkeyMethod (shape)", () => {
       methods: {
         passkey: passkeyMethod({ credentials: harness() }) as never,
       },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async () => ({ type: "user", properties: {} }) as never,
     })
 

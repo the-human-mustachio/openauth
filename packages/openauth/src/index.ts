@@ -285,6 +285,7 @@ export function createIdP(opts: IdPOptions): IdP {
     ...(opts.callbackHostFor ? { callbackHostFor: opts.callbackHostFor } : {}),
     resolveTenant: opts.resolveTenant,
     success: opts.success,
+    subjects: opts.subjects,
     ...(opts.onLogout ? { onLogout: opts.onLogout } : {}),
     ...(opts.persistUpstreamTokens
       ? { persistUpstreamTokens: opts.persistUpstreamTokens }

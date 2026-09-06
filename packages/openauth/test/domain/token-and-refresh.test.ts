@@ -15,6 +15,7 @@ import { refreshTokens } from "../../src/domain/refresh"
 import type { CodePayload } from "../../src/types/token"
 import { asTenantId } from "../../src/types/tenant"
 import { buildTenant } from "../helpers/tenant"
+import { testSubjects } from "../helpers/subjects"
 
 const tenantId = asTenantId("acme")
 
@@ -85,6 +86,7 @@ describe("exchangeCode: happy path", () => {
         tokenStore: f.tokenStore,
         keyStore: f.keyStore,
         auditLog: f.auditLog,
+        subjects: testSubjects,
         success: async ({ providerSubject }) =>
           ({
             type: "user",
@@ -123,6 +125,7 @@ describe("exchangeCode: failure paths", () => {
         configStore: f.configStore,
         tokenStore: f.tokenStore,
         keyStore: f.keyStore,
+        subjects: testSubjects,
         success: async () => ({ type: "user", properties: {} }) as never,
         issuerUrl: "https://idp.example",
         clock: () => 1,
@@ -149,6 +152,7 @@ describe("exchangeCode: failure paths", () => {
         configStore: f.configStore,
         tokenStore: f.tokenStore,
         keyStore: f.keyStore,
+        subjects: testSubjects,
         success: async () => ({ type: "user", properties: {} }) as never,
         issuerUrl: "https://idp.example",
         clock: () => 1,
@@ -175,6 +179,7 @@ describe("exchangeCode: failure paths", () => {
         configStore: f.configStore,
         tokenStore: f.tokenStore,
         keyStore: f.keyStore,
+        subjects: testSubjects,
         success: async () => ({ type: "user", properties: {} }) as never,
         issuerUrl: "https://idp.example",
         clock: () => 1,
@@ -202,6 +207,7 @@ describe("exchangeCode: failure paths", () => {
         configStore: f.configStore,
         tokenStore: f.tokenStore,
         keyStore: f.keyStore,
+        subjects: testSubjects,
         success: async () => ({ type: "user", properties: {} }) as never,
         issuerUrl: "https://idp.example",
         clock: () => 1,
@@ -231,6 +237,7 @@ describe("exchangeCode: failure paths", () => {
         configStore: f.configStore,
         tokenStore: f.tokenStore,
         keyStore: f.keyStore,
+        subjects: testSubjects,
         success: async () => ({ type: "user", properties: {} }) as never,
         issuerUrl: "https://idp.example",
         clock: () => 1,
@@ -261,6 +268,7 @@ describe("exchangeCode: failure paths", () => {
         configStore: f.configStore,
         tokenStore: f.tokenStore,
         keyStore: f.keyStore,
+        subjects: testSubjects,
         success: async () => ({ type: "user", properties: {} }) as never,
         issuerUrl: "https://idp.example",
         clock: () => 1,
@@ -286,6 +294,7 @@ describe("exchangeCode: failure paths", () => {
         configStore: f.configStore,
         tokenStore: f.tokenStore,
         keyStore: f.keyStore,
+        subjects: testSubjects,
         success: async () => {
           throw new Error("boom")
         },
@@ -327,6 +336,7 @@ describe("refreshTokens: rotation", () => {
         configStore: f.configStore,
         tokenStore: f.tokenStore,
         keyStore: f.keyStore,
+        subjects: testSubjects,
         success: async () =>
           ({ type: "user", properties: { id: "u1" } }) as never,
         issuerUrl: "https://idp.example",
@@ -390,6 +400,7 @@ describe("refreshTokens: rotation", () => {
         configStore: f.configStore,
         tokenStore: f.tokenStore,
         keyStore: f.keyStore,
+        subjects: testSubjects,
         success: async () =>
           ({ type: "user", properties: { id: "u1" } }) as never,
         issuerUrl: "https://idp.example",
@@ -414,5 +425,75 @@ describe("refreshTokens: rotation", () => {
     )
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.code).toBe("invalid_scope")
+  })
+
+  test("an invalid_scope request leaves the refresh token usable", async () => {
+    // The scope check runs against the peeked grant, before the token is
+    // consumed -- same rule the client-auth and DPoP gates above follow.
+    // Consuming first would let a client typo burn the token, so the next
+    // legitimate refresh would return invalid_grant with a reuse signal
+    // and could revoke the entire family.
+    const f = await withFixture()
+    const payload = basePayload()
+    payload.scopes = ["openid", "email"]
+    await saveEncryptedCode("c", payload, 60_000, {
+      keyStore: f.keyStore,
+      tokenStore: f.tokenStore,
+    })
+    const issued = await exchangeCode(
+      {
+        grantType: "authorization_code",
+        code: "c",
+        clientId: "rp-1",
+        redirectUri: payload.appRedirectUri,
+      },
+      {
+        configStore: f.configStore,
+        tokenStore: f.tokenStore,
+        keyStore: f.keyStore,
+        subjects: testSubjects,
+        success: async () =>
+          ({ type: "user", properties: { id: "u1" } }) as never,
+        issuerUrl: "https://idp.example",
+        clock: f.clock,
+      },
+    )
+    if (!issued.ok) throw new Error("issue failed")
+    const refresh = issued.value.refresh_token!
+
+    const deps = {
+      configStore: f.configStore,
+      tokenStore: f.tokenStore,
+      keyStore: f.keyStore,
+      auditLog: f.auditLog,
+      issuerUrl: "https://idp.example",
+      clock: f.clock,
+    }
+
+    f.setClock(2_000)
+    const typo = await refreshTokens(
+      {
+        grantType: "refresh_token",
+        refreshToken: refresh,
+        scope: "openid admin",
+      },
+      deps,
+    )
+    expect(typo.ok).toBe(false)
+    if (!typo.ok) expect(typo.error.code).toBe("invalid_scope")
+
+    // The same token must still work. Before the fix this returned
+    // invalid_grant, because the failed request had already consumed it.
+    f.setClock(3_000)
+    const retry = await refreshTokens(
+      { grantType: "refresh_token", refreshToken: refresh },
+      deps,
+    )
+    expect(retry.ok).toBe(true)
+    if (!retry.ok) throw new Error(`retry failed: ${retry.error.code}`)
+    expect(retry.value.access_token).toBeTruthy()
+
+    // And no reuse alarm was raised by the legitimate retry.
+    expect(f.auditLog.byKind("refresh_reuse_detected").length).toBe(0)
   })
 })

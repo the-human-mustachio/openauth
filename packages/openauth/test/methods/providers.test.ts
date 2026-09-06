@@ -33,6 +33,7 @@ import type { AnyAuthMethodFactory } from "../../src/types/method"
 
 import { buildStateKeys } from "../helpers/state-keys"
 import { authorizeUrl, tokenRequest } from "../helpers/idp"
+import { testSubjects } from "../helpers/subjects"
 
 type ProviderSpec = {
   name: string
@@ -308,7 +309,7 @@ async function buildIdpFor(spec: ProviderSpec) {
     auditLog: new MemoryAuditLog(),
     issuerUrl: "https://idp.example",
     methods: { [spec.factory.kind]: spec.factory },
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async ({ providerSubject, properties }) =>
       ({
         type: "user",

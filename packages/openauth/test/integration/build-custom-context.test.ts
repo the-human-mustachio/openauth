@@ -24,6 +24,7 @@ import { ok } from "../../src/types/result"
 import { redirectFactory } from "../helpers/method"
 import { authorizeUrl, driveCallback, tokenRequest } from "../helpers/idp"
 import { buildStateKeys } from "../helpers/state-keys"
+import { testSubjects } from "../helpers/subjects"
 
 describe("buildCustomContext hook (H12)", () => {
   test("hook output reaches success() via SuccessMapInput.context", async () => {
@@ -77,7 +78,7 @@ describe("buildCustomContext hook (H12)", () => {
           providerSubject: "upstream-subj",
         }) as never,
       },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async (input) => {
         successCalls.push(input)
         return {
@@ -170,7 +171,7 @@ describe("buildCustomContext hook (H12)", () => {
       methods: {
         stub: redirectFactory({ kind: "stub" }) as never,
       },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async (input) => {
         successCalls.push(input)
         return { type: "user", properties: { userId: "u1" } } as never

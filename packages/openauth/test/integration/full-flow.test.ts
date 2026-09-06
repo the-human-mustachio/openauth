@@ -28,6 +28,7 @@ import type { AuthorizationRequest } from "../../src/types/authorization"
 import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant, tenantContextFor } from "../helpers/tenant"
+import { testSubjects } from "../helpers/subjects"
 
 describe("end-to-end: authorize → callback → token → refresh → revoke", () => {
   test("the full loop succeeds against memory adapters", async () => {
@@ -136,6 +137,7 @@ describe("end-to-end: authorize → callback → token → refresh → revoke", 
         tokenStore,
         keyStore,
         auditLog,
+        subjects: testSubjects,
         success: async ({ providerSubject, properties }) =>
           ({
             type: "user",

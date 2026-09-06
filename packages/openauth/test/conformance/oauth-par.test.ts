@@ -25,6 +25,7 @@ import { authorizeUrl, driveCallback } from "../helpers/idp"
 import { redirectFactory } from "../helpers/method"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
+import { testSubjects } from "../helpers/subjects"
 
 async function buildPublicHarness(
   opts: {
@@ -56,7 +57,7 @@ async function buildPublicHarness(
     auditLog,
     issuerUrl,
     methods: { stub: redirectFactory({ kind: "stub" }) as never },
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async ({ providerSubject }) =>
       ({
         type: "user",
@@ -216,7 +217,7 @@ describe("RFC 9126 — Pushed Authorization Requests conformance", () => {
       auditLog,
       issuerUrl,
       methods: { stub: redirectFactory({ kind: "stub" }) as never },
-      subjects: {} as never,
+      subjects: testSubjects,
       success: async () => ({ type: "user", properties: {} }) as never,
     })
 

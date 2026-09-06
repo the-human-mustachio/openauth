@@ -24,6 +24,7 @@ import { asTenantId, type TenantConfig } from "../../src/types/tenant"
 import { MemoryScimDirectory } from "../helpers/scim-directory"
 import { buildStateKeys } from "../helpers/state-keys"
 import { buildTenant } from "../helpers/tenant"
+import { testSubjects } from "../helpers/subjects"
 
 const TOKEN = "scim-token-abc123"
 const ISSUER = "https://idp.example"
@@ -65,7 +66,7 @@ async function harness(
     auditLog: new MemoryAuditLog(),
     issuerUrl: ISSUER,
     methods: {},
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async () => ({ type: "user", properties: {} }) as never,
     ...(opts.withDirectory === false ? {} : { scimDirectory: directory }),
   })

@@ -24,6 +24,7 @@ import { ok, type Result } from "../../../src/types/result"
 
 import { buildStateKeys } from "../../helpers/state-keys"
 import { buildTenant } from "../../helpers/tenant"
+import { testSubjects } from "../../helpers/subjects"
 
 const ISSUER = "https://idp.example"
 const MID = "corp-saml"
@@ -59,7 +60,7 @@ async function buildSamlIdp() {
     auditLog: new MemoryAuditLog(),
     issuerUrl: ISSUER,
     methods: { "saml-sp": samlSpFactory as never },
-    subjects: {} as never,
+    subjects: testSubjects,
     success: async ({ providerSubject }) =>
       ({ type: "user", properties: { userId: providerSubject } }) as never,
   })
