@@ -25,9 +25,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           # Pinned deliberately. `latest` silently moved CI from Bun 1.1
-          # to 1.4, which changed URL query re-encoding and broke SAML
-          # redirect-binding signature verification — CI was red for two
-          # releases before anyone noticed. Bump this on purpose.
+          # to 1.4, which dropped the legacy OpenSSL `RSA-SHA256` digest
+          # alias that node-saml needs to resolve a SigAlg URI, so the
+          # SAML redirect-binding tests failed on Bun alone — CI was red
+          # for two releases before the cause was found. Bump on purpose.
           bun-version: 1.4.2
       - run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
