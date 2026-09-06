@@ -26,6 +26,7 @@ import type {
   MethodContext,
   MethodResult,
 } from "../types/method"
+import { mountedPath } from "../domain/mount"
 import { renderForm } from "../ui/forms"
 
 export type PasswordProperties = {
@@ -140,7 +141,7 @@ async function renderLogin(
 ): Promise<MethodResult<PasswordProperties, PasswordState>> {
   const body = renderForm({
     title,
-    action: `/m/${methodId}/login`,
+    action: mountedPath(ctx.issuerUrl, `/m/${methodId}/login`),
     fields: [
       {
         name: "email",
@@ -180,6 +181,7 @@ async function handleLogin(
   const parsed = loginBodySchema.safeParse(form)
   if (!parsed.success) {
     return reLoginWithError(
+      ctx.issuerUrl,
       methodId,
       title,
       "Please enter your email and password.",
@@ -188,12 +190,22 @@ async function handleLogin(
 
   const user = await users.findByEmail(parsed.data.email, ctx.tenant.id)
   if (!user) {
-    return reLoginWithError(methodId, title, "Invalid email or password.")
+    return reLoginWithError(
+      ctx.issuerUrl,
+      methodId,
+      title,
+      "Invalid email or password.",
+    )
   }
 
   const verified = await hasher.verify(parsed.data.password, user.passwordHash)
   if (!verified) {
-    return reLoginWithError(methodId, title, "Invalid email or password.")
+    return reLoginWithError(
+      ctx.issuerUrl,
+      methodId,
+      title,
+      "Invalid email or password.",
+    )
   }
 
   return {
@@ -218,6 +230,7 @@ async function handleRegister(
   const parsed = registerBodySchema.safeParse(form)
   if (!parsed.success) {
     return reLoginWithError(
+      ctx.issuerUrl,
       methodId,
       title,
       "Password must be at least 8 characters and email must be valid.",
@@ -227,6 +240,7 @@ async function handleRegister(
   const existing = await users.findByEmail(parsed.data.email, ctx.tenant.id)
   if (existing) {
     return reLoginWithError(
+      ctx.issuerUrl,
       methodId,
       title,
       "An account with that email already exists.",
@@ -250,6 +264,7 @@ async function handleRegister(
 }
 
 function reLoginWithError(
+  issuerUrl: string,
   methodId: string,
   title: string,
   error: string,
@@ -259,7 +274,7 @@ function reLoginWithError(
     response: new Response(
       renderForm({
         title,
-        action: `/m/${methodId}/login`,
+        action: mountedPath(issuerUrl, `/m/${methodId}/login`),
         fields: [
           {
             name: "email",

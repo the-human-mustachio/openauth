@@ -33,6 +33,11 @@ export type DispatchInput = {
   flow: FlowRecord | null
   cookies: ReadonlyMap<string, string>
   sessionStore: SessionStore
+  /**
+   * Issuer URL of this IdP. Always required — unlike `dispatch`, methods
+   * need it on every route to emit mount-prefixed URLs of their own.
+   */
+  issuerUrl: string
   /** Populated at `GET /authorize`; null on callbacks. */
   dispatch: MethodDispatchData | null
 }
@@ -57,6 +62,7 @@ export async function dispatchMethod(
 
   const ctx: MethodContext<unknown> = {
     request: input.request,
+    issuerUrl: input.issuerUrl,
     subPath: input.subPath,
     tenant: input.tenant,
     flow: input.flow,

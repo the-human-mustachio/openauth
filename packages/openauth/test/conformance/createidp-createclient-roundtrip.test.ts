@@ -129,7 +129,7 @@ describe("createIdP → createClient.verify round-trip", () => {
     })
 
     const verified = await client.verify(subjects, access_token)
-    if ("err" in verified) {
+    if (verified.err) {
       throw new Error(`verify returned err: ${verified.err.constructor.name}`)
     }
     expect(verified.aud).toBe("rp-1")
@@ -221,8 +221,8 @@ describe("createIdP → createClient.verify round-trip", () => {
     } satisfies SubjectSchema
 
     const verified = await client.verify(subjects as never, access_token)
-    expect("err" in verified).toBe(true)
-    if ("err" in verified) {
+    expect(Boolean(verified.err)).toBe(true)
+    if (verified.err) {
       expect(verified.err.constructor.name).toBe("InvalidSubjectError")
     }
   })

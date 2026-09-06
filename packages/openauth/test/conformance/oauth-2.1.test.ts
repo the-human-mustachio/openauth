@@ -219,6 +219,7 @@ describe("OAuth 2.1 + OIDC Core conformance matrix (Phase 3)", () => {
       providerSubject: "u1",
       properties: { handle: "ada" },
       context: null,
+      authTime: Math.floor(now / 1000),
       expiresAt: now + 1,
     }
     const { saveEncryptedCode } = await import("../../src/domain/token")

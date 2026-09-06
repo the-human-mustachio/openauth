@@ -35,6 +35,7 @@ import { safeAudit } from "./audit"
 import { randomToken } from "./crypto"
 import { MethodCache } from "./method-cache"
 import { dispatchMethod } from "./method-dispatch"
+import { callbackTarget } from "./mount"
 import { saveEncryptedCode } from "./token"
 import { verifyStateEnvelope } from "./state-envelope"
 import { AUTH_CODE_TTL_MS } from "./authorize"
@@ -67,12 +68,13 @@ export type HandleCallbackInput = {
    */
   tenant?: TenantContext
   /**
-   * Per-request issuer URL (HTTP layer). Used only by the
-   * IdP-initiated path to derive the SP entityID / ACS — the same
-   * derivation the AuthnRequest and metadata paths use, so the values
-   * cannot drift.
+   * Per-request issuer URL (HTTP layer). The IdP-initiated path derives
+   * the SP entityID / ACS from it — the same derivation the AuthnRequest
+   * and metadata paths use, so the values cannot drift — and every
+   * dispatched method receives it as `MethodContext.issuerUrl` to build
+   * mount-prefixed URLs of its own.
    */
-  issuerUrl?: string
+  issuerUrl: string
 }
 
 export type HandleCallbackDeps = {
@@ -241,6 +243,7 @@ export async function handleCallback(
     flow,
     cookies: input.cookies,
     sessionStore: deps.sessionStore,
+    issuerUrl: input.issuerUrl,
     dispatch: null,
   })
   if (isErr(dispatched)) return err(dispatched.error)
@@ -351,7 +354,7 @@ async function tryIdpInitiated(
   url: URL,
 ): Promise<Result<CallbackOutput, AuthError> | null> {
   if (input.rawRequest.method !== "POST") return null
-  if (!input.tenant || !input.issuerUrl) return null
+  if (!input.tenant) return null
 
   const segments = url.pathname.split("/").filter(Boolean)
   if (segments.length < 2 || segments[0] !== "cb") return null
@@ -365,7 +368,14 @@ async function tryIdpInitiated(
   const method = methodRes.value
   if (method.unsolicitedCallback !== true) return null
 
-  const callbackUrl = `${url.protocol}//${url.host}/cb/${methodId}`
+  // Derived from `issuerUrl`, not the inbound request URL: a path-mounted
+  // deployment sees a proxy-stripped pathname, so rebuilding from `url`
+  // would emit a callback URL missing the mount prefix.
+  const { url: callbackUrl } = callbackTarget({
+    issuerUrl: input.issuerUrl,
+    methodId,
+    callbackHost: url.host,
+  })
   const dispatched = await dispatchMethod({
     method,
     route: "GET /callback",
@@ -375,6 +385,7 @@ async function tryIdpInitiated(
     flow: null,
     cookies: input.cookies,
     sessionStore: deps.sessionStore,
+    issuerUrl: input.issuerUrl,
     dispatch: { state: "", callbackUrl, issuerUrl: input.issuerUrl },
   })
   if (isErr(dispatched)) return err(dispatched.error)

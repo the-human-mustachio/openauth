@@ -103,6 +103,7 @@ async function primeAuthnRequest(
     flow,
     cookies: new Map(),
     sessionStore: store,
+    issuerUrl: ISSUER_URL,
     dispatch: {
       state: STATE_ENVELOPE,
       callbackUrl: `${ISSUER_URL}/cb/${METHOD_ID}`,
@@ -151,6 +152,7 @@ async function postAssertion(
     flow,
     cookies: new Map(),
     sessionStore: store,
+    issuerUrl: ISSUER_URL,
     dispatch: null,
   })
 }

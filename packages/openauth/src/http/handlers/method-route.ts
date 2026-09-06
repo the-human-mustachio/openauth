@@ -12,6 +12,7 @@ import {
   handlePublicMethodRoute,
 } from "../../domain/method-route"
 import type { RouteKey } from "../../domain/method-dispatch"
+import { callbackTarget } from "../../domain/mount"
 import { authError } from "../../types/error"
 import { isErr } from "../../types/result"
 
@@ -51,13 +52,15 @@ export function makeMethodRouteHandler(deps: HttpDeps) {
           resolved.value.publicRoutes?.includes(routeKey)
         ) {
           const issuerUrl = c.get("issuerUrl")
-          const callbackHost =
-            deps.callbackHostFor?.(tenant.id) ?? new URL(issuerUrl).host
-          // Mirrors the ACS URL derivation in domain/authorize.ts
-          // (callbackHost/path/url). Source of truth is there; the
+          // Same derivation as domain/authorize.ts — both call
+          // `callbackTarget`, which is the single source of truth. The
           // metadata.test.ts anti-drift test asserts the emitted
           // entityID/ACS equal what buildAuthnRequestRedirect derives.
-          const callbackUrl = `${new URL(issuerUrl).protocol}//${callbackHost}/cb/${methodId}`
+          const { url: callbackUrl } = callbackTarget({
+            issuerUrl,
+            methodId,
+            callbackHost: deps.callbackHostFor?.(tenant.id),
+          })
           const pub = await handlePublicMethodRoute(
             {
               rawRequest: c.req.raw,
@@ -122,6 +125,7 @@ export function makeMethodRouteHandler(deps: HttpDeps) {
         httpMethod,
         flowId,
         cookies,
+        issuerUrl: c.get("issuerUrl"),
       },
       {
         sessionStore: deps.sessionStore,

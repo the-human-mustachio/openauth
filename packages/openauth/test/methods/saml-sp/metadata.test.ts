@@ -200,6 +200,7 @@ describe("GET /metadata route", () => {
       flow: null,
       cookies: new Map(),
       sessionStore: new MemorySessionStore(),
+      issuerUrl: ISSUER_URL,
       dispatch: DISPATCH,
     })
     expect(res.ok).toBe(true)
@@ -240,6 +241,7 @@ describe("GET /metadata route", () => {
       flow,
       cookies: new Map(),
       sessionStore: store,
+      issuerUrl: ISSUER_URL,
       dispatch: { ...DISPATCH, state: "state.envelope" },
     })
     expect(authz.ok).toBe(true)
@@ -266,6 +268,7 @@ describe("GET /metadata route", () => {
       flow: null,
       cookies: new Map(),
       sessionStore: store,
+      issuerUrl: ISSUER_URL,
       dispatch: DISPATCH,
     })
     if (!meta.ok || meta.value.kind !== "challenge") return
@@ -295,6 +298,7 @@ describe("GET /metadata route", () => {
       flow: null,
       cookies: new Map(),
       sessionStore: store,
+      issuerUrl: ISSUER_URL,
       dispatch: DISPATCH,
     })
     expect(meta.ok).toBe(true)
@@ -302,6 +306,78 @@ describe("GET /metadata route", () => {
     const xml = await meta.value.response.text()
     expect(xml).toContain(`entityID="${OVERRIDE}"`)
     expect(xml).not.toContain(`entityID="${ISSUER_URL}/${TENANT}/${METHOD_ID}"`)
+  })
+
+  test("ANTI-DRIFT: metadata agrees with /authorize under a path-mounted issuer", async () => {
+    // Same anti-drift guarantee as above, but for a deployment behind a
+    // proxy at `/idp`. Both the ACS and the SLS are registered in the
+    // IdP's configuration, so a missing prefix here is not something the
+    // host can correct after the fact.
+    const MOUNTED = `${ISSUER_URL}/idp`
+    const mountedDispatch = {
+      state: "state.envelope",
+      callbackUrl: `${MOUNTED}/cb/${METHOD_ID}`,
+      issuerUrl: MOUNTED,
+    }
+    // `sloUrl` set so the SLS is actually advertised — it is emitted only
+    // when SLO is served, and it is the third URL that carried this bug.
+    const cfg = config()
+    cfg.idp.sloUrl = "https://corp-idp.example/slo"
+    const method = await buildMethod(cfg)
+    const tenant = await tenantCtx()
+    const store = new MemorySessionStore()
+
+    const flow = makeFlow({
+      flowId: "mounted-drift-flow",
+      tenantId: asTenantId(TENANT),
+      methodId: METHOD_ID,
+      methodKind: "saml-sp",
+      // Un-prefixed: this is the inbound path after the proxy strips.
+      callbackPath: `/cb/${METHOD_ID}`,
+    })
+    await store.saveFlow(flow.flowId, flow, 10 * 60 * 1000)
+    const authz = await dispatchMethod({
+      method,
+      route: "GET /authorize",
+      tenant,
+      request: new Request(`${MOUNTED}/authorize`),
+      subPath: "/authorize",
+      flow,
+      cookies: new Map(),
+      sessionStore: store,
+      issuerUrl: MOUNTED,
+      dispatch: mountedDispatch,
+    })
+    expect(authz.ok).toBe(true)
+    if (!authz.ok || authz.value.kind !== "challenge") return
+    const updated = await store.readFlow(flow.flowId)
+    if (!updated.ok) return
+    const st = updated.value.methodState as {
+      spEntityId: string
+      acsUrl: string
+    }
+    expect(st.acsUrl).toBe(`${MOUNTED}/cb/${METHOD_ID}`)
+
+    const meta = await dispatchMethod({
+      method,
+      route: "GET /metadata",
+      tenant,
+      request: new Request(`${MOUNTED}/m/${METHOD_ID}/metadata`),
+      subPath: "/metadata",
+      flow: null,
+      cookies: new Map(),
+      sessionStore: store,
+      issuerUrl: MOUNTED,
+      dispatch: mountedDispatch,
+    })
+    if (!meta.ok || meta.value.kind !== "challenge") return
+    const xml = await meta.value.response.text()
+
+    expect(xml).toContain(`entityID="${st.spEntityId}"`)
+    expect(xml).toContain(`Location="${st.acsUrl}"`)
+    // The SLS is advertised at the public method mount, prefix included.
+    expect(xml).toContain(`Location="${MOUNTED}/m/${METHOD_ID}/sls"`)
+    expect(xml).not.toContain(`Location="${ISSUER_URL}/m/${METHOD_ID}/sls"`)
   })
 
   test("WantAssertionsSigned states actual behaviour, not a constant", async () => {
@@ -318,6 +394,7 @@ describe("GET /metadata route", () => {
         flow: null,
         cookies: new Map(),
         sessionStore: store,
+        issuerUrl: ISSUER_URL,
         dispatch: DISPATCH,
       })
       if (!res.ok || res.value.kind !== "challenge") throw new Error("no xml")

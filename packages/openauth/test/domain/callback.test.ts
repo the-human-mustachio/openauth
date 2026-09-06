@@ -137,6 +137,7 @@ describe("handleCallback: state verification", () => {
       {
         rawRequest: new Request("https://idp.example/cb/stub"),
         cookies: new Map(),
+        issuerUrl: "https://idp.example",
       },
       {
         configStore: f.configStore,
@@ -166,6 +167,7 @@ describe("handleCallback: state verification", () => {
           `https://idp.example/cb/stub?state=${encodeURIComponent(state)}`,
         ),
         cookies: new Map(),
+        issuerUrl: "https://idp.example",
       },
       {
         configStore: f.configStore,
@@ -222,6 +224,7 @@ describe("handleCallback: full authorize → callback", () => {
           `https://idp.example/cb/stub?state=${encodeURIComponent(state)}&code=upstream-code`,
         ),
         cookies: new Map(),
+        issuerUrl: "https://idp.example",
       },
       {
         configStore: f.configStore,
@@ -281,12 +284,20 @@ describe("handleCallback: full authorize → callback", () => {
       clock: f.clock,
     }
     const first = await handleCallback(
-      { rawRequest: new Request(url), cookies: new Map() },
+      {
+        rawRequest: new Request(url),
+        cookies: new Map(),
+        issuerUrl: "https://idp.example",
+      },
       deps,
     )
     expect(first.ok).toBe(true)
     const second = await handleCallback(
-      { rawRequest: new Request(url), cookies: new Map() },
+      {
+        rawRequest: new Request(url),
+        cookies: new Map(),
+        issuerUrl: "https://idp.example",
+      },
       deps,
     )
     expect(second.ok).toBe(false)
@@ -336,6 +347,7 @@ describe("handleCallback: full authorize → callback", () => {
           }).toString(),
         }),
         cookies: new Map(),
+        issuerUrl: "https://idp.example",
       },
       {
         configStore: f.configStore,
@@ -400,6 +412,7 @@ describe("handleCallback: full authorize → callback", () => {
           }).toString(),
         }),
         cookies: new Map(),
+        issuerUrl: "https://idp.example",
       },
       {
         configStore: f.configStore,
@@ -455,6 +468,7 @@ describe("handleCallback: full authorize → callback", () => {
           )}&code=upstream-code`,
         ),
         cookies: new Map(),
+        issuerUrl: "https://idp.example",
       },
       {
         configStore: f.configStore,
@@ -484,6 +498,7 @@ describe("handleCallback: full authorize → callback", () => {
           body: "code=upstream-code",
         }),
         cookies: new Map(),
+        issuerUrl: "https://idp.example",
       },
       {
         configStore: f.configStore,
@@ -531,6 +546,7 @@ describe("handleCallback: full authorize → callback", () => {
           `https://wrong.example/cb/stub?state=${encodeURIComponent(state)}`,
         ),
         cookies: new Map(),
+        issuerUrl: "https://idp.example",
       },
       {
         configStore: f.configStore,

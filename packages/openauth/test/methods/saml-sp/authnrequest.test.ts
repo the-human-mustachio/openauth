@@ -95,6 +95,7 @@ async function dispatchAuthorize(
     flow,
     cookies: new Map(),
     sessionStore: store,
+    issuerUrl: ISSUER_URL,
     dispatch: {
       state: STATE_ENVELOPE,
       callbackUrl: `${ISSUER_URL}/cb/${METHOD_ID}`,

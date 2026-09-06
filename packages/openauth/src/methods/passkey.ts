@@ -32,6 +32,7 @@ import type {
   MethodContext,
   MethodResult,
 } from "../types/method"
+import { mountedPath } from "../domain/mount"
 import { renderForm } from "../ui/forms"
 
 export type PasskeyProperties = {
@@ -146,12 +147,15 @@ export function passkeyMethod(
         kind,
         type: "passkey",
         routes: {
-          "GET /authorize": async () => ({
+          "GET /authorize": async (ctx) => ({
             kind: "challenge",
             response: htmlResponse(
               renderForm({
                 title: settings.title,
-                action: `/m/${id}/authenticate-options`,
+                action: mountedPath(
+                  ctx.issuerUrl,
+                  `/m/${id}/authenticate-options`,
+                ),
                 fields: [
                   {
                     name: "username",

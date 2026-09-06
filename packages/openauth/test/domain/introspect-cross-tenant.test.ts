@@ -69,7 +69,9 @@ async function buildFixture() {
   const configStore = new MemoryConfigStore({ seed: [tenantA, tenantB] })
 
   // Mint a JWT belonging to tenant A / rp-a.
-  const signing = (await keyStore.currentSigningKey()).value!
+  const signingRes = await keyStore.currentSigningKey()
+  if (!signingRes.ok) throw new Error("no signing key")
+  const signing = signingRes.value
   const claims: AccessTokenClaims = {
     iss: "https://idp.example",
     sub: "user-1",

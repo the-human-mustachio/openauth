@@ -113,6 +113,17 @@ export type MethodHandler<P, S> = (
 export type MethodContext<S = unknown> = {
   /** The raw Web Fetch `Request`. Web standard, not Hono `Context`. */
   request: Request
+  /**
+   * The issuer URL of this IdP, always present.
+   *
+   * Distinct from `dispatch.issuerUrl`, which is only populated for
+   * `GET /authorize`. Methods that render their own URLs — a form action
+   * re-rendered on a validation error, say — need it on every route, and
+   * must build those URLs with `mountedPath` so they carry the
+   * deployment's mount prefix. `ctx.request.url` is not a substitute: a
+   * proxy-stripped inbound URL has already lost that prefix.
+   */
+  issuerUrl: string
   /** Path within the method's mount, e.g. `"/callback"` (without the `/<id>` prefix). */
   subPath: string
   tenant: TenantContext

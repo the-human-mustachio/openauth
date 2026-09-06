@@ -67,6 +67,7 @@ async function dispatchProbe(
     flow: null,
     cookies: new Map(),
     sessionStore: store,
+    issuerUrl: "https://idp.example",
     dispatch: null,
   })
   expect(result.ok).toBe(true)

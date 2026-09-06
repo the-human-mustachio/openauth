@@ -51,6 +51,7 @@ import { safeAudit } from "./audit"
 import { randomId, randomToken } from "./crypto"
 import { MethodCache } from "./method-cache"
 import { dispatchMethod } from "./method-dispatch"
+import { callbackTarget } from "./mount"
 import { mintStateEnvelope } from "./state-envelope"
 import { saveEncryptedCode } from "./token"
 
@@ -200,10 +201,19 @@ export async function startAuthorize(
   const nonce = (deps.newNonce ?? randomToken)()
   const flowTtl = deps.flowTtlMs ?? DEFAULT_FLOW_TTL_MS
   const now = deps.clock()
-  const callbackHost =
-    deps.callbackHostFor?.(tenant.id) ?? new URL(deps.issuerUrl).host
-  const callbackPath = `/cb/${methodId}`
-  const callbackUrl = `${new URL(deps.issuerUrl).protocol}//${callbackHost}${callbackPath}`
+  // Source of truth for callback derivation — every other site that needs
+  // this URL goes through `callbackTarget` so they cannot drift apart.
+  // Note `path` is the *inbound* route (no mount prefix; the proxy strips
+  // it before we see the request) while `url` is the public form.
+  const {
+    host: callbackHost,
+    path: callbackPath,
+    url: callbackUrl,
+  } = callbackTarget({
+    issuerUrl: deps.issuerUrl,
+    methodId,
+    callbackHost: deps.callbackHostFor?.(tenant.id),
+  })
 
   const record: FlowRecord = {
     flowId,
@@ -262,6 +272,7 @@ export async function startAuthorize(
     flow: record,
     cookies: input.cookies,
     sessionStore: deps.sessionStore,
+    issuerUrl: deps.issuerUrl,
     dispatch: {
       state: stateEnvelope,
       callbackUrl,

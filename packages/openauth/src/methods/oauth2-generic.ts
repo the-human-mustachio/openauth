@@ -37,6 +37,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose"
  */
 type IdTokenClaims = Record<string, unknown>
 
+import { mountedPath } from "../domain/mount"
 import { authError } from "../types/error"
 import type { AuthMethod, MethodContext, MethodResult } from "../types/method"
 import type { MethodType } from "../types/tenant"
@@ -212,7 +213,11 @@ async function exchangeAndSucceed(
       error: authError.internalError("flow missing on callback"),
     }
   }
-  const callbackUrl = `${new URL(ctx.request.url).protocol}//${ctx.flow.callbackHost}${ctx.flow.callbackPath}`
+  // The `redirect_uri` on the token exchange must be byte-identical to the
+  // one sent on the authorize redirect (OAuth 2.1 §4.1.3). `flow.callbackPath`
+  // is the *inbound* route, which a path-mounted proxy has stripped the mount
+  // prefix from, so re-apply it here rather than replaying the stored path.
+  const callbackUrl = `${new URL(ctx.request.url).protocol}//${ctx.flow.callbackHost}${mountedPath(ctx.issuerUrl, ctx.flow.callbackPath)}`
 
   const body = new URLSearchParams({
     grant_type: "authorization_code",

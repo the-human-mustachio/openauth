@@ -79,6 +79,12 @@ export type HandleMethodRouteInput = {
   /** flowId from the `idp.flow` cookie. */
   flowId: string
   cookies: ReadonlyMap<string, string>
+  /**
+   * Issuer URL — passed to the method so it can emit mount-prefixed URLs
+   * (a re-rendered form action, say). The inbound request URL cannot
+   * supply this: a proxy has already stripped the mount prefix from it.
+   */
+  issuerUrl: string
 }
 
 export type HandleMethodRouteDeps = {
@@ -139,6 +145,7 @@ export async function handleMethodRoute(
     flow,
     cookies: input.cookies,
     sessionStore: deps.sessionStore,
+    issuerUrl: input.issuerUrl,
     dispatch: null,
   })
   if (isErr(dispatched)) return err(dispatched.error)
@@ -295,6 +302,7 @@ export async function handlePublicMethodRoute(
     flow: null,
     cookies: new Map(),
     sessionStore: deps.sessionStore,
+    issuerUrl: input.dispatch.issuerUrl,
     dispatch: input.dispatch,
   })
   if (isErr(dispatched)) return err(dispatched.error)

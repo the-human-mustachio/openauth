@@ -99,6 +99,7 @@ describe("end-to-end: authorize → callback → token → refresh → revoke", 
           `${issuerUrl}/cb/stub?state=${encodeURIComponent(stateParam)}&code=upstream`,
         ),
         cookies: new Map(),
+        issuerUrl,
       },
       {
         configStore,

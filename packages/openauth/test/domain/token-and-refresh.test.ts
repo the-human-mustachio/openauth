@@ -32,6 +32,7 @@ function basePayload(): CodePayload {
     context: null,
     providerSubject: "ps-1",
     properties: { handle: "ada" },
+    authTime: Math.floor(Date.now() / 1000),
     expiresAt: Date.now() + 60_000,
   }
 }

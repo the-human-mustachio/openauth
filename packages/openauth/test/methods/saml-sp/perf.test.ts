@@ -85,6 +85,7 @@ describe("SAML SP — ACS performance tripwire", () => {
         flow,
         cookies: new Map(),
         sessionStore: store,
+        issuerUrl: ISSUER_URL,
         dispatch: {
           state: STATE,
           callbackUrl: `${ISSUER_URL}/cb/${METHOD_ID}`,
@@ -131,6 +132,7 @@ describe("SAML SP — ACS performance tripwire", () => {
         flow: f.value,
         cookies: new Map(),
         sessionStore: store,
+        issuerUrl: ISSUER_URL,
         dispatch: null,
       })
       samples.push(performance.now() - t0)

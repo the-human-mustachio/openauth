@@ -31,6 +31,7 @@ import type {
   MethodContext,
   MethodResult,
 } from "../types/method"
+import { mountedPath } from "../domain/mount"
 import { renderForm } from "../ui/forms"
 
 export type CodeProperties = {
@@ -120,12 +121,12 @@ export function codeMethod(
         kind,
         type: "code",
         routes: {
-          "GET /authorize": async (_ctx) => ({
+          "GET /authorize": async (ctx) => ({
             kind: "challenge",
             response: htmlResponse(
               renderForm({
                 title: titleRequest,
-                action: `/m/${id}/send`,
+                action: mountedPath(ctx.issuerUrl, `/m/${id}/send`),
                 fields: destinationField(destinationKind),
                 submit: "Send code",
               }),
@@ -169,7 +170,7 @@ async function handleSend(
       response: htmlResponse(
         renderForm({
           title: titleRequest,
-          action: `/m/${methodId}/send`,
+          action: mountedPath(ctx.issuerUrl, `/m/${methodId}/send`),
           fields: destinationField(destinationKind),
           submit: "Send code",
           error: "Please enter a valid destination.",
@@ -193,7 +194,7 @@ async function handleSend(
     response: htmlResponse(
       renderForm({
         title: titleVerify,
-        action: `/m/${methodId}/verify`,
+        action: mountedPath(ctx.issuerUrl, `/m/${methodId}/verify`),
         fields: [
           {
             name: "code",
@@ -238,7 +239,13 @@ async function handleVerify(
   const form = await safeForm(ctx.request)
   const parsed = verifyBody.safeParse(form)
   if (!parsed.success) {
-    return verifyError(methodId, state, titleVerify, "Please enter the code.")
+    return verifyError(
+      ctx.issuerUrl,
+      methodId,
+      state,
+      titleVerify,
+      "Please enter the code.",
+    )
   }
 
   const submittedHash = base64url.encode(
@@ -246,6 +253,7 @@ async function handleVerify(
   )
   if (!timingSafeEqualStr(submittedHash, state.codeHash)) {
     return verifyError(
+      ctx.issuerUrl,
       methodId,
       { ...state, attempts: state.attempts + 1 },
       titleVerify,
@@ -261,6 +269,7 @@ async function handleVerify(
 }
 
 function verifyError(
+  issuerUrl: string,
   methodId: string,
   next: CodeState,
   titleVerify: string,
@@ -271,7 +280,7 @@ function verifyError(
     response: htmlResponse(
       renderForm({
         title: titleVerify,
-        action: `/m/${methodId}/verify`,
+        action: mountedPath(issuerUrl, `/m/${methodId}/verify`),
         fields: [
           {
             name: "code",

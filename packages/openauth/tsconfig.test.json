@@ -4,5 +4,6 @@
     "noEmit": true,
     "types": ["bun"]
   },
-  "include": ["src", "test/types"]
+  "//": "Covers the whole test tree, not just test/types. `bun test` strips types without checking them, so anything not listed here drifts silently — which is how CodePayload.authTime and a Result narrowing went stale across several releases.",
+  "include": ["src", "test"]
 }

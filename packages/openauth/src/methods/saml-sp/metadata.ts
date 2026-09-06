@@ -22,6 +22,7 @@
  * `WantAssertionsSigned` are both read from config, so they state
  * actual runtime behaviour rather than a hardcoded assumption.
  */
+import { mountedPath } from "../../domain/mount"
 import { authError } from "../../types/error"
 import type { MethodContext, MethodResult } from "../../types/method"
 
@@ -184,7 +185,10 @@ export async function buildSpMetadata(
   // served (idp.sloUrl set ⇒ /sls is in publicRoutes). Derived from the
   // same dispatch input as the ACS so it cannot drift.
   const cb = new URL(ctx.dispatch.callbackUrl)
-  const slsUrl = `${cb.protocol}//${cb.host}/m/${methodId}/sls`
+  const slsUrl = `${cb.protocol}//${cb.host}${mountedPath(
+    ctx.dispatch.issuerUrl,
+    `/m/${methodId}/sls`,
+  )}`
   const xml = buildSpMetadataXml({
     spEntityId,
     acsUrl: ctx.dispatch.callbackUrl,
